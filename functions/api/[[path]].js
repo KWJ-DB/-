@@ -478,6 +478,32 @@ export async function onRequest({ request, env, params, waitUntil }) {
       // ----- 부딪히기 / 가까이 대기 -----
       case "POST touch": {
         const b = await body(request);
+        // 폰 붙이고 쓸기: 한 폰에서 화면 끝으로 나가고(sx) 다른 폰 끝으로 들어옴(se)
+        if (b.kind === "swipe") {
+          const now = Date.now();
+          const edges = ["l", "r", "t", "b"];
+          const dir = b.dir === "x" ? "sx" : b.dir === "e" ? "se" : null;
+          const edge = edges.includes(b.edge) ? b.edge : null;
+          let tc = Number(b.t);
+          if (!dir || !edge) return err(400, "잘못된 요청");
+          if (!Number.isFinite(tc) || Math.abs(tc - now) > 5000) tc = now;
+          const other = who === "a" ? "b" : "a";
+          const opp = { l: "r", r: "l", t: "b", b: "t" }[edge];
+          const want = (dir === "sx" ? "se:" : "sx:") + opp;
+          await DB.batch([
+            DB.prepare("DELETE FROM touches WHERE t < ?1").bind(now - 60000),
+            DB.prepare("INSERT INTO touches (who, kind, t) VALUES (?1, ?2, ?3)").bind(who, dir + ":" + edge, Math.round(tc)),
+          ]);
+          const r = await DB.prepare("SELECT COUNT(*) AS n FROM touches WHERE who = ?1 AND kind = ?2 AND t BETWEEN ?3 AND ?4")
+            .bind(other, want, Math.round(tc) - 900, Math.round(tc) + 900).first();
+          const last = Number(st.last_touch) || 0;
+          if (r && r.n > 0 && now - last > 3000) {
+            const at = now + 900;
+            await setSettings(env, { last_touch: now, last_touch_at: at, last_touch_kind: "swipe" });
+            return json({ match: true, touch: now, at, now, kind: "swipe" });
+          }
+          return json({ match: false, touch: last, at: Number(st.last_touch_at) || 0, now });
+        }
         const kind = ["bump", "near", "listen", "tap"].includes(b.kind) ? b.kind : null;
         if (!kind) return err(400, "잘못된 요청");
         const now = Date.now();

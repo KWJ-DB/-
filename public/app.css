@@ -647,3 +647,21 @@ svg.i.arr { width: 13px; height: 13px; vertical-align: -2px; margin: 0 1px; stro
 .nfc-step strong { display: block; font-size: 15px; margin-bottom: 3px; }
 .nfc-step span { font-size: 13px; color: #5A4E5C; line-height: 1.6; }
 .nfc-step .kv .v { font-size: 11px; }
+
+/* ---------- 폰 붙이고 쓸기 ---------- */
+#sw { position: fixed; inset: 0; z-index: 140; background: radial-gradient(circle at 50% 40%, #FFF4F8, #FFE0EA 60%, #F9CADA); touch-action: none; user-select: none; -webkit-user-select: none; overscroll-behavior: none; animation: fade .2s; }
+#swc { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.sw-top { position: absolute; top: calc(var(--safe-t) + 12px); right: 14px; z-index: 2; }
+.sw-edge { position: absolute; top: 0; bottom: 0; width: 6px; pointer-events: none; background: linear-gradient(180deg, transparent, rgba(242,102,139,.55), rgba(182,95,224,.55), transparent); opacity: .5; animation: edgeGlow 1.8s ease-in-out infinite; }
+.sw-edge.l { left: 0; border-radius: 0 6px 6px 0; } .sw-edge.r { right: 0; border-radius: 6px 0 0 6px; }
+.sw-edge.hit { opacity: 1; width: 14px; animation: none; box-shadow: 0 0 24px rgba(242,102,139,.8); }
+@keyframes edgeGlow { 50% { opacity: .95; } }
+.sw-guide { position: absolute; left: 0; right: 0; top: 38%; transform: translateY(-50%); text-align: center; pointer-events: none; padding: 0 30px; }
+.sw-guide b { display: block; font-size: 22px; font-weight: 850; color: #B8325F; margin-top: 22px; }
+.sw-guide span { display: block; margin-top: 8px; font-size: 14px; color: #A0607A; line-height: 1.6; }
+.sw-ph { display: inline-flex; gap: 3px; position: relative; }
+.sw-ph i { width: 44px; height: 78px; border-radius: 11px; border: 3px solid #E5779A; background: rgba(255,255,255,.7); }
+.sw-ph::after { content: ""; position: absolute; top: 50%; left: 12px; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: #F2668B; box-shadow: 0 0 12px #F2668B; animation: swDot 1.6s ease-in-out infinite; }
+@keyframes swDot { 0% { transform: translateX(0); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(64px); opacity: 0; } }
+.sw-tap { position: absolute; left: 0; right: 0; margin: 0 auto; width: fit-content; bottom: calc(var(--safe-b) + 34px); display: flex; align-items: center; gap: 6px; padding: 12px 18px; border-radius: 16px; background: rgba(255,255,255,.8); color: #E0507C; font-weight: 700; font-size: 14px; box-shadow: 0 6px 18px rgba(200,80,130,.15); z-index: 2; }
+.sw-tap svg.i { width: 17px; height: 17px; fill: #F2668B; stroke-width: 1; }

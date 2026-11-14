@@ -191,7 +191,7 @@
         <div class="pair"><span class="pair-av">${av("a")}${av("b")}</span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</div>
         <div class="dday">${dp > 0 ? dp : dlabel(1 - dp)}${dp > 0 ? "<small>일째</small>" : ""}</div>
         <div class="since">${fmtDot(S.start)}부터 함께</div>
-        <button class="hero-tap" data-act="tapHeart" aria-label="같이 하트 누르기">${HEART}<span>같이 누르기</span></button>
+        <button class="hero-tap" data-act="swOpen" aria-label="폰 맞대기">${HEART}<span>맞대기</span></button>
       </div>
       ${(() => {
         const ps = pushState();
@@ -1072,6 +1072,96 @@
   // 다른 앱으로 가면 끄고, 돌아와서 터치하면 다시 켬
   document.addEventListener("visibilitychange", () => { if (document.hidden) nearStop(); });
 
+  // ---------- 폰 붙이고 쓸기 ----------
+  const SW = { open: false, poll: null, ctx: null, pts: [], raf: 0 };
+  function swOpen() {
+    const el = $("#sw");
+    el.innerHTML = `
+      <canvas id="swc"></canvas>
+      <div class="sw-edge l"></div><div class="sw-edge r"></div>
+      <div class="sw-top">
+        <button class="icon-btn" data-act="swClose" aria-label="닫기">${ic("x")}</button>
+      </div>
+      <div class="sw-guide">
+        <div class="sw-ph"><i></i><i></i></div>
+        <b>폰을 옆으로 딱 붙이고</b>
+        <span>한 화면에서 옆 화면으로 손가락을 쭉 밀어 넘기세요<br>${esc(nm(other()))}님도 이 화면을 열어둬야 해요</span>
+      </div>
+      <button class="sw-tap" data-act="tapHeart">${ic("heart")}떨어져 있으면 같이 누르기</button>`;
+    el.hidden = false;
+    SW.open = true;
+    const c = $("#swc");
+    const fit = () => { c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio; };
+    fit(); SW.fit = fit; addEventListener("resize", fit);
+    SW.ctx = c.getContext("2d");
+    SW.pts = [];
+    cancelAnimationFrame(SW.raf);
+    const draw = () => {
+      const g = SW.ctx, d = devicePixelRatio, now = performance.now();
+      g.clearRect(0, 0, c.width, c.height);
+      SW.pts = SW.pts.filter((p) => now - p.t < 650);
+      for (const p of SW.pts) {
+        const a = 1 - (now - p.t) / 650;
+        const grd = g.createRadialGradient(p.x * d, p.y * d, 0, p.x * d, p.y * d, 26 * d * a + 4);
+        grd.addColorStop(0, `rgba(255,255,255,${0.95 * a})`);
+        grd.addColorStop(0.4, `rgba(255,140,175,${0.6 * a})`);
+        grd.addColorStop(1, "rgba(200,110,230,0)");
+        g.fillStyle = grd;
+        g.beginPath(); g.arc(p.x * d, p.y * d, 26 * d * a + 4, 0, Math.PI * 2); g.fill();
+      }
+      if (SW.open) SW.raf = requestAnimationFrame(draw);
+    };
+    draw();
+    // 상대 폰에서 먼저 성공을 받았을 수 있어서 자주 확인
+    clearInterval(SW.poll);
+    SW.poll = setInterval(async () => {
+      if (document.hidden) return;
+      const r = await timedApi("touch").catch(() => null);
+      if (r && r.touch > S.lastTouchSeen && Date.now() - S.clockOff - r.touch < 6000) scheduleFx(r.touch, r.at, r.kind);
+    }, 500);
+    bindSwipe(c);
+  }
+  function swClose() {
+    SW.open = false; clearInterval(SW.poll); cancelAnimationFrame(SW.raf);
+    removeEventListener("resize", SW.fit);
+    $("#sw").hidden = true; $("#sw").innerHTML = "";
+  }
+  function bindSwipe(c) {
+    const EDGE = 30;
+    let stroke = null;
+    const edgeOf = (x) => (x <= EDGE ? "l" : x >= innerWidth - EDGE ? "r" : null);
+    const send = async (dir, edge, tLocal) => {
+      try {
+        const r = await timedApi("touch", { method: "POST", body: { kind: "swipe", dir, edge, t: tLocal + S.clockOff } });
+        if (r.match) scheduleFx(r.touch, r.at, "swipe");
+      } catch {}
+    };
+    c.addEventListener("pointerdown", (e) => {
+      const edge = edgeOf(e.clientX);
+      stroke = { x: e.clientX, y: e.clientY, t: Date.now(), start: edge, last: { x: e.clientX, y: e.clientY, t: Date.now() }, vx: 0, sentExit: false };
+      SW.pts.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+      if (edge) { send("e", edge, Date.now()); $(".sw-edge." + edge).classList.add("hit"); setTimeout(() => $(".sw-edge." + edge) && $(".sw-edge." + edge).classList.remove("hit"), 500); }
+    });
+    c.addEventListener("pointermove", (e) => {
+      if (!stroke) return;
+      const now = Date.now(), dt = Math.max(1, now - stroke.last.t);
+      stroke.vx = (e.clientX - stroke.last.x) / dt;
+      stroke.last = { x: e.clientX, y: e.clientY, t: now };
+      SW.pts.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+      // 화면 끝까지 밀고 나가는 순간
+      const edge = edgeOf(e.clientX);
+      if (!stroke.sentExit && edge && edge !== stroke.start && Math.abs(stroke.vx) > 0.15 && ((edge === "r" && stroke.vx > 0) || (edge === "l" && stroke.vx < 0))) {
+        stroke.sentExit = true;
+        send("x", edge, now);
+        $(".sw-edge." + edge).classList.add("hit");
+        setTimeout(() => $(".sw-edge." + edge) && $(".sw-edge." + edge).classList.remove("hit"), 500);
+      }
+    });
+    const end = () => { stroke = null; };
+    c.addEventListener("pointerup", end);
+    c.addEventListener("pointercancel", end);
+  }
+
   // ---------- 알림 ----------
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
   const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -1213,6 +1303,8 @@
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     bucketOpen: () => bucketSheet(),
+    swOpen: () => swOpen(),
+    swClose: () => swClose(),
     nfcSheet: () => nfcSheet(),
     async tapHeart(el) {
       el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");

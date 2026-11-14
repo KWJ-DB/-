@@ -126,11 +126,20 @@
 
   // ---------- 화면 전환 ----------
   const TABS = ["home", "chat", "question", "calendar", "map"];
+  // 탭바 유리 알약이 선택한 탭으로 미끄러지듯 이동
+  function movePill() {
+    const on = $(".tabbar button.on"), pill = $(".tab-pill");
+    if (!on || !pill) return;
+    pill.style.width = on.offsetWidth + "px";
+    pill.style.transform = `translateX(${on.offsetLeft}px)`;
+  }
+  window.addEventListener("resize", movePill);
   function setTab(tab) {
     if (!TABS.includes(tab)) tab = "home";
     S.tab = tab;
     try { history.replaceState(null, "", "#" + tab); } catch {}
     $$(".tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+    movePill();
     const isMap = tab === "map", isChat = tab === "chat";
     $("#mapWrap").hidden = !isMap;
     $("#chatWrap").hidden = !isChat;
@@ -233,7 +242,7 @@
   async function renderQuestion() {
     spinner();
     const t = today();
-    S.qDays = S.qDays || 30;
+    S.qDays = S.qDays || 14;
     let from = addDays(t, -S.qDays);
     const hasMore = !S.created || from > S.created;
     if (S.created && from < S.created) from = S.created;
@@ -242,27 +251,32 @@
     updateBadge();
     if (S.tab !== "question") return;
 
+    const prog = (w) => `<div class="qp-item">${av(w)}<div><b>${esc(nm(w))}</b><span>${answeredCount(t, w)}/4</span></div><div class="qp-bar"><i style="width:${(answeredCount(t, w) / 4) * 100}%"></i></div></div>`;
     let arch = "";
     for (let d = addDays(t, -1); d >= from; d = addDays(d, -1)) {
       const open = S.openArch.has(d);
-      const dot = (w) => (answeredCount(d, w) ? `<i class="${w}"></i>` : "<i></i>");
+      const dot = (w) => `<i class="${answeredCount(d, w) ? w : ""}"></i>`;
       arch += `
-        <div class="arch">
+        <div class="arch${open ? " open" : ""}">
           <button data-act="toggleArch" data-date="${d}">
-            <span class="no">#${qIndex(d) + 1}</span>
+            <span class="ad">${fmtK(d)}</span>
             <span class="tt">${esc(qFor(d, "t").q)}</span>
             <span class="dots">${dot(S.who)}${dot(other())}</span>
+            ${ic("right", "chev")}
           </button>
-          ${open ? `<div class="inner">${qCard(d, "t")}${choiceCard(d)}</div>` : ""}
+          ${open ? `<div class="inner">${qCard(d, "t")}${CSLOTS.map((sl, k) => choiceOne(d, sl, k)).join("")}</div>` : ""}
         </div>`;
     }
-
     view.innerHTML = `
-      <div class="q-head"><h2>오늘의 질문</h2><span>#${qIndex(t) + 1} · ${fmtK(t)}</span></div>
+      <div class="q-top">
+        <div><h2>오늘의 질문</h2><span>${fmtK(t)}</span></div>
+      </div>
+      <div class="qp">${prog(S.who)}${prog(other())}</div>
       ${qCard(t, "t")}
-      ${choiceCard(t)}
-      ${arch ? `<div class="q-head" style="margin-top:24px"><h2 style="font-size:18px">지난 질문</h2><span>매일 저장돼요</span></div>${arch}` : ""}
-      ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:6px">더 지난 질문 보기</button>` : ""}`;
+      <div class="q-sec">둘 중 하나 <span>한 번 고르면 못 바꿔요</span></div>
+      ${CSLOTS.map((sl, k) => choiceOne(t, sl, k)).join("")}
+      ${arch ? `<div class="q-sec" style="margin-top:26px">지난 질문 <span>매일 저장돼요</span></div>${arch}` : ""}
+      ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:8px">더 지난 질문 보기</button>` : ""}`;
   }
 
   function bubble(w, text) {
@@ -285,33 +299,27 @@
       else if (theirs) body += `<div class="locked">${ic("lock")}${esc(nm(ot))}님이 답했어요. 내 답을 남기면 열려요</div>`;
       else body += `<div class="locked">${ic("clock")}${esc(nm(ot))}님은 아직 답하지 않았어요</div>`;
     }
-    return `<div class="q-card">
-      <span class="q-type t">${ic("pen")}서술형</span><span class="q-num">#${qIndex(date) + 1}${date !== today() ? " · " + fmtK(date) : ""}</span>
+    return `<div class="q-card q-main">
+      <span class="q-type t">${ic("pen")}오늘의 이야기</span>
       <div class="q-text">${esc(Q.q)}</div>${body}</div>`;
   }
 
-  function choiceCard(date) {
+  function choiceOne(date, slot, k) {
     const me = S.who, ot = other();
-    const rows = CSLOTS.map((slot, k) => {
-      const Q = qFor(date, slot);
-      const mine = getAns(date, slot, me), theirs = getAns(date, slot, ot);
-      const seen = mine && theirs && !theirs.hidden;
-      const btns = Q.a.map((txt, v) => {
-        const vs = String(v);
-        const who = (mine?.answer === vs ? av(me) : "") + (seen && theirs.answer === vs ? av(ot) : "");
-        return `<button class="choice ${mine?.answer === vs ? "mine" : ""} ${mine ? "locked" : ""}" data-act="pickC" data-date="${date}" data-slot="${slot}" data-v="${vs}" ${mine ? "disabled" : ""}>
-          <span>${esc(txt)}</span>${who ? `<span class="who">${who}</span>` : ""}</button>`;
-      }).join("");
-      let foot;
-      if (seen) foot = mine.answer === theirs.answer ? `<div class="match">${ic("heart")}통했다!</div>` : `<div class="match diff">서로 달라요</div>`;
-      else if (mine) foot = `<div class="cwait">${ic("clock")}${esc(nm(ot))}님이 고르면 보여요</div>`;
-      else if (theirs) foot = `<div class="cwait">${ic("lock")}${esc(nm(ot))}님은 골랐어요. 고르면 공개</div>`;
-      else foot = "";
-      return `<div class="crow"><div class="cq"><span class="cn">${k + 1}</span>${esc(Q.q)}</div><div class="choices">${btns}</div>${foot}</div>`;
+    const Q = qFor(date, slot);
+    const mine = getAns(date, slot, me), theirs = getAns(date, slot, ot);
+    const seen = mine && theirs && !theirs.hidden;
+    const btns = Q.a.map((txt, v) => {
+      const vs = String(v);
+      const who = (mine?.answer === vs ? av(me) : "") + (seen && theirs.answer === vs ? av(ot) : "");
+      return `<button class="choice ${mine?.answer === vs ? "mine" : ""} ${mine ? "locked" : ""}" data-act="pickC" data-date="${date}" data-slot="${slot}" data-v="${vs}" ${mine ? "disabled" : ""}>
+        <span>${esc(txt)}</span>${who ? `<span class="who">${who}</span>` : ""}</button>`;
     }).join("");
-    return `<div class="q-card">
-      <span class="q-type c">${ic("check")}둘 중 하나 · 3개</span><span class="q-num">한 번 고르면 못 바꿔요</span>
-      ${rows}</div>`;
+    let foot = "";
+    if (seen) foot = mine.answer === theirs.answer ? `<div class="match">${ic("heart")}통했다!</div>` : `<div class="match diff">서로 달라요</div>`;
+    else if (mine) foot = `<div class="cwait">${ic("clock")}${esc(nm(ot))}님이 고르면 보여요</div>`;
+    else if (theirs) foot = `<div class="cwait">${ic("lock")}${esc(nm(ot))}님은 골랐어요</div>`;
+    return `<div class="q-card q-choice"><div class="cq"><span class="cn">${k + 1}</span>${esc(Q.q)}</div><div class="choices">${btns}</div>${foot}</div>`;
   }
 
   // ---------- 프로필 사진 (정사각형으로 잘라서 저장) ----------

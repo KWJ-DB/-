@@ -198,6 +198,14 @@
       </div>
 
 
+      ${(() => {
+        const ps = pushState();
+        if (ps === "granted" || ps === "unsupported") return "";
+        if (ps === "needs-home") return `<div class="card push-card">${ic("bell")}<div><b>앱을 꺼도 알림 받기</b><span>Safari 아래 공유 버튼 → <b>홈 화면에 추가</b> → 홈 화면의 아이콘으로 열고 여기서 알림을 켜주세요</span></div></div>`;
+        if (ps === "denied") return `<div class="card push-card">${ic("bell")}<div><b>알림이 꺼져 있어요</b><span>아이폰 설정 → 알림 → 이 앱에서 알림 허용을 켜주세요</span></div></div>`;
+        return `<button class="card push-card" data-act="pushOn">${ic("bell")}<div><b>알림 켜기</b><span>앱을 꺼도 메시지와 장소 알림이 와요. 눌러서 허용해 주세요</span></div></button>`;
+      })()}
+
       <div class="card">
         <div class="card-h"><h3>${ic("heart")}다가오는 기념일</h3><button class="more" data-act="annivAdd" data-date="${t}">${ic("plus")}추가</button></div>
         ${up.map((a) => `

@@ -43,9 +43,24 @@ export async function ensureSchema(env) {
     `CREATE INDEX IF NOT EXISTS photos_date ON photos(date)`,
     `CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, text TEXT NOT NULL, likes TEXT DEFAULT '', t INTEGER NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS touches (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, kind TEXT NOT NULL, t INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS chat_imgs (id INTEGER PRIMARY KEY AUTOINCREMENT, w INTEGER, h INTEGER, thumb TEXT, data TEXT, t INTEGER)`,
+    `CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, who TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, t INTEGER)`,
+    `CREATE TABLE IF NOT EXISTS places (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, radius INTEGER NOT NULL, who TEXT, t INTEGER)`,
+    `CREATE TABLE IF NOT EXISTS place_state (who TEXT NOT NULL, place_id INTEGER NOT NULL, inside INTEGER NOT NULL, t INTEGER, PRIMARY KEY (who, place_id))`,
     `CREATE TABLE IF NOT EXISTS bucket (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, done INTEGER DEFAULT 0, done_date TEXT, who TEXT, t INTEGER)`,
   ];
   await env.DB.batch(sql.map((q) => env.DB.prepare(q)));
+  // 기존 DB에 새 칸 추가 (한 번만)
+  const v = await env.DB.prepare("SELECT v FROM settings WHERE k = 'schema_v'").first();
+  if (!v || Number(v.v) < 2) {
+    for (const q of [
+      "ALTER TABLE messages ADD COLUMN reacts TEXT",
+      "ALTER TABLE messages ADD COLUMN img INTEGER",
+      "ALTER TABLE messages ADD COLUMN w INTEGER",
+      "ALTER TABLE messages ADD COLUMN h INTEGER",
+    ]) { try { await env.DB.prepare(q).run(); } catch {} }
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '2') ON CONFLICT(k) DO UPDATE SET v = '2'").run();
+  }
   ready = true;
 }
 
@@ -130,4 +145,38 @@ export function fromB64(b) {
   const u = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
   return u;
+}
+
+// ---------- 장소 도착/출발 판정 ----------
+const distM = (a, b) => {
+  const R = 6371000, r = Math.PI / 180;
+  const x = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lon - a.lon) * r) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+};
+// 바뀐 것만 돌려줌: [{ place, inside }]
+export async function checkPlaces(DB, who, lat, lon, acc) {
+  const { results: places } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places").all();
+  if (!places || !places.length) return [];
+  const { results: states } = await DB.prepare("SELECT place_id, inside FROM place_state WHERE who = ?1").bind(who).all();
+  const prev = new Map((states || []).map((s) => [s.place_id, s.inside]));
+  const changes = [], writes = [];
+  const a = Math.min(Number(acc) || 0, 150);
+  for (const p of places) {
+    const d = distM({ lat, lon }, p);
+    const was = prev.get(p.id);
+    // 경계에서 왔다갔다 하지 않게 여유를 둠
+    let inside;
+    if (was === 1) inside = d - a * 0.5 <= p.radius + 40 ? 1 : 0;
+    else inside = d + a * 0.3 <= p.radius ? 1 : 0;
+    if (was === undefined) {
+      writes.push(DB.prepare("INSERT INTO place_state (who, place_id, inside, t) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(who, place_id) DO UPDATE SET inside = excluded.inside, t = excluded.t").bind(who, p.id, inside, Date.now()));
+      continue; // 처음 위치는 알림 없이 기록만
+    }
+    if (inside !== was) {
+      changes.push({ place: p, inside: !!inside });
+      writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, Date.now(), who, p.id));
+    }
+  }
+  if (writes.length) await DB.batch(writes);
+  return changes;
 }

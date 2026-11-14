@@ -101,8 +101,17 @@
   // ---------- 질문 ----------
   const QT = window.QUESTIONS.text, QC = window.QUESTIONS.choice;
   const qIndex = (date) => Math.max(0, diff(S.created || date, date));
-  const qFor = (date, slot) => { const i = qIndex(date); return slot === "t" ? { q: QT[i % QT.length] } : QC[i % QC.length]; };
-  const getAns = (date, slot, w) => S.ans[`${date}|${slot}|${w}`];
+  const CSLOTS = ["c1", "c2", "c3"];
+  const ALL_SLOTS = ["t", ...CSLOTS];
+  const qFor = (date, slot) => {
+    const i = qIndex(date);
+    if (slot === "t") return { q: QT[i % QT.length] };
+    const k = CSLOTS.indexOf(slot);
+    return QC[(i * 3 + Math.max(0, k)) % QC.length];
+  };
+  // 예전 버전의 "c" 답은 첫 번째 객관식으로 취급
+  const getAns = (date, slot, w) => S.ans[`${date}|${slot}|${w}`] || (slot === "c1" ? S.ans[`${date}|c|${w}`] : undefined);
+  const answeredCount = (date, w) => ALL_SLOTS.filter((sl) => getAns(date, sl, w)).length;
   async function loadAnswers(from, to) {
     const { answers } = await api(`answers?from=${from}&to=${to}`);
     for (const k of Object.keys(S.ans)) { const d = k.slice(0, 10); if (d >= from && d <= to) delete S.ans[k]; }
@@ -110,12 +119,15 @@
   }
   function updateBadge() {
     const t = today();
-    $("#qBadge").hidden = !!(getAns(t, "t", S.who) && getAns(t, "c", S.who));
+    $("#qBadge").hidden = answeredCount(t, S.who) >= ALL_SLOTS.length;
   }
 
   // ---------- 화면 전환 ----------
+  const TABS = ["home", "chat", "question", "calendar", "map", "bucket"];
   function setTab(tab) {
+    if (!TABS.includes(tab)) tab = "home";
     S.tab = tab;
+    try { history.replaceState(null, "", "#" + tab); } catch {}
     $$(".tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
     const isMap = tab === "map", isChat = tab === "chat";
     $("#mapWrap").hidden = !isMap;
@@ -155,8 +167,8 @@
     const dp = dplus(t);
     const up = annivList(t, addDays(t, 800)).filter((a) => a.kind !== "start").slice(0, 5);
     const next = up[0];
-    const myCnt = ["t", "c"].filter((s) => getAns(t, s, S.who)).length;
-    const otCnt = ["t", "c"].filter((s) => getAns(t, s, other())).length;
+    const myCnt = answeredCount(t, S.who);
+    const otCnt = answeredCount(t, other());
     const la = S.locs.a, lb = S.locs.b;
     const dist = la && lb ? fmtDist(distM(la, lb)) : null;
     const bk = bkR.bucket, bkDone = bk.filter((b) => b.done).length;
@@ -173,8 +185,8 @@
       <div class="mini-grid">
         <button class="mini" data-act="tab" data-tab="question">
           <span class="lb">${ic("chat")}오늘의 질문</span>
-          <span class="val">${myCnt}<small>/2 답함</small></span>
-          <span class="hint">${esc(nm(other()))} ${otCnt}/2 ${myCnt < 2 ? "· 답하러 가기" : ""}</span>
+          <span class="val">${myCnt}<small>/4 답함</small></span>
+          <span class="hint">${esc(nm(other()))} ${otCnt}/4 ${myCnt < 4 ? "· 답하러 가기" : ""}</span>
         </button>
         <button class="mini" data-act="tab" data-tab="map">
           <span class="lb">${ic("route")}우리 사이</span>
@@ -211,7 +223,9 @@
   async function renderQuestion() {
     spinner();
     const t = today();
-    let from = addDays(t, -30);
+    S.qDays = S.qDays || 30;
+    let from = addDays(t, -S.qDays);
+    const hasMore = !S.created || from > S.created;
     if (S.created && from < S.created) from = S.created;
     if (from > t) from = t;
     await loadAnswers(from, t);
@@ -221,7 +235,7 @@
     let arch = "";
     for (let d = addDays(t, -1); d >= from; d = addDays(d, -1)) {
       const open = S.openArch.has(d);
-      const dot = (w) => (getAns(d, "t", w) || getAns(d, "c", w) ? `<i class="${w}"></i>` : "<i></i>");
+      const dot = (w) => (answeredCount(d, w) ? `<i class="${w}"></i>` : "<i></i>");
       arch += `
         <div class="arch">
           <button data-act="toggleArch" data-date="${d}">
@@ -229,15 +243,16 @@
             <span class="tt">${esc(qFor(d, "t").q)}</span>
             <span class="dots">${dot(S.who)}${dot(other())}</span>
           </button>
-          ${open ? `<div class="inner">${qCard(d, "t")}${qCard(d, "c")}</div>` : ""}
+          ${open ? `<div class="inner">${qCard(d, "t")}${choiceCard(d)}</div>` : ""}
         </div>`;
     }
 
     view.innerHTML = `
       <div class="q-head"><h2>오늘의 질문</h2><span>#${qIndex(t) + 1} · ${fmtK(t)}</span></div>
       ${qCard(t, "t")}
-      ${qCard(t, "c")}
-      ${arch ? `<div class="q-head" style="margin-top:24px"><h2 style="font-size:18px">지난 질문</h2><span>${esc(nm(S.who))} · ${esc(nm(other()))}</span></div>${arch}` : ""}`;
+      ${choiceCard(t)}
+      ${arch ? `<div class="q-head" style="margin-top:24px"><h2 style="font-size:18px">지난 질문</h2><span>매일 저장돼요</span></div>${arch}` : ""}
+      ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:6px">더 지난 질문 보기</button>` : ""}`;
   }
 
   function bubble(w, text) {
@@ -259,24 +274,34 @@
       if (theirs && !theirs.hidden) body += bubble(ot, theirs.answer);
       else if (theirs) body += `<div class="locked">${ic("lock")}${esc(nm(ot))}님이 답했어요. 내 답을 남기면 열려요</div>`;
       else body += `<div class="locked">${ic("clock")}${esc(nm(ot))}님은 아직 답하지 않았어요</div>`;
-    } else {
-      const seen = theirs && !theirs.hidden;
-      body = `<div class="choices">${Q.a.map((txt, v) => {
-        const vs = String(v);
-        const who = (mine?.answer === vs ? av(me) : "") + (seen && theirs.answer === vs ? av(ot) : "");
-        return `<button class="choice ${mine?.answer === vs ? "mine" : ""}" data-act="pickC" data-date="${date}" data-v="${vs}">
-          <span>${esc(txt)}</span>${who ? `<span class="who">${who}</span>` : ""}</button>`;
-      }).join("")}</div>`;
-      if (mine && seen) {
-        body += mine.answer === theirs.answer
-          ? `<div class="match">${ic("heart")}통했다! 둘이 똑같이 골랐어요</div>`
-          : `<div class="match" style="color:var(--sub)">서로 다른 걸 골랐어요</div>`;
-      } else if (theirs) body += `<div class="locked">${ic("lock")}${esc(nm(ot))}님이 골랐어요. 나도 고르면 공개돼요</div>`;
-      else body += `<div class="locked">${ic("clock")}${esc(nm(ot))}님은 아직 고르지 않았어요</div>`;
     }
     return `<div class="q-card">
-      <span class="q-type ${slot}">${ic(slot === "t" ? "pen" : "check")}${slot === "t" ? "서술형" : "둘 중 하나"}</span><span class="q-num">#${qIndex(date) + 1}${date !== today() ? " · " + fmtK(date) : ""}</span>
+      <span class="q-type t">${ic("pen")}서술형</span><span class="q-num">#${qIndex(date) + 1}${date !== today() ? " · " + fmtK(date) : ""}</span>
       <div class="q-text">${esc(Q.q)}</div>${body}</div>`;
+  }
+
+  function choiceCard(date) {
+    const me = S.who, ot = other();
+    const rows = CSLOTS.map((slot, k) => {
+      const Q = qFor(date, slot);
+      const mine = getAns(date, slot, me), theirs = getAns(date, slot, ot);
+      const seen = mine && theirs && !theirs.hidden;
+      const btns = Q.a.map((txt, v) => {
+        const vs = String(v);
+        const who = (mine?.answer === vs ? av(me) : "") + (seen && theirs.answer === vs ? av(ot) : "");
+        return `<button class="choice ${mine?.answer === vs ? "mine" : ""} ${mine ? "locked" : ""}" data-act="pickC" data-date="${date}" data-slot="${slot}" data-v="${vs}" ${mine ? "disabled" : ""}>
+          <span>${esc(txt)}</span>${who ? `<span class="who">${who}</span>` : ""}</button>`;
+      }).join("");
+      let foot;
+      if (seen) foot = mine.answer === theirs.answer ? `<div class="match">${ic("heart")}통했다!</div>` : `<div class="match diff">서로 달라요</div>`;
+      else if (mine) foot = `<div class="cwait">${ic("clock")}${esc(nm(ot))}님이 고르면 보여요</div>`;
+      else if (theirs) foot = `<div class="cwait">${ic("lock")}${esc(nm(ot))}님은 골랐어요. 고르면 공개</div>`;
+      else foot = "";
+      return `<div class="crow"><div class="cq"><span class="cn">${k + 1}</span>${esc(Q.q)}</div><div class="choices">${btns}</div>${foot}</div>`;
+    }).join("");
+    return `<div class="q-card">
+      <span class="q-type c">${ic("check")}둘 중 하나 · 3개</span><span class="q-num">한 번 고르면 못 바꿔요</span>
+      ${rows}</div>`;
   }
 
   // ---------- 캘린더 ----------
@@ -371,12 +396,12 @@
     c.getContext("2d").drawImage(im, 0, 0, w, h);
     return { b64: c.toDataURL("image/jpeg", q).split(",")[1], w, h };
   }
-  async function prepPhoto(file) {
+  async function prepPhoto(file, thumbMax = 400) {
     const im = await loadImg(file);
     let f = draw(im, 1600, 0.82);
     if (f.b64.length > 1200000) f = draw(im, 1280, 0.72);
     if (f.b64.length > 1400000) f = draw(im, 1000, 0.65);
-    const th = draw(im, 400, 0.72);
+    const th = draw(im, thumbMax, 0.74);
     return { data: f.b64, thumb: th.b64, w: f.w, h: f.h };
   }
   async function uploadPhotos(files) {
@@ -407,14 +432,14 @@
       <div class="lb-top">
         <button class="icon-btn" data-act="lbClose" aria-label="닫기">${ic("x")}</button>
         <span style="font-size:14px;font-weight:600">${S.lbIdx + 1} / ${S.lbList.length}</span>
-        <button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>
+        ${p.chat ? '<span style="width:40px"></span>' : `<button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>`}
       </div>
       <div class="lb-img">
-        <img src="/api/photo/${p.id}" alt="">
+        <img src="${p.src || `/api/photo/${p.id}`}" alt="">
         ${S.lbIdx > 0 ? `<button class="nav l" data-act="lbNav" data-d="-1">${ic("left")}</button>` : ""}
         ${S.lbIdx < S.lbList.length - 1 ? `<button class="nav r" data-act="lbNav" data-d="1">${ic("right")}</button>` : ""}
       </div>
-      <div class="lb-bot"><b>${fmtK(p.date)}${p.caption ? " · " + esc(p.caption) : ""}</b><span>${esc(nm(p.who))}님이 올림 · 우리 ${dplus(p.date)}일째</span></div>`;
+      <div class="lb-bot">${p.chat ? `<b>${esc(nm(p.who))}</b><span>${fmtTime(p.t)}</span>` : `<b>${fmtK(p.date)}${p.caption ? " · " + esc(p.caption) : ""}</b><span>${esc(nm(p.who))}님이 올림 · 우리 ${dplus(p.date)}일째</span>`}</div>`;
   }
 
   // ---------- 버킷리스트 ----------
@@ -473,8 +498,12 @@
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#F2668B", "line-width": 4, "line-dasharray": [0.1, 2] },
       });
+      map.addSource("places", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({ id: "places-fill", type: "fill", source: "places", paint: { "fill-color": "#B65FE0", "fill-opacity": 0.12 } }, "link");
+      map.addLayer({ id: "places-line", type: "line", source: "places", paint: { "line-color": "#B65FE0", "line-width": 2, "line-opacity": 0.6, "line-dasharray": [2, 1.5] } }, "link");
       mapLoaded = true;
       drawMap();
+      loadPlaces();
     });
   }
   function drawMap() {
@@ -504,6 +533,79 @@
     }
     if (pts.length > fitted) { fitMap(); fitted = pts.length; }
   }
+  // ---------- 장소 ----------
+  const placeMarkers = [];
+  function circlePoly(lat, lon, r) {
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const a = (i / 64) * 2 * Math.PI;
+      pts.push([lon + (r / (111320 * Math.cos((lat * Math.PI) / 180))) * Math.cos(a), lat + (r / 110540) * Math.sin(a)]);
+    }
+    return pts;
+  }
+  async function loadPlaces() {
+    try {
+      const d = await api("places");
+      S.places = d.places; S.placeState = d.state;
+      drawPlaces();
+    } catch {}
+  }
+  function drawPlaces() {
+    if (!map || !mapLoaded) return;
+    map.getSource("places").setData({
+      type: "FeatureCollection",
+      features: (S.places || []).map((p) => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [circlePoly(p.lat, p.lon, p.radius)] } })),
+    });
+    placeMarkers.splice(0).forEach((m) => m.remove());
+    for (const p of S.places || []) {
+      const el = document.createElement("div");
+      el.className = "pl-mk";
+      el.innerHTML = `${ic("pin")}${esc(p.name)}`;
+      placeMarkers.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map));
+    }
+  }
+  function placesSheet() {
+    const insideOf = (pid) => (S.placeState || []).filter((x) => x.place_id === pid && x.inside).map((x) => x.who);
+    openSheet(`
+      <h2>${ic("pin")}우리 장소</h2>
+      <p>등록한 장소에 도착하거나 떠나면 상대에게 알림이 가요. 화면이 꺼져 있을 때도 받으려면 OwnTracks 연결과 알림 켜기가 필요해요.</p>
+      ${(S.places || []).map((p) => {
+        const ins = insideOf(p.id);
+        return `<div class="ev"><span class="bar" style="background:#B65FE0"></span><span class="tt">${esc(p.name)}<br><small class="muted">반경 ${p.radius}m${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
+        <button class="x" data-act="placeGo" data-id="${p.id}" aria-label="보기">${ic("target")}</button>
+        <button class="x" data-act="placeDel" data-id="${p.id}" aria-label="삭제">${ic("trash")}</button></div>`;
+      }).join("") || `<div class="empty">아직 등록한 장소가 없어요<br>예: 학교, 학원, 우리 집</div>`}
+      <div class="row2"><button class="btn gray" data-act="close">닫기</button><button class="btn primary" data-act="placePick">${ic("plus")}장소 추가</button></div>`);
+  }
+  function placePick() {
+    closeSheet();
+    const me = S.locs[S.who];
+    if (me) map.flyTo({ center: [me.lon, me.lat], zoom: 16 });
+    $("#mapCard").hidden = true;
+    S.pickR = 150;
+    const box = document.createElement("div");
+    box.id = "pick";
+    box.innerHTML = `<div class="pick-ring" id="pickRing"></div><div class="pick-dot"></div>
+      <div class="pick-panel">
+        <b>지도를 움직여서 가운데에 장소를 맞추세요</b>
+        <input type="text" id="pickName" placeholder="장소 이름 (예: 학교)" maxlength="20">
+        <div class="pick-r">${[100, 150, 300, 500].map((r) => `<button class="${r === 150 ? "on" : ""}" data-act="pickR" data-r="${r}">${r}m</button>`).join("")}</div>
+        <div class="row2" style="margin-top:10px"><button class="btn gray" data-act="pickCancel">취소</button><button class="btn primary" data-act="pickSave">저장</button></div>
+      </div>`;
+    $("#mapWrap").appendChild(box);
+    updatePickRing();
+    map.on("zoom", updatePickRing);
+  }
+  function updatePickRing() {
+    const ring = $("#pickRing");
+    if (!ring || !map) return;
+    const c = map.getCenter();
+    const mPerPx = (40075016.686 * Math.cos((c.lat * Math.PI) / 180)) / (512 * Math.pow(2, map.getZoom()));
+    const px = Math.max(16, (S.pickR / mPerPx) * 2);
+    ring.style.width = ring.style.height = px + "px";
+  }
+  function pickClose() { const b = $("#pick"); if (b) b.remove(); $("#mapCard").hidden = false; if (map) map.off("zoom", updatePickRing); }
+
   function fitMap() {
     const pts = ["a", "b"].map((w) => S.locs[w]).filter(Boolean).map((l) => [l.lon, l.lat]);
     if (!map || !pts.length) return;
@@ -527,8 +629,9 @@
       </div>
       <div class="people">${person(S.who)}${person(other())}</div>
       <div class="map-actions">
-        <button class="btn soft" data-act="sendNow">${ic("send")}지금 보내기</button>
-        <button class="btn ${live ? "on" : "gray"}" data-act="liveToggle">${ic("radio")}${live ? "실시간 켜짐" : "실시간"}</button>
+        <button class="btn soft" data-act="sendNow">${ic("send")}보내기</button>
+        <button class="btn ${live ? "on" : "gray"}" data-act="liveToggle">${ic("radio")}${live ? "켜짐" : "실시간"}</button>
+        <button class="btn gray" data-act="placesSheet">${ic("pin")}장소</button>
         <button class="btn gray" data-act="otSheet">${ic("phone")}꺼도 공유</button>
       </div>`;
   }
@@ -621,66 +724,113 @@
       const first = newBlock || prev.who !== m.who;
       const last = !next || next.who !== m.who || next.t - m.t > GAP;
       const mine = m.who === S.who;
-      const likes = m.likes || "";
-      h += `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${likes ? " liked" : ""}">
+      const rx = Object.entries(m.reacts || {});
+      const rxHtml = rx.length ? `<span class="dm-rx">${rx.map(([w, r]) => `<i class="${w} r-${r}">${ic(r)}</i>`).join("")}</span>` : "";
+      const fresh = S.chat.seen && !S.chat.seen.has(m.id) ? " fresh" : "";
+      const imgHtml = m.img || m.local
+        ? `<img class="dm-img" src="${m.local || `/api/chatimg/${m.img}?thumb=1`}" style="aspect-ratio:${m.w || 4}/${m.h || 3}" data-img="${m.img || ""}" alt="">` : "";
+      h += `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${rx.length ? " liked" : ""}${fresh}">
         ${mine ? "" : last ? av(m.who) : '<span class="av-sp"></span>'}
-        <div class="dm-bub" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${linkify(esc(m.text))}${likes ? `<span class="dm-like">${ic("heart")}${likes.length > 1 ? "2" : ""}</span>` : ""}</div></div>`;
+        <div class="dm-bub${imgHtml ? " has-img" : ""}${imgHtml && !m.text ? " only-img" : ""}" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}${rxHtml}</div></div>`;
     });
     const lastM = ms[ms.length - 1];
     if (lastM.who === S.who && !String(lastM.id).startsWith("tmp")) {
       h += `<div class="dm-seen">${(S.chat.read[other()] || 0) >= lastM.id ? "읽음" : "전송됨"}</div>`;
     }
     L.innerHTML = h;
-    if (stick || atBottom) L.scrollTop = L.scrollHeight;
+    S.chat.seen = new Set(ms.map((m) => m.id));
+    if (stick || atBottom) {
+      L.scrollTop = L.scrollHeight;
+      L.querySelectorAll("img").forEach((im) => im.addEventListener("load", () => { if (stick || atBottom) L.scrollTop = L.scrollHeight; }, { once: true }));
+    }
   }
   async function sendChat() {
     const inp = $("#dmText");
     const text = inp.value.trim();
     if (!text) return;
     inp.value = ""; $("#dmSend").hidden = true;
-    S.chat.msgs.push({ id: "tmp" + Date.now(), who: S.who, text, likes: "", t: Date.now() });
+    S.chat.msgs.push({ id: "tmp" + Date.now(), who: S.who, text, reacts: {}, t: Date.now() });
     drawChat(true);
     try { await api("messages", { method: "POST", body: { text } }); }
     catch (e) { toast("전송 실패: " + e.message); inp.value = text; }
     refreshChat(true);
   }
-  async function likeMsg(bub) {
-    const id = bub.dataset.mid;
-    if (String(id).startsWith("tmp")) return;
-    bub.insertAdjacentHTML("beforeend", `<svg class="dm-pop" viewBox="0 0 24 24"><use href="#i-heart"/></svg>`);
-    const m = S.chat.msgs.find((x) => String(x.id) === id);
+  const RX = ["heart", "laugh", "wow", "sad", "fire", "like"];
+  async function reactMsg(id, r, bub) {
+    if (!id || String(id).startsWith("tmp")) return;
+    if (bub) bub.insertAdjacentHTML("beforeend", `<svg class="dm-pop r-${r}"><use href="#i-${r}"/></svg>`);
+    const m = S.chat.msgs.find((x) => String(x.id) === String(id));
     try {
-      const r = await api(`messages/${id}/like`, { method: "POST", body: {} });
-      if (m) m.likes = r.likes;
-      setTimeout(() => drawChat(), 650);
+      const res = await api(`messages/${id}/react`, { method: "POST", body: { r } });
+      if (m) m.reacts = res.reacts;
+      setTimeout(() => drawChat(), bub ? 650 : 0);
     } catch (e) { toast(e.message); }
   }
-  // 두 번 톡 = 하트, 길게 누르기 = 내 메시지 보내기 취소
+  async function sendChatPhotos(files) {
+    for (const f of files) {
+      const local = URL.createObjectURL(f);
+      const tmp = { id: "tmp" + Date.now() + Math.random(), who: S.who, text: "", reacts: {}, t: Date.now(), local, w: 4, h: 3 };
+      S.chat.msgs.push(tmp); drawChat(true);
+      try {
+        const p = await prepPhoto(f, 720);
+        tmp.w = p.w; tmp.h = p.h;
+        await api("messages", { method: "POST", body: { img: p } });
+      } catch (e) { toast("사진 전송 실패: " + e.message); }
+    }
+    refreshChat(true);
+  }
+  // 반응 고르기 창
+  function openRx(bub) {
+    const id = bub.dataset.mid;
+    if (String(id).startsWith("tmp")) return;
+    const m = S.chat.msgs.find((x) => String(x.id) === id);
+    const mineR = m && m.reacts ? m.reacts[S.who] : null;
+    const rect = bub.getBoundingClientRect();
+    const box = $("#rx");
+    box.innerHTML = `<div class="rx-bg" data-act="rxClose"></div>
+      <div class="rx-bar" style="top:${Math.max(70, rect.top - 64)}px">
+        ${RX.map((r) => `<button class="${mineR === r ? "on" : ""} r-${r}" data-act="rxPick" data-r="${r}" data-id="${id}">${ic(r)}</button>`).join("")}
+      </div>
+      ${bub.dataset.mine === "1" ? `<button class="rx-del" style="top:${Math.min(innerHeight - 120, rect.bottom + 10)}px" data-act="rxDel" data-id="${id}">${ic("trash")}보내기 취소</button>` : ""}`;
+    box.hidden = false;
+    bub.classList.add("held");
+    S.rxBub = bub;
+  }
+  function closeRx() { $("#rx").hidden = true; if (S.rxBub) S.rxBub.classList.remove("held"); S.rxBub = null; }
+  // 두 번 톡 = 하트, 길게 누르기 = 반응/보내기 취소, 사진 톡 = 크게 보기
   (() => {
-    let lastTap = { id: null, t: 0 }, pressT = null;
+    let lastTap = { id: null, t: 0 }, pressT = null, opened = false, tapTimer = null;
     const L = $("#dmList");
     L.addEventListener("click", (e) => {
       const bub = e.target.closest(".dm-bub");
-      if (!bub || e.target.closest("a")) return;
+      if (!bub || e.target.closest("a") || opened) { opened = false; return; }
       const now = Date.now();
-      if (lastTap.id === bub.dataset.mid && now - lastTap.t < 350) { likeMsg(bub); lastTap = { id: null, t: 0 }; }
-      else lastTap = { id: bub.dataset.mid, t: now };
+      if (lastTap.id === bub.dataset.mid && now - lastTap.t < 320) {
+        clearTimeout(tapTimer);
+        reactMsg(bub.dataset.mid, "heart", bub);
+        lastTap = { id: null, t: 0 };
+        return;
+      }
+      lastTap = { id: bub.dataset.mid, t: now };
+      const im = e.target.closest(".dm-img");
+      if (im && im.dataset.img) {
+        clearTimeout(tapTimer);
+        tapTimer = setTimeout(() => {
+          const list = S.chat.msgs.filter((m) => m.img).map((m) => ({ src: `/api/chatimg/${m.img}`, chat: true, who: m.who, t: m.t, id: m.img }));
+          openLightbox(list, Math.max(0, list.findIndex((x) => String(x.id) === im.dataset.img)));
+        }, 330);
+      }
     });
     L.addEventListener("touchstart", (e) => {
       const bub = e.target.closest(".dm-bub");
-      if (!bub || bub.dataset.mine !== "1") return;
-      pressT = setTimeout(async () => {
-        pressT = null;
-        if (!confirm("이 메시지를 보내기 취소할까요?")) return;
-        await api(`messages/${bub.dataset.mid}`, { method: "DELETE" }).catch(() => {});
-        S.chat.msgs = S.chat.msgs.filter((m) => String(m.id) !== bub.dataset.mid);
-        drawChat();
-      }, 550);
+      if (!bub) return;
+      pressT = setTimeout(() => { pressT = null; opened = true; try { navigator.vibrate && navigator.vibrate(10); } catch {} openRx(bub); }, 450);
     }, { passive: true });
     const cancel = () => { if (pressT) { clearTimeout(pressT); pressT = null; } };
     L.addEventListener("touchend", cancel); L.addEventListener("touchmove", cancel, { passive: true });
-    L.addEventListener("contextmenu", (e) => { if (e.target.closest(".dm-bub")) e.preventDefault(); });
+    L.addEventListener("contextmenu", (e) => { const bub = e.target.closest(".dm-bub"); if (bub) { e.preventDefault(); openRx(bub); } });
   })();
+  $("#dmFile").addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) sendChatPhotos(f); });
   $("#dmText").addEventListener("input", (e) => { $("#dmSend").hidden = !e.target.value.trim(); });
   $("#dmText").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); sendChat(); } });
   $("#dmText").addEventListener("focus", () => { document.body.classList.add("typing"); setTimeout(() => { const L = $("#dmList"); L.scrollTop = L.scrollHeight; }, 300); });
@@ -725,50 +875,83 @@
   function playFx(t) {
     S.lastTouchSeen = Math.max(S.lastTouchSeen, t || Date.now());
     const fx = $("#fx");
-    const sparks = Array.from({ length: 22 }, (_, i) => `<i style="--a:${i * (360 / 22) + Math.random() * 10}deg;--d:${90 + Math.random() * 110}px;--s:${4 + Math.random() * 7}px;--dl:${(Math.random() * 0.25).toFixed(2)}s"></i>`).join("");
-    fx.innerHTML = `<div class="fx-glow"></div>
+    const R = (a, b) => a + Math.random() * (b - a);
+    const stars = Array.from({ length: 46 }, () => `<i style="left:${R(0, 100)}%;top:${R(0, 100)}%;--s:${R(1, 3).toFixed(1)}px;--d:${R(1.2, 3).toFixed(2)}s;--dl:${R(0, 2).toFixed(2)}s"></i>`).join("");
+    const sparks = Array.from({ length: 26 }, (_, i) => `<i style="--a:${(i * 360) / 26 + R(-6, 6)}deg;--d:${R(110, 230).toFixed(0)}px;--s:${R(3, 8).toFixed(1)}px;--dl:${R(0, 0.2).toFixed(2)}s"></i>`).join("");
+    const floaters = Array.from({ length: 16 }, () => `<span style="left:${R(4, 92)}%;--sz:${R(14, 30).toFixed(0)}px;--dur:${R(2.6, 4.2).toFixed(2)}s;--dl:${R(1.0, 2.6).toFixed(2)}s;--sw:${R(-40, 40).toFixed(0)}px;--rot:${R(-25, 25).toFixed(0)}deg">${HEART}</span>`).join("");
+    fx.innerHTML = `
+      <div class="fx-stars">${stars}</div>
+      <div class="fx-aura"></div>
+      <div class="fx-orb l a"><span>${esc(ini("a"))}</span></div>
+      <div class="fx-orb r b"><span>${esc(ini("b"))}</span></div>
+      <div class="fx-flash"></div>
       <div class="fx-ring r1"></div><div class="fx-ring r2"></div><div class="fx-ring r3"></div>
-      <div class="fx-heart l">${HEART}</div><div class="fx-heart r">${HEART}</div>
       <div class="fx-sparks">${sparks}</div>
-      <div class="fx-big">${HEART}</div>
-      <div class="fx-text"><b>${esc(nm("a"))} & ${esc(nm("b"))}</b><span>닿았다 · 우리 ${dplus(today())}일째</span></div>`;
+      <div class="fx-big"><svg viewBox="0 0 24 24"><defs><linearGradient id="fxg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD1DC"/><stop offset=".55" stop-color="#FF7A9C"/><stop offset="1" stop-color="#B65FE0"/></linearGradient></defs><path fill="url(#fxg)" d="M12 21s-7.8-4.8-9.6-9.7C1.1 7.6 3.4 4 7 4c2.1 0 3.7 1.1 5 3 1.3-1.9 2.9-3 5-3 3.6 0 5.9 3.6 4.6 7.3C19.8 16.2 12 21 12 21z"/></svg></div>
+      <div class="fx-float">${floaters}</div>
+      <div class="fx-text"><b>${esc(nm("a"))}<em>${ic("heart")}</em>${esc(nm("b"))}</b><span>우리 ${dplus(today())}일째, 닿았다</span></div>`;
     fx.hidden = false;
+    fx.classList.remove("out");
     try { navigator.vibrate && navigator.vibrate([20, 60, 20, 60, 160]); } catch {}
-    clearTimeout(playFx.t);
-    playFx.t = setTimeout(() => (fx.hidden = true), 4500);
-    fx.onclick = () => { fx.hidden = true; };
+    clearTimeout(playFx.t); clearTimeout(playFx.t2);
+    const close = () => { fx.classList.add("out"); playFx.t2 = setTimeout(() => (fx.hidden = true), 450); };
+    playFx.t = setTimeout(close, 5200);
+    fx.onclick = close;
   }
 
+
   // ---------- 폰 맞대기: 가까이 감지(초음파, 사이트 켜면 자동) ----------
-  const FREQ = { a: 18500, b: 19400 };
+  const FREQ = { a: 18000, b: 18900 };
   const nearEnabled = () => store.get("cp_near") !== "0";
   const sensThr = () => Number(store.get("cp_sens") || 28);
+  function nearStatusText() {
+    if (!nearEnabled()) return "소리 감지 꺼짐";
+    if (T.nearDenied) return "마이크가 거부됐어요. 사이트를 다시 열고 허용해 주세요";
+    if (T.near && T.actx && T.actx.state !== "running") return "화면을 한 번 터치하면 소리가 시작돼요";
+    if (T.near) return "듣는 중";
+    return "화면을 터치하면 시작돼요";
+  }
   async function startNear() {
+    // 이미 켜져 있는데 오디오가 멈춰 있으면 터치 순간에 다시 재생
+    if (T.actx && T.actx.state !== "running") { try { T.actx.resume(); } catch {} }
     if (T.near || T.nearBusy || T.nearDenied || !nearEnabled() || document.hidden || !S.who) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { T.nearDenied = true; return; }
     T.nearBusy = true;
     try {
       try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
+      // 아이폰은 터치한 그 순간에 오디오를 시작해야 소리가 나서, 마이크보다 먼저 켬
+      const ctx = T.actx && T.actx.state !== "closed" ? T.actx : new (window.AudioContext || window.webkitAudioContext)();
+      T.actx = ctx;
+      ctx.resume();
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.frequency.value = FREQ[S.who];
+      gain.gain.value = 0.6;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      await ctx.resume();
+      if (ctx.state !== "running") { try { await ctx.resume(); } catch {} }
       const an = ctx.createAnalyser();
       an.fftSize = 8192; an.smoothingTimeConstant = 0.3;
       ctx.createMediaStreamSource(stream).connect(an);
-      const osc = ctx.createOscillator(), gain = ctx.createGain();
-      osc.frequency.value = FREQ[S.who]; gain.gain.value = 0.35;
-      osc.connect(gain).connect(ctx.destination); osc.start();
       const buf = new Float32Array(an.frequencyBinCount);
-      const tb = Math.round(FREQ[other()] / (ctx.sampleRate / an.fftSize));
-      let hits = 0, lastNear = 0;
-      const loop = setInterval(() => {
-        an.getFloatFrequencyData(buf);
+      const binHz = ctx.sampleRate / an.fftSize;
+      const snrAt = (f) => {
+        const tb = Math.round(f / binHz);
         let peak = -200; for (let i = tb - 2; i <= tb + 2; i++) peak = Math.max(peak, buf[i]);
         let nz = 0, c = 0;
-        for (let i = tb - 60; i < tb - 20; i++) { nz += buf[i]; c++; }
-        for (let i = tb + 20; i < Math.min(buf.length, tb + 60); i++) { nz += buf[i]; c++; }
-        const snr = Math.max(0, peak - nz / c);
-        const bar = $("#sensBar");
+        for (let i = tb - 50; i < tb - 15; i++) { nz += buf[i]; c++; }
+        for (let i = tb + 15; i < Math.min(buf.length, tb + 50); i++) { nz += buf[i]; c++; }
+        return Math.max(0, peak - nz / c);
+      };
+      let hits = 0, lastNear = 0, tick = 0;
+      const loop = setInterval(() => {
+        an.getFloatFrequencyData(buf);
+        const snr = snrAt(FREQ[other()]);
+        const self = snrAt(FREQ[S.who]);
+        const bar = $("#sensBar"), sb = $("#selfBar");
         if (bar) bar.style.width = Math.min(100, (snr / 50) * 100) + "%";
+        if (sb) sb.style.width = Math.min(100, (self / 50) * 100) + "%";
+        if (++tick % 15 === 0) { const ns = $("#nearStat"); if (ns) ns.textContent = nearStatusText(); }
         hits = snr > sensThr() ? hits + 1 : 0;
         if (hits >= 4 && Date.now() - lastNear > 3000) { lastNear = Date.now(); hits = 0; sendTouch("near"); }
       }, 60);
@@ -781,7 +964,7 @@
       }, 1500);
       T.near = { stream, ctx, osc, loop, beat, poll };
     } catch (e) {
-      if (e && e.name === "NotAllowedError") T.nearDenied = true; // 이번에 거부하면 다시 열 때까지 안 물어봄
+      if (e && e.name === "NotAllowedError") T.nearDenied = true; // 거부하면 다시 열 때까지 안 물어봄
     } finally { T.nearBusy = false; }
   }
   function nearStop() {
@@ -791,11 +974,63 @@
     try { n.osc.stop(); } catch {}
     n.stream.getTracks().forEach((t) => t.stop());
     n.ctx.close().catch(() => {});
+    T.actx = null;
     try { if (navigator.audioSession) navigator.audioSession.type = "auto"; } catch {}
     T.near = null;
   }
   // 다른 앱으로 가면 끄고, 돌아와서 터치하면 다시 켬
   document.addEventListener("visibilitychange", () => { if (document.hidden) nearStop(); });
+
+  // ---------- 알림 ----------
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  async function registerSW() {
+    if (!("serviceWorker" in navigator)) return;
+    try {
+      S.swReg = await navigator.serviceWorker.register("/sw.js");
+      navigator.serviceWorker.addEventListener("message", (e) => {
+        if (e.data && e.data.type === "open") { const t = (e.data.url.split("#")[1] || "home"); setTab(t); }
+      });
+      // 이미 허용했으면 구독 정보를 다시 서버에 알려줌
+      if (window.Notification && Notification.permission === "granted") subscribePush(true);
+    } catch {}
+  }
+  function pushState() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !window.Notification) {
+      return isIOS && !isStandalone() ? "needs-home" : "unsupported";
+    }
+    return Notification.permission; // default | granted | denied
+  }
+  const b64ToU8 = (s) => { s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; return Uint8Array.from(atob(s), (c) => c.charCodeAt(0)); };
+  async function subscribePush(silent) {
+    try {
+      const reg = S.swReg || (await navigator.serviceWorker.ready);
+      const { key } = await api("push");
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
+      await api("push/sub", { method: "POST", body: sub.toJSON() });
+      if (!silent) toast("알림을 켰어요");
+    } catch (e) { if (!silent) toast("알림을 켤 수 없어요: " + e.message); }
+  }
+  async function enablePush() {
+    const st = pushState();
+    if (st === "needs-home") return toast("아이폰은 홈 화면에 추가한 앱에서만 알림이 돼요");
+    if (st === "unsupported") return toast("이 브라우저는 알림을 지원하지 않아요");
+    if (st === "denied") return toast("알림이 차단돼 있어요. 설정에서 허용해 주세요");
+    const r = await Notification.requestPermission();
+    if (r === "granted") { await subscribePush(); settingsSheet(); }
+    else toast("알림을 허용하지 않았어요");
+  }
+  function showBanner(title, body, tab) {
+    const b = $("#banner");
+    b.innerHTML = `<span class="bn-ic">${ic(tab === "map" ? "pin" : "msg")}</span><span class="bn-t"><b>${esc(title)}</b><span>${esc(body)}</span></span>`;
+    b.dataset.act = "bannerGo";
+    S.bannerTab = tab;
+    b.hidden = false;
+    b.classList.remove("show"); void b.offsetWidth; b.classList.add("show");
+    clearTimeout(showBanner.t);
+    showBanner.t = setTimeout(() => (b.hidden = true), 4500);
+  }
 
   // ---------- 시트 ----------
   function openSheet(html) { $("#sheetBox").innerHTML = html; $("#sheet").hidden = false; }
@@ -812,14 +1047,14 @@
         <li>아래 값 입력</li>
       </ol>
       <div class="kv"><span class="k">URL</span><span class="v" id="kvUrl">${esc(location.origin)}/api/owntracks</span><button data-act="copy" data-t="kvUrl">${ic("copy")}</button></div>
-      <div class="kv"><span class="k">UserID</span><span class="v" id="kvUser">${esc(nm(S.who))}</span><button data-act="copy" data-t="kvUser">${ic("copy")}</button></div>
+      <div class="kv"><span class="k">UserID</span><span class="v" id="kvUser">${S.who}</span><button data-act="copy" data-t="kvUser">${ic("copy")}</button></div>
       <div class="kv"><span class="k">Password</span><span class="v">로그인 비밀번호</span></div>
       <div class="kv"><span class="k">DeviceID</span><span class="v">phone</span></div>
       <ol start="4">
         <li>위치 권한 <b>항상 허용</b></li>
         <li>지도 위 모드 버튼에서 <b>Significant</b>(배터리 절약) 또는 <b>Move</b>(자주 전송) 선택</li>
       </ol>
-      <p class="note">UserID는 이 사이트의 내 이름과 똑같아야 해요. 앱 지도에서도 ${esc(nm(other()))}님 위치가 보여요. 잠깐 멈추려면 앱에서 Quiet 모드로 바꾸면 돼요.</p>
+      <p class="note">UserID는 한글 이름 대신 꼭 <b>${S.who}</b>로 넣으세요 (${esc(nm("a"))} = a, ${esc(nm("b"))} = b). 앱 설정에서 <b>Authentication</b>도 켜야 해요. 앱 지도에서도 ${esc(nm(other()))}님 위치가 보여요. 잠깐 멈추려면 앱에서 Quiet 모드로 바꾸면 돼요.</p>
       <div class="row2"><button class="btn gray" data-act="close">닫기</button></div>`);
   }
 
@@ -837,13 +1072,25 @@
       <div class="row2"><button class="btn soft" data-act="savePw">비밀번호 바꾸기</button></div>
       <p class="muted" style="font-size:12px;margin-top:8px">바꾸면 상대방도 다시 로그인해야 하고, OwnTracks 앱 비밀번호도 바꿔야 해요.</p>
       <hr>
+      <h2 style="font-size:16px;margin-top:4px">${ic("bell")}알림</h2>
+      ${(() => {
+        const st = pushState();
+        if (st === "granted") return `<p class="muted" style="font-size:13px">이 기기에서 메시지와 장소 도착/출발 알림을 받아요.</p><div class="row2"><button class="btn soft" data-act="pushTest">테스트 알림 보내기</button></div>`;
+        if (st === "needs-home") return `<p class="note">아이폰은 Safari 공유 버튼 → <b>홈 화면에 추가</b>로 앱을 설치한 뒤, 그 앱에서 알림을 켜야 해요 (iOS 16.4 이상).</p>`;
+        if (st === "denied") return `<p class="note">알림이 차단돼 있어요. 아이폰 설정 → 알림 → 이 앱에서 허용해 주세요.</p>`;
+        if (st === "unsupported") return `<p class="muted" style="font-size:13px">이 브라우저는 알림을 지원하지 않아요.</p>`;
+        return `<div class="row2"><button class="btn primary" data-act="pushOn">${ic("bell")}알림 켜기</button></div>`;
+      })()}
+      <hr>
       <h2 style="font-size:16px;margin-top:4px">${ic("heart")}폰 맞대기</h2>
       <div class="row2">
         <button class="btn ${nearEnabled() ? "soft" : "gray"}" data-act="toggleNear">소리 감지 ${nearEnabled() ? "켜짐" : "꺼짐"}</button>
       </div>
       <label>가까이 감도 (오른쪽일수록 멀리서도 반응)<input type="range" id="sensRange" min="12" max="45" value="${57 - sensThr()}" style="accent-color:var(--rose);padding:0;border:0;min-height:0"></label>
-      <div class="progress" style="margin-top:8px"><i id="sensBar" style="width:0;transition:width .08s"></i></div>
-      <p class="muted" style="font-size:12px;margin-top:8px">막대는 지금 들리는 상대 폰 신호예요. 둘이 원하는 거리에 폰을 두고, 막대가 차는 정도를 보면서 감도를 맞추면 돼요. 사이트를 열고 처음 터치할 때 마이크 허용을 물어봐요(아이폰은 열 때마다 한 번).</p>
+      <div class="sens-row"><span>${esc(nm(other()))} 폰 신호</span><div class="progress"><i id="sensBar" style="width:0;transition:width .08s"></i></div></div>
+      <div class="sens-row"><span>내 폰 소리</span><div class="progress"><i id="selfBar" style="width:0;transition:width .08s"></i></div></div>
+      <div class="near-stat" id="nearStat">${nearStatusText()}</div>
+      <p class="muted" style="font-size:12px;margin-top:8px">"내 폰 소리" 막대가 차면 내 폰은 정상이에요. 안 차면 무음 모드를 끄고 볼륨을 올려보세요. 둘이 원하는 거리에 폰을 두고 위쪽 막대를 보면서 감도를 맞추면 돼요.</p>
       <div class="row2">
         <button class="btn gray" data-act="otSheet">${ic("phone")}꺼도 공유 설정</button>
         <button class="btn danger" data-act="locDel">내 위치 지우기</button>
@@ -865,6 +1112,44 @@
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     dmSend: () => sendChat(),
+    dmPhoto: () => $("#dmFile").click(),
+    rxClose: closeRx,
+    rxPick(el) { const bub = S.rxBub; closeRx(); reactMsg(el.dataset.id, el.dataset.r, bub); },
+    async rxDel(el) {
+      closeRx();
+      await api(`messages/${el.dataset.id}`, { method: "DELETE" }).catch(() => {});
+      S.chat.msgs = S.chat.msgs.filter((m) => String(m.id) !== el.dataset.id);
+      drawChat();
+    },
+    pushOn: () => enablePush(),
+    placesSheet: () => placesSheet(),
+    placePick: () => placePick(),
+    pickCancel: () => pickClose(),
+    pickR(el) { S.pickR = Number(el.dataset.r); $$(".pick-r button").forEach((b) => b.classList.toggle("on", b === el)); updatePickRing(); },
+    async pickSave() {
+      const name = $("#pickName").value.trim();
+      if (!name) return toast("장소 이름을 적어주세요");
+      const c = map.getCenter();
+      try {
+        await api("places", { method: "POST", body: { name, lat: c.lat, lon: c.lng, radius: S.pickR } });
+        pickClose(); await loadPlaces(); toast(`${name}을(를) 등록했어요`);
+      } catch (e) { toast(e.message); }
+    },
+    async placeDel(el) {
+      if (!confirm("이 장소를 지울까요?")) return;
+      await api(`places/${el.dataset.id}`, { method: "DELETE" });
+      await loadPlaces(); placesSheet();
+    },
+    placeGo(el) {
+      const p = (S.places || []).find((x) => String(x.id) === el.dataset.id);
+      closeSheet();
+      if (p) map.flyTo({ center: [p.lon, p.lat], zoom: 15.5 });
+    },
+    async pushTest() {
+      try { const r = await api("push/test", { method: "POST", body: {} }); toast(r.sent ? "테스트 알림을 보냈어요" : "이 기기는 알림이 꺼져 있어요"); }
+      catch (e) { toast(e.message); }
+    },
+    bannerGo() { $("#banner").hidden = true; setTab(S.bannerTab || "chat"); },
     async dmMore() {
       const first = S.chat.msgs.find((m) => !String(m.id).startsWith("tmp"));
       if (!first) return;
@@ -900,11 +1185,15 @@
     editT(el) { S.editing = el.dataset.key; render(true); },
     cancelEdit() { S.editing = null; render(true); },
     async pickC(el) {
+      if (el.disabled) return;
+      $$(`[data-act="pickC"][data-date="${el.dataset.date}"][data-slot="${el.dataset.slot}"]`).forEach((b) => (b.disabled = true));
+      el.classList.add("mine", "pop");
       try {
-        await api("answers", { method: "POST", body: { qdate: el.dataset.date, slot: "c", answer: el.dataset.v } });
-        await render(true);
+        await api("answers", { method: "POST", body: { qdate: el.dataset.date, slot: el.dataset.slot, answer: el.dataset.v } });
       } catch (e) { toast(e.message); }
+      setTimeout(() => render(true), 350);
     },
+    qMore() { S.qDays = (S.qDays || 30) + 30; render(true); },
     toggleArch(el) {
       const d = el.dataset.date;
       S.openArch.has(d) ? S.openArch.delete(d) : S.openArch.add(d);
@@ -1108,7 +1397,8 @@
       await loadAnniv();
       showOnly("app");
       await pulse(true);
-      setTab(S.tab || "home");
+      setTab(TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home");
+      registerSW();
     } catch (e) {
       document.body.insertAdjacentHTML("beforeend", `<div class="gate"><div class="gate-card"><h1>연결 오류</h1><p class="muted">${esc(e.message)}</p></div></div>`);
     }
@@ -1122,8 +1412,21 @@
       const p = await api("pulse");
       const unread = p.last && p.last.who !== S.who && p.last.id > (p.read[S.who] || 0);
       $("#cBadge").hidden = !unread || S.tab === "chat";
-      if (first) S.lastTouchSeen = p.touch;
-      else if (p.touch > S.lastTouchSeen && Date.now() - p.touch < 15000) playFx(p.touch);
+      if (first) {
+        S.lastTouchSeen = p.touch;
+        S.lastBannerMsg = p.last ? p.last.id : 0;
+        S.lastPlaceSeen = p.place ? p.place.t : 0;
+        return;
+      }
+      if (p.touch > S.lastTouchSeen && Date.now() - p.touch < 15000) playFx(p.touch);
+      if (unread && p.last.id > (S.lastBannerMsg || 0) && S.tab !== "chat") {
+        showBanner(nm(p.last.who), p.last.text || "사진을 보냈어요", "chat");
+      }
+      if (p.last) S.lastBannerMsg = Math.max(S.lastBannerMsg || 0, p.last.id);
+      if (p.place && p.place.t > (S.lastPlaceSeen || 0)) {
+        S.lastPlaceSeen = p.place.t;
+        if (p.place.who !== S.who) showBanner(`${nm(p.place.who)}님 ${p.place.inside ? "도착" : "출발"}`, p.place.inside ? `${p.place.place}에 도착했어요` : `${p.place.place}에서 떠났어요`, "map");
+      }
     } catch {}
   }
   setInterval(() => { if (!document.hidden) pulse(); }, 10000);

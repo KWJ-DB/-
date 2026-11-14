@@ -3,13 +3,17 @@ import {
   json, err, body, isDate, isTime, str, todayKST,
   ensureSchema, getSettings, setSettings, saveLoc,
   randHex, hashPw, safeEq, makeToken, readToken, getCookie, cookieHeader,
-  parseBasic, fromB64,
+  parseBasic, fromB64, checkPlaces,
 } from "../_lib.js";
+import { getVapid, sendPush } from "../_push.js";
+
+const REACTS = ["heart", "laugh", "wow", "sad", "fire", "like"];
+const CHOICE_SLOTS = ["c", "c1", "c2", "c3"];
 
 const OK = { ok: true };
 const unauthorized = () => new Response("unauthorized", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="couple"' } });
 
-export async function onRequest({ request, env, params }) {
+export async function onRequest({ request, env, params, waitUntil }) {
   const parts = Array.isArray(params.path) ? params.path : [params.path].filter(Boolean);
   const [p0, p1, p2] = parts;
   const m = request.method;
@@ -21,6 +25,25 @@ export async function onRequest({ request, env, params }) {
     const DB = env.DB;
     const st = await getSettings(env);
     const isSetup = !!st.pass_hash;
+    // 위치가 저장된 뒤 장소 도착/출발이면 상대에게 알림
+    const placeNotify = async (who, lat, lon, acc) => {
+      try {
+        const changes = await checkPlaces(DB, who, Number(lat), Number(lon), acc);
+        if (!changes.length) return;
+        const name = who === "a" ? st.a_name : st.b_name;
+        const other = who === "a" ? "b" : "a";
+        const evs = changes.map((c) => ({ who, place: c.place.name, inside: c.inside, t: Date.now() }));
+        await setSettings(env, { last_place_ev: JSON.stringify(evs[evs.length - 1]) });
+        for (const c of changes) {
+          await sendPush(env, st, setSettings, other, {
+            title: c.inside ? `${name}님 도착` : `${name}님 출발`,
+            body: c.inside ? `${c.place.name}에 도착했어요` : `${c.place.name}에서 떠났어요`,
+            url: "/#map", tag: "place-" + c.place.id,
+          });
+        }
+      } catch {}
+    };
+    const later = (job) => { if (waitUntil) waitUntil(job); else return job; };
 
     // ---------- 로그인 없이 쓰는 것 ----------
     if (p0 === "state" && m === "GET") {
@@ -69,6 +92,7 @@ export async function onRequest({ request, env, params }) {
       if (b && b._type === "location") {
         try {
           await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, batt: b.batt, t: b.tst ? b.tst * 1000 : Date.now(), src: "app" });
+          await later(placeNotify(who, b.lat, b.lon, b.acc));
         } catch {}
       }
       const other = who === "a" ? "b" : "a";
@@ -120,10 +144,36 @@ export async function onRequest({ request, env, params }) {
       case "POST loc": {
         const b = await body(request);
         await saveLoc(DB, who, { ...b, src: "web", t: Date.now() });
+        await later(placeNotify(who, b.lat, b.lon, b.acc));
         return json(OK);
       }
       case "DELETE loc":
         await DB.prepare("DELETE FROM couple_locs WHERE who = ?1").bind(who).run();
+        return json(OK);
+
+      // ----- 장소 (도착/출발 알림) -----
+      case "GET places": {
+        const { results } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places ORDER BY id").all();
+        const { results: stt } = await DB.prepare("SELECT who, place_id, inside FROM place_state").all();
+        let ev = null;
+        try { ev = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
+        return json({ places: results || [], state: stt || [], last: ev });
+      }
+      case "POST places": {
+        const b = await body(request);
+        const name = str(b.name, 20);
+        const lat = Number(b.lat), lon = Number(b.lon), radius = Math.round(Number(b.radius));
+        if (!name) return err(400, "장소 이름을 입력하세요");
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return err(400, "위치가 올바르지 않아요");
+        if (!(radius >= 50 && radius <= 2000)) return err(400, "반경은 50m~2km");
+        await DB.prepare("INSERT INTO places (name, lat, lon, radius, who, t) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(name, lat, lon, radius, who, Date.now()).run();
+        return json(OK);
+      }
+      case "DELETE places":
+        await DB.batch([
+          DB.prepare("DELETE FROM places WHERE id = ?1").bind(id),
+          DB.prepare("DELETE FROM place_state WHERE place_id = ?1").bind(id),
+        ]);
         return json(OK);
 
       // ----- 오늘의 질문 -----
@@ -141,10 +191,14 @@ export async function onRequest({ request, env, params }) {
       case "POST answers": {
         const b = await body(request);
         if (!isDate(b.qdate) || b.qdate > todayKST()) return err(400, "날짜가 올바르지 않아요");
-        if (!["t", "c"].includes(b.slot)) return err(400, "질문 종류가 올바르지 않아요");
+        if (b.slot !== "t" && !CHOICE_SLOTS.includes(b.slot)) return err(400, "질문 종류가 올바르지 않아요");
         const answer = str(b.answer, 1000);
         if (!answer) return err(400, "답을 입력하세요");
-        if (b.slot === "c" && !["0", "1"].includes(answer)) return err(400, "선택지가 올바르지 않아요");
+        if (CHOICE_SLOTS.includes(b.slot)) {
+          if (!["0", "1"].includes(answer)) return err(400, "선택지가 올바르지 않아요");
+          const had = await DB.prepare("SELECT 1 FROM answers WHERE qdate = ?1 AND slot = ?2 AND who = ?3").bind(b.qdate, b.slot, who).first();
+          if (had) return err(409, "이미 골랐어요. 한 번만 고를 수 있어요");
+        }
         await DB.prepare(
           `INSERT INTO answers (qdate, slot, who, answer, t) VALUES (?1, ?2, ?3, ?4, ?5)
            ON CONFLICT(qdate, slot, who) DO UPDATE SET answer = excluded.answer, t = excluded.t`
@@ -226,32 +280,90 @@ export async function onRequest({ request, env, params }) {
       case "GET messages": {
         const before = Number(q("before")) || 0;
         const limit = Math.min(Math.max(Number(q("limit")) || 40, 1), 100);
+        const cols = "id, who, text, likes, reacts, img, w, h, t";
         const stmt = before
-          ? DB.prepare("SELECT id, who, text, likes, t FROM messages WHERE id < ?1 ORDER BY id DESC LIMIT ?2").bind(before, limit)
-          : DB.prepare("SELECT id, who, text, likes, t FROM messages ORDER BY id DESC LIMIT ?1").bind(limit);
+          ? DB.prepare(`SELECT ${cols} FROM messages WHERE id < ?1 ORDER BY id DESC LIMIT ?2`).bind(before, limit)
+          : DB.prepare(`SELECT ${cols} FROM messages ORDER BY id DESC LIMIT ?1`).bind(limit);
         const { results } = await stmt.all();
-        return json({ messages: (results || []).reverse(), read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 } });
+        const msgs = (results || []).reverse().map((m) => {
+          let reacts = {};
+          try { reacts = m.reacts ? JSON.parse(m.reacts) : {}; } catch {}
+          if (!m.reacts && m.likes) for (const w of m.likes) reacts[w] = "heart";
+          return { id: m.id, who: m.who, text: m.text, reacts, img: m.img, w: m.w, h: m.h, t: m.t };
+        });
+        return json({ messages: msgs, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 } });
       }
       case "POST messages": {
         const b = await body(request);
-        if (id && p2 === "like") {
-          const r = await DB.prepare("SELECT likes FROM messages WHERE id = ?1").bind(id).first();
+        if (id && p2 === "react") {
+          const r = await DB.prepare("SELECT likes, reacts FROM messages WHERE id = ?1").bind(id).first();
           if (!r) return err(404, "메시지가 없어요");
-          let likes = r.likes || "";
-          likes = likes.includes(who) ? likes.replace(who, "") : likes + who;
-          await DB.prepare("UPDATE messages SET likes = ?1 WHERE id = ?2").bind(likes, id).run();
-          return json({ ok: true, likes });
+          let reacts = {};
+          try { reacts = r.reacts ? JSON.parse(r.reacts) : {}; } catch {}
+          if (!r.reacts && r.likes) for (const w of r.likes) reacts[w] = "heart";
+          const want = REACTS.includes(b.r) ? b.r : null;
+          if (!want || reacts[who] === want) delete reacts[who]; else reacts[who] = want;
+          await DB.prepare("UPDATE messages SET reacts = ?1, likes = '' WHERE id = ?2").bind(JSON.stringify(reacts), id).run();
+          return json({ ok: true, reacts });
         }
         const text = str(b.text, 2000);
-        if (!text) return err(400, "메시지를 입력하세요");
-        const r = await DB.prepare("INSERT INTO messages (who, text, likes, t) VALUES (?1, ?2, '', ?3)").bind(who, text, Date.now()).run();
+        let imgId = null, w = null, h = null;
+        if (b.img && typeof b.img.data === "string" && typeof b.img.thumb === "string") {
+          if (b.img.data.length > 1500000 || b.img.thumb.length > 300000) return err(413, "사진이 너무 커요");
+          w = Number(b.img.w) || null; h = Number(b.img.h) || null;
+          const ir = await DB.prepare("INSERT INTO chat_imgs (w, h, thumb, data, t) VALUES (?1, ?2, ?3, ?4, ?5)").bind(w, h, b.img.thumb, b.img.data, Date.now()).run();
+          imgId = ir.meta?.last_row_id || null;
+        }
+        if (!text && !imgId) return err(400, "메시지를 입력하세요");
+        const r = await DB.prepare("INSERT INTO messages (who, text, likes, reacts, img, w, h, t) VALUES (?1, ?2, '', NULL, ?3, ?4, ?5, ?6)")
+          .bind(who, text, imgId, w, h, Date.now()).run();
         const newId = r.meta?.last_row_id;
         if (newId) await setSettings(env, { ["read_" + who]: newId });
+        const other = who === "a" ? "b" : "a";
+        const name = who === "a" ? st.a_name : st.b_name;
+        const job = sendPush(env, st, setSettings, other, { title: name, body: text || "사진을 보냈어요", url: "/#chat", tag: "dm" });
+        if (waitUntil) waitUntil(job); else await job;
         return json({ ok: true, id: newId });
       }
       case "DELETE messages": {
-        await DB.prepare("DELETE FROM messages WHERE id = ?1 AND who = ?2").bind(id, who).run();
+        const m = await DB.prepare("SELECT img FROM messages WHERE id = ?1 AND who = ?2").bind(id, who).first();
+        if (m) {
+          await DB.prepare("DELETE FROM messages WHERE id = ?1").bind(id).run();
+          if (m.img) await DB.prepare("DELETE FROM chat_imgs WHERE id = ?1").bind(m.img).run();
+        }
         return json(OK);
+      }
+      case "GET chatimg": {
+        const col = q("thumb") ? "thumb" : "data";
+        const r = await DB.prepare(`SELECT ${col} AS img FROM chat_imgs WHERE id = ?1`).bind(id).first();
+        if (!r || !r.img) return err(404, "사진이 없어요");
+        return new Response(fromB64(r.img), { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable" } });
+      }
+
+      // ----- 알림(웹 푸시) -----
+      case "GET push": {
+        const v = await getVapid(env, st, setSettings);
+        return json({ key: v.pub });
+      }
+      case "POST push": {
+        const b = await body(request);
+        if (p1 === "sub") {
+          if (!b.endpoint || !b.keys || !b.keys.p256dh || !b.keys.auth) return err(400, "구독 정보가 없어요");
+          if (!/^https:\/\//.test(b.endpoint)) return err(400, "잘못된 주소");
+          await DB.prepare(`INSERT INTO push_subs (endpoint, who, p256dh, auth, t) VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(endpoint) DO UPDATE SET who = excluded.who, p256dh = excluded.p256dh, auth = excluded.auth, t = excluded.t`)
+            .bind(String(b.endpoint), who, String(b.keys.p256dh), String(b.keys.auth), Date.now()).run();
+          return json(OK);
+        }
+        if (p1 === "unsub") {
+          await DB.prepare("DELETE FROM push_subs WHERE endpoint = ?1").bind(String(b.endpoint || "")).run();
+          return json(OK);
+        }
+        if (p1 === "test") {
+          const n = await sendPush(env, st, setSettings, who, { title: "알림 테스트", body: "알림이 잘 와요", url: "/", tag: "test" });
+          return json({ ok: true, sent: n });
+        }
+        return err(404, "없는 주소예요");
       }
       case "POST read": {
         const b = await body(request);
@@ -262,8 +374,10 @@ export async function onRequest({ request, env, params }) {
 
       // 탭 배지 등 가벼운 상태 확인
       case "GET pulse": {
-        const last = await DB.prepare("SELECT id, who FROM messages ORDER BY id DESC LIMIT 1").first();
-        return json({ last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0 });
+        const last = await DB.prepare("SELECT id, who, substr(text, 1, 60) AS text, img FROM messages ORDER BY id DESC LIMIT 1").first();
+        let place = null;
+        try { place = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
+        return json({ last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, place });
       }
 
       // ----- 부딪히기 / 가까이 대기 -----

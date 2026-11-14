@@ -43,6 +43,37 @@ export async function onRequest({ request, env, params, waitUntil }) {
         }
       } catch {}
     };
+    // 둘 다 최근 위치가 있고 아주 가까우면 "함께 있음" — 만나는 순간 애니메이션 + 알림
+    const togetherCheck = async () => {
+      try {
+        const { results } = await DB.prepare("SELECT who, lat, lon, acc, t FROM couple_locs").all();
+        const L = {}; for (const r of results || []) L[r.who] = r;
+        const now = Date.now();
+        if (!L.a || !L.b || now - L.a.t > 4 * 60000 || now - L.b.t > 4 * 60000) return;
+        const R = 6371000, rad = Math.PI / 180;
+        const x = Math.sin(((L.b.lat - L.a.lat) * rad) / 2) ** 2 + Math.cos(L.a.lat * rad) * Math.cos(L.b.lat * rad) * Math.sin(((L.b.lon - L.a.lon) * rad) / 2) ** 2;
+        const d = 2 * R * Math.asin(Math.sqrt(x));
+        const accSum = Math.min((L.a.acc || 25) + (L.b.acc || 25), 80);
+        const was = st.together === "1";
+        const near = d <= Math.max(35, accSum);
+        const far = d > 150;
+        if (!was && near) {
+          const upd = { together: "1", together_since: now };
+          // 만남 애니메이션은 30분에 한 번만
+          const lastMeet = Number(st.last_meet) || 0;
+          if (now - lastMeet > 30 * 60000) { upd.last_meet = now; upd.last_touch = now; upd.last_touch_at = now + 1500; upd.last_touch_kind = "meet"; }
+          await setSettings(env, upd);
+          if (upd.last_touch) {
+            for (const w of ["a", "b"]) {
+              const o = w === "a" ? st.b_name : st.a_name;
+              await sendPush(env, st, setSettings, w, { title: "우리 만났어요", body: `${o}님이 바로 옆에 있어요`, url: "/#home", tag: "meet" });
+            }
+          }
+        } else if (was && far) {
+          await setSettings(env, { together: "0" });
+        }
+      } catch {}
+    };
     const later = (job) => { if (waitUntil) waitUntil(job); else return job; };
 
     // ---------- 로그인 없이 쓰는 것 ----------
@@ -92,7 +123,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       if (b && b._type === "location") {
         try {
           await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, batt: b.batt, t: b.tst ? b.tst * 1000 : Date.now(), src: "app" });
-          await later(placeNotify(who, b.lat, b.lon, b.acc));
+          await later(placeNotify(who, b.lat, b.lon, b.acc).then(togetherCheck));
         } catch {}
       }
       const other = who === "a" ? "b" : "a";
@@ -164,7 +195,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "POST loc": {
         const b = await body(request);
         await saveLoc(DB, who, { ...b, src: "web", t: Date.now() });
-        await later(placeNotify(who, b.lat, b.lon, b.acc));
+        await later(placeNotify(who, b.lat, b.lon, b.acc).then(togetherCheck));
         return json(OK);
       }
       case "DELETE loc":
@@ -404,7 +435,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const last = await DB.prepare("SELECT id, who, substr(text, 1, 60) AS text, img FROM messages ORDER BY id DESC LIMIT 1").first();
         let place = null;
         try { place = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
-        return json({ last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, now: Date.now(), place });
+        return json({ last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "", now: Date.now(), place, together: st.together === "1" });
       }
 
       // ----- 부딪히기 / 가까이 대기 -----
@@ -426,13 +457,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (r && r.n > 0 && now - last > 5000) {
           // 두 폰이 같은 시각에 재생하도록 1.2초 뒤를 재생 시각으로 정함
           const at = now + 1200;
-          await setSettings(env, { last_touch: now, last_touch_at: at });
+          await setSettings(env, { last_touch: now, last_touch_at: at, last_touch_kind: "near" });
           return json({ match: true, touch: now, at, now });
         }
         return json({ match: false, touch: last, at: Number(st.last_touch_at) || 0, now });
       }
       case "GET touch":
-        return json({ touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, now: Date.now() });
+        return json({ touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "", now: Date.now() });
 
       // ----- 버킷리스트 -----
       case "GET bucket": {

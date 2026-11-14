@@ -192,8 +192,8 @@
         </button>
         <button class="mini" data-act="tab" data-tab="map">
           <span class="lb">${ic("route")}우리 사이</span>
-          <span class="val">${dist || "-"}</span>
-          <span class="hint">${dist ? "위치 보기" : "위치를 보내면 보여요"}</span>
+          <span class="val">${S.together ? "함께 있어요" : dist || "-"}</span>
+          <span class="hint">${S.together ? (dist ? dist + " 거리" : "") : dist ? "위치 보기" : "위치를 보내면 보여요"}</span>
         </button>
       </div>
 
@@ -697,7 +697,7 @@
     $("#mapCard").innerHTML = `
       <div class="dist">
         <div class="ic">${ic("route")}</div>
-        <div>${la && lb ? `<b>${fmtDist(distM(la, lb))}</b><span>지금 우리 사이 거리</span>` : `<b>-</b><span>둘 다 위치가 있어야 보여요</span>`}</div>
+        <div>${S.together ? `<b>함께 있어요</b><span>${la && lb ? fmtDist(distM(la, lb)) + " 거리" : ""}</span>` : la && lb ? `<b>${fmtDist(distM(la, lb))}</b><span>지금 우리 사이 거리</span>` : `<b>-</b><span>둘 다 위치가 있어야 보여요</span>`}</div>
         <button class="icon-btn fit" data-act="fitMap" aria-label="모두 보기">${ic("target")}</button>
       </div>
       <div class="people">${person(S.who)}${person(other())}</div>
@@ -737,7 +737,7 @@
     S.watchId = navigator.geolocation.watchPosition((p) => {
       S.autoLoc = "on";
       const now = Date.now(), cur = { lat: p.coords.latitude, lon: p.coords.longitude };
-      const due = !S.lastSent || now - S.lastSent.t > 2 * 60000 || (now - S.lastSent.t > 15000 && distM(S.lastSent, cur) > 50);
+      const due = !S.lastSent || now - S.lastSent.t > 60000 || (now - S.lastSent.t > 10000 && distM(S.lastSent, cur) > 25);
       if (due) sendPos(p).catch(() => {});
       if (S.tab === "map" && !$("#pick")) renderMapCard();
     }, (e) => {
@@ -941,17 +941,19 @@
     return r;
   }
   // 정해진 재생 시각(서버 기준)에 맞춰 애니메이션 시작
-  function scheduleFx(touch, at) {
+  function scheduleFx(touch, at, kind) {
     if (!touch || touch <= S.lastTouchSeen) return;
     S.lastTouchSeen = touch;
+    S.fxKind = kind || "near";
     const wait = (at || touch) - S.clockOff - Date.now();
-    if (wait < -2500) return; // 너무 늦게 알았으면 생략
+    if (wait < -2500 && kind !== "meet") return; // 너무 늦게 알았으면 생략 (만남은 늦어도 보여줌)
+    if (wait < -60000) return;
     setTimeout(() => playFx(touch), Math.max(0, wait));
   }
   async function sendTouch(kind) {
     try {
       const r = await timedApi("touch", { method: "POST", body: { kind } });
-      if (r.match) return scheduleFx(r.touch, r.at);
+      if (r.match) return scheduleFx(r.touch, r.at, "near");
     } catch {}
   }
   const HEART = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 21s-7.8-4.8-9.6-9.7C1.1 7.6 3.4 4 7 4c2.1 0 3.7 1.1 5 3 1.3-1.9 2.9-3 5-3 3.6 0 5.9 3.6 4.6 7.3C19.8 16.2 12 21 12 21z"/></svg>`;
@@ -967,7 +969,7 @@
       <div class="fx-ripple"></div>
       <div class="fx-big">${grad("fxc", "#FF9BB4", "#C86BE6")}</div>
       <div class="fx-float">${floaters}</div>
-      <div class="fx-text"><b>우리 지금 닿았어요</b><span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</span></div>`;
+      <div class="fx-text"><b>${S.fxKind === "meet" ? "우리 만났어요" : "우리 지금 닿았어요"}</b><span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</span></div>`;
     fx.hidden = false;
     fx.classList.remove("out");
     try { navigator.vibrate && navigator.vibrate([30, 80, 30]); } catch {}
@@ -983,7 +985,7 @@
   const FREQ = { a: 18000, b: 18900 };
   const nearEnabled = () => store.get("cp_near") !== "0";
   // 기본 감도: 폰끼리 거의 붙여야 반응 (예전 값은 무시)
-  const sensThr = () => Number(store.get("cp_sens2") || 40);
+  const sensThr = () => Number(store.get("cp_sens2") || 32);
   function nearStatusText() {
     if (!nearEnabled()) return "소리 감지 꺼짐";
     if (T.nearDenied) return "마이크가 거부됐어요. 사이트를 다시 열고 허용해 주세요";
@@ -1024,7 +1026,7 @@
         for (let i = tb - 50; i < tb - 15; i++) { nz += v(i); c++; }
         for (let i = tb + 15; i < Math.min(buf.length, tb + 50); i++) { nz += v(i); c++; }
         // 너무 작은 소리는 무시 (멀리서 희미하게 들리는 경우)
-        if (peak < -75) return 0;
+        if (peak < -85) return 0;
         return Math.max(0, peak - nz / c);
       };
       let hits = 0, lastNear = 0, tick = 0;
@@ -1037,14 +1039,14 @@
         if (sb) sb.style.width = Math.min(100, (self / 50) * 100) + "%";
         if (++tick % 15 === 0) { const ns = $("#nearStat"); if (ns) ns.textContent = nearStatusText(); }
         hits = snr > sensThr() ? hits + 1 : 0;
-        if (hits >= 6 && Date.now() - lastNear > 1500) { lastNear = Date.now(); hits = 0; sendTouch("near"); }
+        if (hits >= 5 && Date.now() - lastNear > 1500) { lastNear = Date.now(); hits = 0; sendTouch("near"); }
       }, 60);
       const beat = setInterval(() => {}, 60000);
       // 상대 폰이 먼저 성공을 받았을 수 있어서 자주 확인 (재생은 정해진 시각에 같이)
       const poll = setInterval(async () => {
         if (document.hidden) return;
         const r = await timedApi("touch").catch(() => null);
-        if (r && r.touch > S.lastTouchSeen && Date.now() - S.clockOff - r.touch < 6000) scheduleFx(r.touch, r.at);
+        if (r && r.touch > S.lastTouchSeen && Date.now() - S.clockOff - r.touch < 6000) scheduleFx(r.touch, r.at, r.kind);
       }, 500);
       T.near = { stream, ctx, osc, loop, beat, poll };
     } catch (e) {
@@ -1533,12 +1535,15 @@
       $("#cBadge").hidden = !unread || S.tab === "chat";
       if (first) {
         S.lastTouchSeen = p.touch;
+        S.together = p.together;
         S.lastBannerMsg = p.last ? p.last.id : 0;
         S.lastPlaceSeen = p.place ? p.place.t : 0;
         return;
       }
       if (p.now) S.clockOff = p.now - Date.now();
-      if (p.touch > S.lastTouchSeen && Date.now() - S.clockOff - p.touch < 6000) scheduleFx(p.touch, p.at);
+      const lim = p.kind === "meet" ? 60000 : 6000;
+      if (p.touch > S.lastTouchSeen && Date.now() - S.clockOff - p.touch < lim) scheduleFx(p.touch, p.at, p.kind);
+      if (S.together !== p.together) { S.together = p.together; if (S.tab === "home") render(true); if (S.tab === "map") renderMapCard(); }
       if (unread && p.last.id > (S.lastBannerMsg || 0) && S.tab !== "chat") {
         showBanner(nm(p.last.who), p.last.text || "사진을 보냈어요", "chat");
       }

@@ -183,11 +183,6 @@
         </button>
       </div>
 
-      <button class="card touch-card" data-act="nearOpen">
-        <div class="ic">${ic("heart")}</div>
-        <div style="flex:1"><b>폰 맞대기</b><span>둘이 폰 윗부분을 톡 부딪히면 하트가 터져요. 가까이 대기 모드는 소리로 거리를 알아채요.</span></div>
-        ${ic("right")}
-      </button>
 
       <div class="card">
         <div class="card-h"><h3>${ic("heart")}다가오는 기념일</h3><button class="more" data-act="annivAdd" data-date="${t}">${ic("plus")}추가</button></div>
@@ -727,8 +722,9 @@
     T.prevMag = T.prevMag * 0.6 + mag * 0.4;
   }
   // 처음 화면을 터치할 때 자동으로 센서 허용 요청 (아이폰은 열 때마다 한 번)
-  document.addEventListener("click", () => { if (S.who) enableMotion(true); }, true);
-  document.addEventListener("touchend", () => { if (S.who) enableMotion(true); }, true);
+  const onGesture = () => { if (S.who) { enableMotion(true); startNear(); } };
+  document.addEventListener("click", onGesture, true);
+  document.addEventListener("touchend", onGesture, true);
 
   async function sendTouch(kind) {
     const sentAt = Date.now();
@@ -764,27 +760,13 @@
     fx.onclick = () => { fx.hidden = true; };
   }
 
-  // ---------- 폰 맞대기: 가까이 대기(초음파) ----------
+  // ---------- 폰 맞대기: 가까이 감지(초음파, 사이트 켜면 자동) ----------
   const FREQ = { a: 18500, b: 19400 };
-  function nearOpen() {
-    enableMotion(true);
-    const sens = Number(store.get("cp_sens") || 28);
-    const el = $("#near");
-    el.innerHTML = `
-      <button class="icon-btn nx" data-act="nearClose" aria-label="닫기">${ic("x")}</button>
-      <h2>폰 맞대기</h2>
-      <p>둘 다 이 화면을 켜고<br>폰 윗부분끼리 톡 부딪히거나 가까이 대보세요</p>
-      <div class="near-orb idle" id="nearOrb">${av(S.who)}${av(other())}</div>
-      <div class="meter"><div class="bar"><i id="nearBar"></i></div><div class="lb"><span>${esc(nm(other()))} 신호</span><span id="nearVal">꺼짐</span></div></div>
-      <div class="near-opts"><label style="margin:0">감도 (오른쪽일수록 멀리서도 반응)<input type="range" id="nearSens" min="12" max="45" value="${57 - sens}"></label></div>
-      <div class="near-status" id="nearStatus">${T.motionOn ? "부딪히기 감지 켜짐" : ""}</div>
-      <button class="btn primary block" data-act="nearStart" id="nearBtn">${ic("wave")}가까이 대기 시작</button>`;
-    el.hidden = false;
-    $("#nearSens").oninput = (e) => store.set("cp_sens", String(57 - Number(e.target.value)));
-  }
-  async function nearStart() {
-    if (T.near) return nearStop(true);
-    const status = $("#nearStatus");
+  const nearEnabled = () => store.get("cp_near") !== "0";
+  const sensThr = () => Number(store.get("cp_sens") || 28);
+  async function startNear() {
+    if (T.near || T.nearBusy || T.nearDenied || !nearEnabled() || document.hidden || !S.who) return;
+    T.nearBusy = true;
     try {
       try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
@@ -797,8 +779,7 @@
       osc.frequency.value = FREQ[S.who]; gain.gain.value = 0.35;
       osc.connect(gain).connect(ctx.destination); osc.start();
       const buf = new Float32Array(an.frequencyBinCount);
-      const binOf = (f) => Math.round(f / (ctx.sampleRate / an.fftSize));
-      const tb = binOf(FREQ[other()]);
+      const tb = Math.round(FREQ[other()] / (ctx.sampleRate / an.fftSize));
       let hits = 0, lastNear = 0;
       const loop = setInterval(() => {
         an.getFloatFrequencyData(buf);
@@ -807,44 +788,35 @@
         for (let i = tb - 60; i < tb - 20; i++) { nz += buf[i]; c++; }
         for (let i = tb + 20; i < Math.min(buf.length, tb + 60); i++) { nz += buf[i]; c++; }
         const snr = Math.max(0, peak - nz / c);
-        const bar = $("#nearBar"), val = $("#nearVal");
+        const bar = $("#sensBar");
         if (bar) bar.style.width = Math.min(100, (snr / 50) * 100) + "%";
-        if (val) val.textContent = snr < 6 ? "멀어요" : snr < 18 ? "조금 가까워요" : "가까워요";
-        const thr = Number(store.get("cp_sens") || 28);
-        hits = snr > thr ? hits + 1 : 0;
+        hits = snr > sensThr() ? hits + 1 : 0;
         if (hits >= 4 && Date.now() - lastNear > 3000) { lastNear = Date.now(); hits = 0; sendTouch("near"); }
       }, 60);
-      const beat = setInterval(() => api("touch", { method: "POST", body: { kind: "listen" } }).catch(() => {}), 4000);
-      api("touch", { method: "POST", body: { kind: "listen" } }).catch(() => {});
+      const listen = () => api("touch", { method: "POST", body: { kind: "listen" } }).catch(() => {});
+      listen();
+      const beat = setInterval(listen, 8000);
       const poll = setInterval(async () => {
         const t = (await api("touch").catch(() => ({}))).touch || 0;
         if (t > S.lastTouchSeen && Date.now() - t < 8000) playFx(t);
-      }, 900);
+      }, 1500);
       T.near = { stream, ctx, osc, loop, beat, poll };
-      $("#nearOrb").classList.remove("idle");
-      $("#nearBtn").innerHTML = `${ic("x")}가까이 대기 끄기`;
-      status.textContent = "듣는 중... 폰을 가까이 대보세요";
     } catch (e) {
-      status.textContent = e.name === "NotAllowedError" ? "마이크 권한을 허용해야 해요" : "시작할 수 없어요: " + e.message;
-    }
+      if (e && e.name === "NotAllowedError") T.nearDenied = true; // 이번에 거부하면 다시 열 때까지 안 물어봄
+    } finally { T.nearBusy = false; }
   }
-  function nearStop(keepOpen) {
+  function nearStop() {
     const n = T.near;
-    if (n) {
-      clearInterval(n.loop); clearInterval(n.beat); clearInterval(n.poll);
-      try { n.osc.stop(); } catch {}
-      n.stream.getTracks().forEach((t) => t.stop());
-      n.ctx.close().catch(() => {});
-      try { if (navigator.audioSession) navigator.audioSession.type = "auto"; } catch {}
-      T.near = null;
-    }
-    if (keepOpen && $("#nearBtn")) {
-      $("#nearOrb").classList.add("idle");
-      $("#nearBtn").innerHTML = `${ic("wave")}가까이 대기 시작`;
-      $("#nearStatus").textContent = "";
-      $("#nearBar").style.width = "0"; $("#nearVal").textContent = "꺼짐";
-    }
+    if (!n) return;
+    clearInterval(n.loop); clearInterval(n.beat); clearInterval(n.poll);
+    try { n.osc.stop(); } catch {}
+    n.stream.getTracks().forEach((t) => t.stop());
+    n.ctx.close().catch(() => {});
+    try { if (navigator.audioSession) navigator.audioSession.type = "auto"; } catch {}
+    T.near = null;
   }
+  // 다른 앱으로 가면 끄고, 돌아와서 터치하면 다시 켬
+  document.addEventListener("visibilitychange", () => { if (document.hidden) nearStop(); });
 
   // ---------- 시트 ----------
   function openSheet(html) { $("#sheetBox").innerHTML = html; $("#sheet").hidden = false; }
@@ -872,6 +844,7 @@
       <div class="row2"><button class="btn gray" data-act="close">닫기</button></div>`);
   }
 
+  document.addEventListener("input", (e) => { if (e.target.id === "sensRange") store.set("cp_sens", String(57 - Number(e.target.value))); });
   function settingsSheet() {
     openSheet(`
       <h2>${ic("gear")}설정</h2>
@@ -885,8 +858,14 @@
       <div class="row2"><button class="btn soft" data-act="savePw">비밀번호 바꾸기</button></div>
       <p class="muted" style="font-size:12px;margin-top:8px">바꾸면 상대방도 다시 로그인해야 하고, OwnTracks 앱 비밀번호도 바꿔야 해요.</p>
       <hr>
-      <div class="row2"><button class="btn ${bumpEnabled() ? "soft" : "gray"}" data-act="toggleBump">${ic("heart")}부딪히기 감지 ${bumpEnabled() ? "켜짐" : "꺼짐"}</button></div>
-      <p class="muted" style="font-size:12px;margin-top:8px">켜두면 사이트를 열고 처음 터치할 때 동작 센서 허용을 물어봐요. 아이폰은 사이트를 새로 열 때마다 한 번씩 물어봐요.</p>
+      <h2 style="font-size:16px;margin-top:4px">${ic("heart")}폰 맞대기</h2>
+      <div class="row2">
+        <button class="btn ${bumpEnabled() ? "soft" : "gray"}" data-act="toggleBump">부딪히기 ${bumpEnabled() ? "켜짐" : "꺼짐"}</button>
+        <button class="btn ${nearEnabled() ? "soft" : "gray"}" data-act="toggleNear">소리 감지 ${nearEnabled() ? "켜짐" : "꺼짐"}</button>
+      </div>
+      <label>가까이 감도 (오른쪽일수록 멀리서도 반응)<input type="range" id="sensRange" min="12" max="45" value="${57 - sensThr()}" style="accent-color:var(--rose);padding:0;border:0;min-height:0"></label>
+      <div class="progress" style="margin-top:8px"><i id="sensBar" style="width:0;transition:width .08s"></i></div>
+      <p class="muted" style="font-size:12px;margin-top:8px">막대는 지금 들리는 상대 폰 신호예요. 둘이 원하는 거리에 폰을 두고, 막대가 차는 정도를 보면서 감도를 맞추면 돼요. 사이트를 열고 처음 터치할 때 센서와 마이크 허용을 물어봐요(아이폰은 열 때마다 한 번).</p>
       <div class="row2">
         <button class="btn gray" data-act="otSheet">${ic("phone")}꺼도 공유 설정</button>
         <button class="btn danger" data-act="locDel">내 위치 지우기</button>
@@ -918,9 +897,12 @@
       drawChat();
       L.scrollTop = L.scrollHeight - h0;
     },
-    nearOpen: () => nearOpen(),
-    nearStart: () => nearStart(),
-    nearClose() { nearStop(); $("#near").hidden = true; },
+    toggleNear() {
+      const on = !nearEnabled();
+      store.set("cp_near", on ? "1" : "0");
+      if (on) { T.nearDenied = false; startNear(); } else nearStop();
+      settingsSheet();
+    },
     toggleBump() {
       const on = !bumpEnabled();
       store.set("cp_bump", on ? "1" : "0");

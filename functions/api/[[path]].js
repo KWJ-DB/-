@@ -278,11 +278,11 @@ export async function onRequest({ request, env, params }) {
           DB.prepare("INSERT INTO touches (who, kind, t) VALUES (?1, ?2, ?3)").bind(who, kind, now),
         ]);
         if (kind === "listen") return json({ match: false, touch: Number(st.last_touch) || 0 });
-        // 상대도 거의 동시에 부딪혔거나(2.5초), 내가 상대 소리를 들었고 상대가 대기 중이면(10초) 성공
+        // 상대도 거의 동시에 부딪혔거나(2.5초), 내가 상대 소리를 들었고 상대가 대기 중이면(15초) 성공
         const r = await DB.prepare(
           `SELECT COUNT(*) AS n FROM touches WHERE who = ?1 AND (
              (kind IN ('bump','near') AND t > ?2) OR (?3 = 'near' AND kind = 'listen' AND t > ?4))`
-        ).bind(other, now - 2500, kind, now - 10000).first();
+        ).bind(other, now - 2500, kind, now - 15000).first();
         const last = Number(st.last_touch) || 0;
         if (r && r.n > 0 && now - last > 4000) {
           await setSettings(env, { last_touch: now });

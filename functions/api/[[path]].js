@@ -7,7 +7,7 @@ import {
 } from "../_lib.js";
 import { getVapid, sendPush } from "../_push.js";
 
-const REACTS = ["heart", "laugh", "wow", "sad", "fire", "like"];
+const REACTS = ["heart", "sparkle", "star", "fire", "like", "hug", "laugh", "wow", "sad"];
 const CHOICE_SLOTS = ["c", "c1", "c2", "c3"];
 
 const OK = { ok: true };
@@ -173,7 +173,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // ----- 장소 (도착/출발 알림) -----
       case "GET places": {
-        const { results } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places ORDER BY id").all();
+        const { results } = await DB.prepare("SELECT id, name, lat, lon, radius, owner FROM places ORDER BY id").all();
         const { results: stt } = await DB.prepare("SELECT who, place_id, inside FROM place_state").all();
         let ev = null;
         try { ev = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
@@ -186,7 +186,8 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!name) return err(400, "장소 이름을 입력하세요");
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return err(400, "위치가 올바르지 않아요");
         if (!(radius >= 50 && radius <= 2000)) return err(400, "반경은 50m~2km");
-        await DB.prepare("INSERT INTO places (name, lat, lon, radius, who, t) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(name, lat, lon, radius, who, Date.now()).run();
+        const owner = ["a", "b", "both"].includes(b.owner) ? b.owner : "both";
+        await DB.prepare("INSERT INTO places (name, lat, lon, radius, who, t, owner) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(name, lat, lon, radius, who, Date.now(), owner).run();
         return json(OK);
       }
       case "DELETE places":

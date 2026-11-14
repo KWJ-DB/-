@@ -62,6 +62,10 @@ export async function ensureSchema(env) {
     ]) { try { await env.DB.prepare(q).run(); } catch {} }
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '2') ON CONFLICT(k) DO UPDATE SET v = '2'").run();
   }
+  if (!v || Number(v.v) < 3) {
+    try { await env.DB.prepare("ALTER TABLE places ADD COLUMN owner TEXT").run(); } catch {}
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '3') ON CONFLICT(k) DO UPDATE SET v = '3'").run();
+  }
   ready = true;
 }
 
@@ -156,7 +160,8 @@ const distM = (a, b) => {
 };
 // 바뀐 것만 돌려줌: [{ place, inside }]
 export async function checkPlaces(DB, who, lat, lon, acc) {
-  const { results: places } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places").all();
+  // 그 사람의 장소(또는 둘 다의 장소)만 확인
+  const { results: places } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE owner IS NULL OR owner = 'both' OR owner = ?1").bind(who).all();
   if (!places || !places.length) return [];
   const { results: states } = await DB.prepare("SELECT place_id, inside FROM place_state WHERE who = ?1").bind(who).all();
   const prev = new Map((states || []).map((s) => [s.place_id, s.inside]));

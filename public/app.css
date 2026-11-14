@@ -553,3 +553,12 @@ body.typing .tabbar { display: none; }
 .push-card b { display: block; font-size: 15px; }
 .push-card span { display: block; font-size: 12px; color: var(--sub); line-height: 1.5; margin-top: 2px; }
 .push-card span b { display: inline; font-size: inherit; color: var(--ink); }
+
+.own-tag { display: inline-block; font-size: 11px; font-weight: 750; padding: 1px 7px; border-radius: 999px; margin-left: 4px; vertical-align: 1px; }
+.own-tag.a { background: var(--a-soft); color: var(--a); } .own-tag.b { background: var(--b-soft); color: var(--b); } .own-tag.both { background: #F1E6FB; color: #8B4BC0; }
+.pl-mk.own-a { color: var(--a); } .pl-mk.own-b { color: var(--b); }
+.pick-own button.on { background: var(--rose-soft); color: var(--rose); }
+
+.r-sparkle svg.i { color: #F0A21A; fill: rgba(255,200,60,.35); }
+.r-star svg.i { color: #F5B400; fill: rgba(255,210,70,.4); }
+.r-hug svg.i { color: #B65FE0; fill: rgba(182,95,224,.15); }

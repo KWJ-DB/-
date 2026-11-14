@@ -625,10 +625,12 @@
     for (const p of S.places || []) {
       const el = document.createElement("div");
       el.className = "pl-mk";
-      el.innerHTML = `${ic("pin")}${esc(p.name)}`;
+      el.innerHTML = `${ic("pin")}${p.owner === "a" || p.owner === "b" ? esc(nm(p.owner)) + " · " : ""}${esc(p.name)}`;
+      if (p.owner === "a" || p.owner === "b") el.classList.add("own-" + p.owner);
       placeMarkers.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map));
     }
   }
+  const ownerLabel = (o) => (o === "a" || o === "b" ? nm(o) : "둘 다");
   function placesSheet() {
     const insideOf = (pid) => (S.placeState || []).filter((x) => x.place_id === pid && x.inside).map((x) => x.who);
     openSheet(`
@@ -636,7 +638,7 @@
       <p>등록한 장소에 도착하거나 떠나면 상대에게 알림이 가요. 화면이 꺼져 있을 때도 받으려면 OwnTracks 연결과 알림 켜기가 필요해요.</p>
       ${(S.places || []).map((p) => {
         const ins = insideOf(p.id);
-        return `<div class="ev"><span class="bar" style="background:#B65FE0"></span><span class="tt">${esc(p.name)}<br><small class="muted">반경 ${p.radius}m${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
+        return `<div class="ev"><span class="bar" style="background:#B65FE0"></span><span class="tt">${esc(p.name)} <span class="own-tag ${p.owner || "both"}">${esc(ownerLabel(p.owner))}</span><br><small class="muted">반경 ${p.radius}m${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
         <button class="x" data-act="placeGo" data-id="${p.id}" aria-label="보기">${ic("target")}</button>
         <button class="x" data-act="placeDel" data-id="${p.id}" aria-label="삭제">${ic("trash")}</button></div>`;
       }).join("") || `<div class="empty">아직 등록한 장소가 없어요<br>예: 학교, 학원, 우리 집</div>`}
@@ -645,15 +647,20 @@
   function placePick() {
     closeSheet();
     const me = S.locs[S.who];
-    if (me) map.flyTo({ center: [me.lon, me.lat], zoom: 16 });
+    if (me) map.flyTo({ center: [me.lon, me.lat], zoom: 16, offset: [0, -0.05 * innerHeight] });
     $("#mapCard").hidden = true;
-    S.pickR = 50;
+    S.pickR = 50; S.pickOwner = S.who;
     const box = document.createElement("div");
     box.id = "pick";
     box.innerHTML = `<div class="pick-ring" id="pickRing"></div><div class="pick-dot"></div>
       <div class="pick-panel">
         <b>지도를 움직여서 가운데에 장소를 맞추세요</b>
-        <input type="text" id="pickName" placeholder="장소 이름 (예: 학교)" maxlength="20">
+        <div class="pick-r pick-own">
+          <button class="on" data-act="pickOwn" data-o="${S.who}">${esc(nm(S.who))}</button>
+          <button data-act="pickOwn" data-o="${other()}">${esc(nm(other()))}</button>
+          <button data-act="pickOwn" data-o="both">둘 다</button>
+        </div>
+        <input type="text" id="pickName" placeholder="장소 이름 (예: 학교, 집)" maxlength="20" style="margin-top:10px">
         <div class="pick-r">${[50, 100, 200, 500].map((r) => `<button class="${r === 50 ? "on" : ""}" data-act="pickR" data-r="${r}">${r}m</button>`).join("")}</div>
         <div class="row2" style="margin-top:10px"><button class="btn gray" data-act="pickCancel">취소</button><button class="btn primary" data-act="pickSave">저장</button></div>
       </div>`;
@@ -823,7 +830,7 @@
     catch (e) { toast("전송 실패: " + e.message); inp.value = text; }
     refreshChat(true);
   }
-  const RX = ["heart", "laugh", "wow", "sad", "fire", "like"];
+  const RX = ["heart", "sparkle", "star", "fire", "like", "hug"];
   async function reactMsg(id, r, bub) {
     if (!id || String(id).startsWith("tmp")) return;
     if (bub) bub.insertAdjacentHTML("beforeend", `<svg class="dm-pop r-${r}"><use href="#i-${r}"/></svg>`);
@@ -1213,13 +1220,16 @@
     placesSheet: () => placesSheet(),
     placePick: () => placePick(),
     pickCancel: () => pickClose(),
-    pickR(el) { S.pickR = Number(el.dataset.r); $$(".pick-r button").forEach((b) => b.classList.toggle("on", b === el)); updatePickRing(); },
+    pickOwn(el) { S.pickOwner = el.dataset.o; $$(".pick-own button").forEach((b) => b.classList.toggle("on", b === el)); },
+    pickR(el) { S.pickR = Number(el.dataset.r); $$(".pick-r:not(.pick-own) button").forEach((b) => b.classList.toggle("on", b === el)); updatePickRing(); },
     async pickSave() {
       const name = $("#pickName").value.trim();
       if (!name) return toast("장소 이름을 적어주세요");
-      const c = map.getCenter();
+      // 화면의 점 위치를 그대로 좌표로 바꿈 (지도 가운데와 점 위치가 달라서 생기던 오차 수정)
+      const dr = $(".pick-dot").getBoundingClientRect(), mr = map.getContainer().getBoundingClientRect();
+      const c = map.unproject([dr.left + dr.width / 2 - mr.left, dr.top + dr.height / 2 - mr.top]);
       try {
-        await api("places", { method: "POST", body: { name, lat: c.lat, lon: c.lng, radius: S.pickR } });
+        await api("places", { method: "POST", body: { name, lat: c.lat, lon: c.lng, radius: S.pickR, owner: S.pickOwner } });
         pickClose(); await loadPlaces(); toast(`${name}을(를) 등록했어요`);
       } catch (e) { toast(e.message); }
     },

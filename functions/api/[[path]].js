@@ -113,8 +113,28 @@ export async function onRequest({ request, env, params, waitUntil }) {
     const route = `${m} ${p0}`;
 
     switch (route) {
-      case "GET me":
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created });
+      case "GET me": {
+        const { results: av } = await DB.prepare("SELECT who, t FROM avatars").all();
+        const avatars = {};
+        for (const r of av || []) avatars[r.who] = r.t;
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars });
+      }
+      case "GET avatar": {
+        const w = p1 === "b" ? "b" : "a";
+        const r = await DB.prepare("SELECT data FROM avatars WHERE who = ?1").bind(w).first();
+        if (!r) return err(404, "사진 없음");
+        return new Response(fromB64(r.data), { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable" } });
+      }
+      case "POST avatar": {
+        const b = await body(request);
+        if (typeof b.data !== "string" || !b.data || b.data.length > 200000) return err(400, "사진이 올바르지 않아요");
+        const t = Date.now();
+        await DB.prepare("INSERT INTO avatars (who, data, t) VALUES (?1, ?2, ?3) ON CONFLICT(who) DO UPDATE SET data = excluded.data, t = excluded.t").bind(who, b.data, t).run();
+        return json({ ok: true, t });
+      }
+      case "DELETE avatar":
+        await DB.prepare("DELETE FROM avatars WHERE who = ?1").bind(who).run();
+        return json(OK);
 
       case "POST settings": {
         const b = await body(request);
@@ -252,6 +272,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const { results } = await DB.prepare("SELECT id, date, caption, who, w, h, t FROM photos ORDER BY date DESC, id DESC LIMIT ?1").bind(n).all();
         return json({ photos: results || [] });
       }
+      case "GET album": {
+        const offset = Math.max(0, Number(q("offset")) || 0);
+        const { results } = await DB.prepare("SELECT id, date, caption, who, w, h, t FROM photos ORDER BY date DESC, id DESC LIMIT 60 OFFSET ?1").bind(offset).all();
+        const c = await DB.prepare("SELECT COUNT(*) AS n FROM photos").first();
+        return json({ photos: results || [], total: c ? c.n : 0 });
+      }
       case "POST photos": {
         const b = await body(request);
         if (!isDate(b.date)) return err(400, "날짜가 올바르지 않아요");
@@ -377,7 +403,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const last = await DB.prepare("SELECT id, who, substr(text, 1, 60) AS text, img FROM messages ORDER BY id DESC LIMIT 1").first();
         let place = null;
         try { place = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
-        return json({ last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, place });
+        return json({ last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, now: Date.now(), place });
       }
 
       // ----- 부딪히기 / 가까이 대기 -----
@@ -391,21 +417,21 @@ export async function onRequest({ request, env, params, waitUntil }) {
           DB.prepare("DELETE FROM touches WHERE t < ?1").bind(now - 60000),
           DB.prepare("INSERT INTO touches (who, kind, t) VALUES (?1, ?2, ?3)").bind(who, kind, now),
         ]);
-        if (kind === "listen") return json({ match: false, touch: Number(st.last_touch) || 0 });
-        // 상대도 거의 동시에 부딪혔거나(2.5초), 내가 상대 소리를 들었고 상대가 대기 중이면(15초) 성공
-        const r = await DB.prepare(
-          `SELECT COUNT(*) AS n FROM touches WHERE who = ?1 AND (
-             (kind IN ('bump','near') AND t > ?2) OR (?3 = 'near' AND kind = 'listen' AND t > ?4))`
-        ).bind(other, now - 2500, kind, now - 15000).first();
+        if (kind === "listen") return json({ match: false, touch: Number(st.last_touch) || 0, now });
+        // 두 폰이 서로의 소리를 2.5초 안에 다 들었을 때만 성공 (한쪽만 들으면 안 됨 → 멀리서 안 터짐)
+        const r = await DB.prepare("SELECT COUNT(*) AS n FROM touches WHERE who = ?1 AND kind IN ('bump','near') AND t > ?2")
+          .bind(other, now - 2500).first();
         const last = Number(st.last_touch) || 0;
-        if (r && r.n > 0 && now - last > 4000) {
-          await setSettings(env, { last_touch: now });
-          return json({ match: true, touch: now });
+        if (r && r.n > 0 && now - last > 5000) {
+          // 두 폰이 같은 시각에 재생하도록 1.2초 뒤를 재생 시각으로 정함
+          const at = now + 1200;
+          await setSettings(env, { last_touch: now, last_touch_at: at });
+          return json({ match: true, touch: now, at, now });
         }
-        return json({ match: false, touch: last });
+        return json({ match: false, touch: last, at: Number(st.last_touch_at) || 0, now });
       }
       case "GET touch":
-        return json({ touch: Number(st.last_touch) || 0, now: Date.now() });
+        return json({ touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, now: Date.now() });
 
       // ----- 버킷리스트 -----
       case "GET bucket": {

@@ -45,7 +45,8 @@
   const other = () => (S.who === "a" ? "b" : "a");
   const nm = (w) => S.names[w] || "";
   const ini = (w) => [...nm(w)][0] || "?";
-  const av = (w, cls = "") => `<span class="av ${w} ${cls}">${esc(ini(w))}</span>`;
+  const avSrc = (w) => (S.avatars && S.avatars[w] ? `/api/avatar/${w}?v=${S.avatars[w]}` : null);
+  const av = (w, cls = "") => avSrc(w) ? `<span class="av ${w} ${cls} has-img"><img src="${avSrc(w)}" alt=""></span>` : `<span class="av ${w} ${cls}">${esc(ini(w))}</span>`;
   const view = $("#view");
 
   function toast(msg) {
@@ -105,9 +106,10 @@
   const ALL_SLOTS = ["t", ...CSLOTS];
   const qFor = (date, slot) => {
     const i = qIndex(date);
-    if (slot === "t") return { q: QT[i % QT.length] };
-    const k = CSLOTS.indexOf(slot);
-    return QC[(i * 3 + Math.max(0, k)) % QC.length];
+    const G = window.QGEN;
+    if (slot === "t") return { q: G ? G.text(i) : QT[i % QT.length] };
+    const k = Math.max(0, CSLOTS.indexOf(slot));
+    return G ? G.choice(i * 3 + k) : QC[(i * 3 + k) % QC.length];
   };
   // 예전 버전의 "c" 답은 첫 번째 객관식으로 취급
   const getAns = (date, slot, w) => S.ans[`${date}|${slot}|${w}`] || (slot === "c1" ? S.ans[`${date}|c|${w}`] : undefined);
@@ -123,7 +125,7 @@
   }
 
   // ---------- 화면 전환 ----------
-  const TABS = ["home", "chat", "question", "calendar", "map", "bucket"];
+  const TABS = ["home", "chat", "question", "calendar", "map"];
   function setTab(tab) {
     if (!TABS.includes(tab)) tab = "home";
     S.tab = tab;
@@ -144,8 +146,8 @@
     try {
       if (S.tab === "home") await renderHome();
       else if (S.tab === "question") await renderQuestion();
-      else if (S.tab === "calendar") await renderCalendar();
-      else if (S.tab === "bucket") await renderBucket();
+      else if (S.tab === "calendar") await (S.memView === "cal" ? renderCalendar() : renderAlbum());
+
     } catch (e) {
       if (e.status !== 401) view.innerHTML = `<div class="card empty">불러오지 못했어요<br>${esc(e.message)}</div>`;
     }
@@ -165,7 +167,7 @@
     if (S.tab !== "home") return;
 
     const dp = dplus(t);
-    const up = annivList(t, addDays(t, 800)).filter((a) => a.kind !== "start").slice(0, 5);
+    const up = annivList(t, addDays(t, 800)).filter((a) => a.kind !== "start").slice(0, 3);
     const next = up[0];
     const myCnt = answeredCount(t, S.who);
     const otCnt = answeredCount(t, other());
@@ -176,7 +178,7 @@
 
     view.innerHTML = `
       <div class="hero">
-        <div class="pair">${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</div>
+        <div class="pair"><span class="pair-av">${av("a")}${av("b")}</span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</div>
         <div class="dday">${dp > 0 ? dp : dlabel(1 - dp)}${dp > 0 ? "<small>일째</small>" : ""}</div>
         <div class="since">${fmtDot(S.start)}부터 함께</div>
         ${next ? `<div class="next">${ic("gift")}${esc(next.title)}까지 ${dlabel(diff(t, next.date))}</div>` : ""}
@@ -207,13 +209,13 @@
       </div>
 
       <div class="card">
-        <div class="card-h"><h3>${ic("image")}우리 사진</h3><button class="more" data-act="tab" data-tab="calendar">캘린더${ic("right")}</button></div>
+        <div class="card-h"><h3>${ic("image")}우리 사진</h3><button class="more" data-act="albumGo">앨범${ic("right")}</button></div>
         ${S.homePhotos.length ? `<div class="strip">${S.homePhotos.map((p, i) => `
           <button data-act="openHomePhoto" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""><span>${fmtDot(p.date).slice(5)}</span></button>`).join("")}</div>`
-          : `<div class="empty">캘린더에서 날짜를 눌러 사진을 올려보세요</div>`}
+          : `<div class="empty">앨범에 같이 찍은 사진을 올려보세요</div>`}
       </div>
 
-      <button class="card" style="display:block;width:100%;text-align:left" data-act="tab" data-tab="bucket">
+      <button class="card" style="display:block;width:100%;text-align:left" data-act="bucketOpen">
         <div class="card-h"><h3>${ic("list")}버킷리스트</h3><span class="more">${bkDone}/${bk.length}${ic("right")}</span></div>
         <div class="progress"><i style="width:${bk.length ? (bkDone / bk.length) * 100 : 0}%"></i></div>
       </button>`;
@@ -304,6 +306,64 @@
       ${rows}</div>`;
   }
 
+  // ---------- 프로필 사진 (정사각형으로 잘라서 저장) ----------
+  async function uploadAvatar(file) {
+    try {
+      const im = await loadImg(file);
+      const sz = 320, c = document.createElement("canvas");
+      c.width = c.height = sz;
+      const m = Math.min(im.naturalWidth, im.naturalHeight);
+      c.getContext("2d").drawImage(im, (im.naturalWidth - m) / 2, (im.naturalHeight - m) / 2, m, m, 0, 0, sz, sz);
+      const data = c.toDataURL("image/jpeg", 0.85).split(",")[1];
+      const r = await api("avatar", { method: "POST", body: { data } });
+      S.avatars[S.who] = r.t;
+      settingsSheet(); toast("프로필 사진을 바꿨어요");
+      if (S.chat) drawChat();
+      if (map) { Object.values(markers).forEach((mk) => mk.remove()); for (const k in markers) delete markers[k]; drawMap(); }
+    } catch (e) { toast(e.message); }
+  }
+
+  // ---------- 추억: 공유 앨범 ----------
+  const segHtml = () => `<div class="seg"><button class="${S.memView !== "cal" ? "on" : ""}" data-act="memView" data-v="album">${ic("image")}앨범</button><button class="${S.memView === "cal" ? "on" : ""}" data-act="memView" data-v="cal">${ic("cal")}캘린더</button></div>`;
+  async function renderAlbum(more) {
+    if (!more || !S.album) { spinner(); const d = await api("album"); S.album = { photos: d.photos, total: d.total }; }
+    else { const d = await api(`album?offset=${S.album.photos.length}`); S.album.photos = S.album.photos.concat(d.photos); S.album.total = d.total; }
+    if (S.tab !== "calendar" || S.memView === "cal") return;
+    const ph = S.album.photos;
+    let html = "", cur = "";
+    ph.forEach((p, i) => {
+      const ym = p.date.slice(0, 7);
+      if (ym !== cur) {
+        if (cur) html += `</div>`;
+        cur = ym;
+        html += `<div class="al-month">${+ym.slice(0, 4)}년 ${+ym.slice(5)}월</div><div class="al-grid">`;
+      }
+      html += `<button data-act="openAlbum" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""><span>${+p.date.slice(8)}일</span></button>`;
+    });
+    if (cur) html += `</div>`;
+    view.innerHTML = `
+      ${segHtml()}
+      <div class="al-head">
+        <div><h2>우리 앨범</h2><span>${S.album.total}장의 추억</span></div>
+        <button class="btn primary sm" data-act="albumUp">${ic("plus")}사진 올리기</button>
+      </div>
+      <input type="file" id="alInput" accept="image/*" multiple hidden>
+      ${ph.length ? html : `<div class="card empty">${ic("image")}<br>아직 사진이 없어요<br>같이 찍은 사진을 올려보세요</div>`}
+      ${ph.length < S.album.total ? `<button class="btn gray block" data-act="albumMore" style="margin-top:12px">더 보기</button>` : ""}`;
+  }
+  async function albumUpload(files) {
+    const date = today();
+    let ok = 0;
+    for (let i = 0; i < files.length; i++) {
+      toast(`사진 올리는 중 ${i + 1}/${files.length}`);
+      try { const p = await prepPhoto(files[i]); await api("photos", { method: "POST", body: { date, ...p } }); ok++; }
+      catch (e) { toast(e.message); }
+    }
+    S.album = null; S.calData = null;
+    await render(true);
+    if (ok) toast(`사진 ${ok}장을 올렸어요`);
+  }
+
   // ---------- 캘린더 ----------
   async function renderCalendar() {
     if (!S.cal) { const n = new Date(); S.cal = { y: n.getFullYear(), m: n.getMonth(), sel: today() }; }
@@ -338,6 +398,7 @@
     const sEv = ev[sel] || [], sPh = ph[sel] || [], sAn = an[sel] || [];
     const dp = dplus(sel);
     view.innerHTML = `
+      ${segHtml()}
       <div class="cal-head">
         <h2>${y}년 ${m + 1}월</h2>
         <div class="nav">
@@ -442,21 +503,17 @@
       <div class="lb-bot">${p.chat ? `<b>${esc(nm(p.who))}</b><span>${fmtTime(p.t)}</span>` : `<b>${fmtK(p.date)}${p.caption ? " · " + esc(p.caption) : ""}</b><span>${esc(nm(p.who))}님이 올림 · 우리 ${dplus(p.date)}일째</span>`}</div>`;
   }
 
-  // ---------- 버킷리스트 ----------
-  async function renderBucket() {
-    spinner();
+  // ---------- 버킷리스트 (홈에서 여는 시트) ----------
+  async function bucketSheet() {
     const { bucket } = await api("bucket");
-    if (S.tab !== "bucket") return;
     const done = bucket.filter((b) => b.done).length;
-    view.innerHTML = `
-      <div class="bk-head">
-        <h2>우리의 버킷리스트</h2>
-        <p>같이 하고 싶은 걸 적고 하나씩 이뤄봐요</p>
-        <div class="progress"><i style="width:${bucket.length ? (done / bucket.length) * 100 : 0}%"></i></div>
-        <div class="num">${bucket.length ? `${bucket.length}개 중 ${done}개 이뤘어요` : "아직 비어 있어요"}</div>
-      </div>
-      <div class="add-row" style="margin-bottom:14px">
-        <input type="text" id="bkTitle" placeholder="예: 같이 바다 보러 가기" maxlength="80">
+    const keep = $("#bkTitle") ? $("#bkTitle").value : "";
+    openSheet(`
+      <h2>${ic("list")}우리의 버킷리스트</h2>
+      <p>${bucket.length ? `${bucket.length}개 중 ${done}개 이뤘어요` : "같이 하고 싶은 걸 적고 하나씩 이뤄봐요"}</p>
+      <div class="progress" style="margin:4px 0 14px"><i style="width:${bucket.length ? (done / bucket.length) * 100 : 0}%"></i></div>
+      <div class="add-row" style="margin-bottom:12px">
+        <input type="text" id="bkTitle" placeholder="예: 같이 바다 보러 가기" maxlength="80" value="${esc(keep)}">
         <button class="btn primary" data-act="bkAdd" aria-label="추가">${ic("plus")}</button>
       </div>
       ${bucket.map((b) => `
@@ -464,7 +521,7 @@
           <button class="ck" data-act="bkToggle" data-id="${b.id}" data-done="${b.done}" aria-label="완료">${ic("check")}</button>
           <div class="tt"><b>${esc(b.title)}</b><span>${b.done && b.done_date ? fmtDot(b.done_date) + " 이룸" : esc(nm(b.who)) + "의 소원"}</span></div>
           <button class="x" data-act="bkDel" data-id="${b.id}" aria-label="삭제">${ic("x")}</button>
-        </div>`).join("") || `<div class="empty">첫 번째 버킷을 적어보세요</div>`}`;
+        </div>`).join("") || `<div class="empty">첫 번째 버킷을 적어보세요</div>`}`);
   }
 
   // ---------- 지도 ----------
@@ -514,7 +571,7 @@
       if (!l) { if (markers[w]) { markers[w].remove(); delete markers[w]; } continue; }
       pts.push([l.lon, l.lat]);
       const age = S.locNow - l.t;
-      const html = `<div class="pinv">${esc(ini(w))}</div><div class="lb">${esc(nm(w))} · ${ago(l.t, S.locNow)}</div>`;
+      const html = `<div class="pinv">${avSrc(w) ? `<img src="${avSrc(w)}" alt="">` : esc(ini(w))}</div><div class="lb">${esc(nm(w))} · ${ago(l.t, S.locNow)}</div>`;
       const cls = `mk ${w}${age < 5 * 60000 ? " live" : ""}${age > 60 * 60000 ? " old" : ""}`;
       if (!markers[w]) {
         const el = document.createElement("div");
@@ -582,14 +639,14 @@
     const me = S.locs[S.who];
     if (me) map.flyTo({ center: [me.lon, me.lat], zoom: 16 });
     $("#mapCard").hidden = true;
-    S.pickR = 150;
+    S.pickR = 50;
     const box = document.createElement("div");
     box.id = "pick";
     box.innerHTML = `<div class="pick-ring" id="pickRing"></div><div class="pick-dot"></div>
       <div class="pick-panel">
         <b>지도를 움직여서 가운데에 장소를 맞추세요</b>
         <input type="text" id="pickName" placeholder="장소 이름 (예: 학교)" maxlength="20">
-        <div class="pick-r">${[100, 150, 300, 500].map((r) => `<button class="${r === 150 ? "on" : ""}" data-act="pickR" data-r="${r}">${r}m</button>`).join("")}</div>
+        <div class="pick-r">${[50, 100, 200, 500].map((r) => `<button class="${r === 50 ? "on" : ""}" data-act="pickR" data-r="${r}">${r}m</button>`).join("")}</div>
         <div class="row2" style="margin-top:10px"><button class="btn gray" data-act="pickCancel">취소</button><button class="btn primary" data-act="pickSave">저장</button></div>
       </div>`;
     $("#mapWrap").appendChild(box);
@@ -609,30 +666,29 @@
   function fitMap() {
     const pts = ["a", "b"].map((w) => S.locs[w]).filter(Boolean).map((l) => [l.lon, l.lat]);
     if (!map || !pts.length) return;
-    const pad = { top: 110, bottom: 300, left: 50, right: 50 };
+    const pad = { top: 160, bottom: 380, left: 60, right: 60 };
     if (pts.length === 1) map.flyTo({ center: pts[0], zoom: 15 });
     else map.fitBounds([[Math.min(pts[0][0], pts[1][0]), Math.min(pts[0][1], pts[1][1])], [Math.max(pts[0][0], pts[1][0]), Math.max(pts[0][1], pts[1][1])]], { padding: pad, maxZoom: 16 });
   }
   function renderMapCard() {
     const la = S.locs.a, lb = S.locs.b;
-    const live = S.watchId !== null;
     const person = (w) => {
       const l = S.locs[w];
       return `<button class="person" data-act="flyTo" data-w="${w}">${av(w)}<div class="meta"><b>${esc(nm(w))}${w === S.who ? " (나)" : ""}</b>
         <span>${l ? `${ic("clock")}${ago(l.t, S.locNow)}${l.batt != null ? ` ${ic("batt")}${l.batt}%` : ""}` : "위치 없음"}</span></div></button>`;
     };
+    const auto = S.autoLoc === "on" ? "이 화면을 열어두면 자동으로 공유돼요" : S.autoLoc === "denied" ? "위치 권한을 허용해야 공유돼요" : "위치 확인 중...";
     $("#mapCard").innerHTML = `
       <div class="dist">
         <div class="ic">${ic("route")}</div>
-        <div>${la && lb ? `<b>${fmtDist(distM(la, lb))}</b><span>지금 우리 사이 거리</span>` : `<b>-</b><span>둘 다 위치를 보내면 거리가 보여요</span>`}</div>
+        <div>${la && lb ? `<b>${fmtDist(distM(la, lb))}</b><span>지금 우리 사이 거리</span>` : `<b>-</b><span>둘 다 위치가 있어야 보여요</span>`}</div>
         <button class="icon-btn fit" data-act="fitMap" aria-label="모두 보기">${ic("target")}</button>
       </div>
       <div class="people">${person(S.who)}${person(other())}</div>
-      <div class="map-actions">
-        <button class="btn soft" data-act="sendNow">${ic("send")}보내기</button>
-        <button class="btn ${live ? "on" : "gray"}" data-act="liveToggle">${ic("radio")}${live ? "켜짐" : "실시간"}</button>
-        <button class="btn gray" data-act="placesSheet">${ic("pin")}장소</button>
-        <button class="btn gray" data-act="otSheet">${ic("phone")}꺼도 공유</button>
+      <div class="auto-line"><i class="${S.autoLoc === "on" ? "on" : ""}"></i>${auto}</div>
+      <div class="map-actions two">
+        <button class="btn gray" data-act="placesSheet">${ic("pin")}장소 알림</button>
+        <button class="btn gray" data-act="otSheet">${ic("phone")}화면 꺼도 공유</button>
       </div>`;
   }
   async function refreshLoc(redraw) {
@@ -658,19 +714,23 @@
     S.lastSent = { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now() };
     refreshLoc();
   }
-  function toggleLive() {
-    if (S.watchId !== null) {
-      navigator.geolocation.clearWatch(S.watchId); S.watchId = null; renderMapCard(); toast("실시간 공유를 껐어요"); return;
-    }
-    if (!navigator.geolocation) return toast("이 브라우저는 위치를 지원하지 않아요");
+  // 사이트를 열면 항상 자동으로 내 위치를 보냄 (50m 움직이거나 2분마다)
+  function startAutoLoc() {
+    if (S.watchId !== null || !navigator.geolocation) return;
+    S.autoLoc = "wait";
     S.watchId = navigator.geolocation.watchPosition((p) => {
+      S.autoLoc = "on";
       const now = Date.now(), cur = { lat: p.coords.latitude, lon: p.coords.longitude };
-      const due = !S.lastSent || now - S.lastSent.t > 5 * 60000 || (now - S.lastSent.t > 20000 && distM(S.lastSent, cur) > 20);
+      const due = !S.lastSent || now - S.lastSent.t > 2 * 60000 || (now - S.lastSent.t > 15000 && distM(S.lastSent, cur) > 50);
       if (due) sendPos(p).catch(() => {});
-    }, (e) => toast(geoMsg(e)), { enableHighAccuracy: true, maximumAge: 10000 });
-    renderMapCard();
-    toast("이 화면을 켜둔 동안 계속 보내요");
+      if (S.tab === "map" && !$("#pick")) renderMapCard();
+    }, (e) => {
+      if (e.code === 1) { S.autoLoc = "denied"; navigator.geolocation.clearWatch(S.watchId); S.watchId = null; }
+      if (S.tab === "map") renderMapCard();
+    }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 30000 });
   }
+  function stopAutoLoc() { if (S.watchId !== null) { navigator.geolocation.clearWatch(S.watchId); S.watchId = null; } }
+
 
 
   // ---------- DM 채팅 ----------
@@ -855,55 +915,59 @@
   document.addEventListener("click", onGesture, true);
   document.addEventListener("touchend", onGesture, true);
 
+  // 서버 시계와 내 시계 차이 (두 폰이 같은 순간에 재생하려고)
+  S.clockOff = 0;
+  async function timedApi(path, opt) {
+    const t0 = Date.now();
+    const r = await api(path, opt);
+    const t1 = Date.now();
+    if (r && r.now && t1 - t0 < 1500) S.clockOff = r.now - (t0 + t1) / 2;
+    return r;
+  }
+  // 정해진 재생 시각(서버 기준)에 맞춰 애니메이션 시작
+  function scheduleFx(touch, at) {
+    if (!touch || touch <= S.lastTouchSeen) return;
+    S.lastTouchSeen = touch;
+    const wait = (at || touch) - S.clockOff - Date.now();
+    if (wait < -2500) return; // 너무 늦게 알았으면 생략
+    setTimeout(() => playFx(touch), Math.max(0, wait));
+  }
   async function sendTouch(kind) {
-    const sentAt = Date.now();
     try {
-      const r = await api("touch", { method: "POST", body: { kind } });
-      if (r.match) return playFx(r.touch);
-      // 상대가 조금 늦게 부딪힌 경우를 위해 잠깐 확인
-      let n = 0;
-      clearInterval(T.polling);
-      T.polling = setInterval(async () => {
-        if (++n > 7) return clearInterval(T.polling);
-        const t = (await api("touch").catch(() => ({}))).touch || 0;
-        if (t > sentAt - 3000 && t > S.lastTouchSeen) { clearInterval(T.polling); playFx(t); }
-      }, 500);
+      const r = await timedApi("touch", { method: "POST", body: { kind } });
+      if (r.match) return scheduleFx(r.touch, r.at);
     } catch {}
   }
-
   const HEART = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 21s-7.8-4.8-9.6-9.7C1.1 7.6 3.4 4 7 4c2.1 0 3.7 1.1 5 3 1.3-1.9 2.9-3 5-3 3.6 0 5.9 3.6 4.6 7.3C19.8 16.2 12 21 12 21z"/></svg>`;
   function playFx(t) {
     S.lastTouchSeen = Math.max(S.lastTouchSeen, t || Date.now());
     const fx = $("#fx");
     const R = (a, b) => a + Math.random() * (b - a);
-    const stars = Array.from({ length: 46 }, () => `<i style="left:${R(0, 100)}%;top:${R(0, 100)}%;--s:${R(1, 3).toFixed(1)}px;--d:${R(1.2, 3).toFixed(2)}s;--dl:${R(0, 2).toFixed(2)}s"></i>`).join("");
-    const sparks = Array.from({ length: 26 }, (_, i) => `<i style="--a:${(i * 360) / 26 + R(-6, 6)}deg;--d:${R(110, 230).toFixed(0)}px;--s:${R(3, 8).toFixed(1)}px;--dl:${R(0, 0.2).toFixed(2)}s"></i>`).join("");
-    const floaters = Array.from({ length: 16 }, () => `<span style="left:${R(4, 92)}%;--sz:${R(14, 30).toFixed(0)}px;--dur:${R(2.6, 4.2).toFixed(2)}s;--dl:${R(1.0, 2.6).toFixed(2)}s;--sw:${R(-40, 40).toFixed(0)}px;--rot:${R(-25, 25).toFixed(0)}deg">${HEART}</span>`).join("");
+    const grad = (id, c1, c2) => `<svg viewBox="0 0 24 24"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><path fill="url(#${id})" d="M12 21s-7.8-4.8-9.6-9.7C1.1 7.6 3.4 4 7 4c2.1 0 3.7 1.1 5 3 1.3-1.9 2.9-3 5-3 3.6 0 5.9 3.6 4.6 7.3C19.8 16.2 12 21 12 21z"/></svg>`;
+    const floaters = Array.from({ length: 12 }, () => `<span style="left:${R(6, 90)}%;--sz:${R(12, 24).toFixed(0)}px;--dur:${R(3, 4.4).toFixed(2)}s;--dl:${R(0.9, 2.2).toFixed(2)}s;--sw:${R(-30, 30).toFixed(0)}px">${HEART}</span>`).join("");
     fx.innerHTML = `
-      <div class="fx-stars">${stars}</div>
-      <div class="fx-aura"></div>
-      <div class="fx-orb l a"><span>${esc(ini("a"))}</span></div>
-      <div class="fx-orb r b"><span>${esc(ini("b"))}</span></div>
-      <div class="fx-flash"></div>
-      <div class="fx-ring r1"></div><div class="fx-ring r2"></div><div class="fx-ring r3"></div>
-      <div class="fx-sparks">${sparks}</div>
-      <div class="fx-big"><svg viewBox="0 0 24 24"><defs><linearGradient id="fxg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD1DC"/><stop offset=".55" stop-color="#FF7A9C"/><stop offset="1" stop-color="#B65FE0"/></linearGradient></defs><path fill="url(#fxg)" d="M12 21s-7.8-4.8-9.6-9.7C1.1 7.6 3.4 4 7 4c2.1 0 3.7 1.1 5 3 1.3-1.9 2.9-3 5-3 3.6 0 5.9 3.6 4.6 7.3C19.8 16.2 12 21 12 21z"/></svg></div>
+      <div class="fx-h l">${grad("fxa", "#FFB3C6", "#F2668B")}</div>
+      <div class="fx-h r">${grad("fxb", "#D9C8FF", "#9B7CF6")}</div>
+      <div class="fx-ripple"></div>
+      <div class="fx-big">${grad("fxc", "#FF9BB4", "#C86BE6")}</div>
       <div class="fx-float">${floaters}</div>
-      <div class="fx-text"><b>${esc(nm("a"))}<em>${ic("heart")}</em>${esc(nm("b"))}</b><span>우리 ${dplus(today())}일째, 닿았다</span></div>`;
+      <div class="fx-text"><b>우리 지금 닿았어요</b><span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</span></div>`;
     fx.hidden = false;
     fx.classList.remove("out");
-    try { navigator.vibrate && navigator.vibrate([20, 60, 20, 60, 160]); } catch {}
+    try { navigator.vibrate && navigator.vibrate([30, 80, 30]); } catch {}
     clearTimeout(playFx.t); clearTimeout(playFx.t2);
-    const close = () => { fx.classList.add("out"); playFx.t2 = setTimeout(() => (fx.hidden = true), 450); };
-    playFx.t = setTimeout(close, 5200);
+    const close = () => { fx.classList.add("out"); playFx.t2 = setTimeout(() => (fx.hidden = true), 500); };
+    playFx.t = setTimeout(close, 4200);
     fx.onclick = close;
   }
+
 
 
   // ---------- 폰 맞대기: 가까이 감지(초음파, 사이트 켜면 자동) ----------
   const FREQ = { a: 18000, b: 18900 };
   const nearEnabled = () => store.get("cp_near") !== "0";
-  const sensThr = () => Number(store.get("cp_sens") || 28);
+  // 기본 감도: 폰끼리 거의 붙여야 반응 (예전 값은 무시)
+  const sensThr = () => Number(store.get("cp_sens2") || 40);
   function nearStatusText() {
     if (!nearEnabled()) return "소리 감지 꺼짐";
     if (T.nearDenied) return "마이크가 거부됐어요. 사이트를 다시 열고 허용해 주세요";
@@ -937,10 +1001,14 @@
       const binHz = ctx.sampleRate / an.fftSize;
       const snrAt = (f) => {
         const tb = Math.round(f / binHz);
-        let peak = -200; for (let i = tb - 2; i <= tb + 2; i++) peak = Math.max(peak, buf[i]);
+        // 소리가 완전히 없으면 -Infinity가 나와서 값이 튀지 않게 막음
+        const v = (i) => (Number.isFinite(buf[i]) ? Math.max(buf[i], -140) : -140);
+        let peak = -140; for (let i = tb - 2; i <= tb + 2; i++) peak = Math.max(peak, v(i));
         let nz = 0, c = 0;
-        for (let i = tb - 50; i < tb - 15; i++) { nz += buf[i]; c++; }
-        for (let i = tb + 15; i < Math.min(buf.length, tb + 50); i++) { nz += buf[i]; c++; }
+        for (let i = tb - 50; i < tb - 15; i++) { nz += v(i); c++; }
+        for (let i = tb + 15; i < Math.min(buf.length, tb + 50); i++) { nz += v(i); c++; }
+        // 너무 작은 소리는 무시 (멀리서 희미하게 들리는 경우)
+        if (peak < -75) return 0;
         return Math.max(0, peak - nz / c);
       };
       let hits = 0, lastNear = 0, tick = 0;
@@ -953,15 +1021,15 @@
         if (sb) sb.style.width = Math.min(100, (self / 50) * 100) + "%";
         if (++tick % 15 === 0) { const ns = $("#nearStat"); if (ns) ns.textContent = nearStatusText(); }
         hits = snr > sensThr() ? hits + 1 : 0;
-        if (hits >= 4 && Date.now() - lastNear > 3000) { lastNear = Date.now(); hits = 0; sendTouch("near"); }
+        if (hits >= 6 && Date.now() - lastNear > 1500) { lastNear = Date.now(); hits = 0; sendTouch("near"); }
       }, 60);
-      const listen = () => api("touch", { method: "POST", body: { kind: "listen" } }).catch(() => {});
-      listen();
-      const beat = setInterval(listen, 8000);
+      const beat = setInterval(() => {}, 60000);
+      // 상대 폰이 먼저 성공을 받았을 수 있어서 자주 확인 (재생은 정해진 시각에 같이)
       const poll = setInterval(async () => {
-        const t = (await api("touch").catch(() => ({}))).touch || 0;
-        if (t > S.lastTouchSeen && Date.now() - t < 8000) playFx(t);
-      }, 1500);
+        if (document.hidden) return;
+        const r = await timedApi("touch").catch(() => null);
+        if (r && r.touch > S.lastTouchSeen && Date.now() - S.clockOff - r.touch < 6000) scheduleFx(r.touch, r.at);
+      }, 500);
       T.near = { stream, ctx, osc, loop, beat, poll };
     } catch (e) {
       if (e && e.name === "NotAllowedError") T.nearDenied = true; // 거부하면 다시 열 때까지 안 물어봄
@@ -1040,28 +1108,29 @@
   function otSheet() {
     openSheet(`
       <h2>${ic("phone")}화면 꺼도 위치 공유</h2>
-      <p>웹페이지는 화면이 꺼지면 위치를 못 보내요. 무료 앱 <b>OwnTracks</b>가 백그라운드에서 이 사이트로 위치를 보내게 연결하면 돼요. 아이폰, 안드로이드 둘 다 돼요.</p>
+      <p>화면이 꺼져 있어도 위치를 보내려면 무료 앱 <b>OwnTracks</b>가 필요해요. 설치한 뒤 아래 버튼만 누르면 설정이 자동으로 들어가요.</p>
       <ol>
-        <li>App Store / Play 스토어에서 <b>OwnTracks</b> 설치</li>
-        <li>앱 설정에서 <b>Mode</b>를 <b>HTTP</b>로 바꾸기</li>
-        <li>아래 값 입력</li>
+        <li>App Store에서 <b>OwnTracks</b> 설치 후 한 번 열기</li>
+        <li>여기에 로그인 비밀번호 입력 후 <b>자동 설정</b> 누르기</li>
+        <li>OwnTracks가 열리면 설정 가져오기 허용, 위치 권한은 <b>항상 허용</b></li>
       </ol>
-      <div class="kv"><span class="k">URL</span><span class="v" id="kvUrl">${esc(location.origin)}/api/owntracks</span><button data-act="copy" data-t="kvUrl">${ic("copy")}</button></div>
-      <div class="kv"><span class="k">UserID</span><span class="v" id="kvUser">${S.who}</span><button data-act="copy" data-t="kvUser">${ic("copy")}</button></div>
-      <div class="kv"><span class="k">Password</span><span class="v">로그인 비밀번호</span></div>
-      <div class="kv"><span class="k">DeviceID</span><span class="v">phone</span></div>
-      <ol start="4">
-        <li>위치 권한 <b>항상 허용</b></li>
-        <li>지도 위 모드 버튼에서 <b>Significant</b>(배터리 절약) 또는 <b>Move</b>(자주 전송) 선택</li>
-      </ol>
-      <p class="note">UserID는 한글 이름 대신 꼭 <b>${S.who}</b>로 넣으세요 (${esc(nm("a"))} = a, ${esc(nm("b"))} = b). 앱 설정에서 <b>Authentication</b>도 켜야 해요. 앱 지도에서도 ${esc(nm(other()))}님 위치가 보여요. 잠깐 멈추려면 앱에서 Quiet 모드로 바꾸면 돼요.</p>
+      <label>로그인 비밀번호<input type="password" id="otPw" autocomplete="current-password"></label>
+      <div class="row2"><button class="btn primary" data-act="otSetup">${ic("phone")}OwnTracks 자동 설정</button></div>
+      <p class="note">50m 움직일 때마다 위치를 보내도록 설정돼요. 배터리를 아끼고 싶으면 OwnTracks 지도 위 모드 버튼에서 Significant로 바꾸면 돼요.</p>
+      <p class="muted" style="font-size:12px;margin-top:10px">직접 입력하려면: Mode HTTP · URL ${esc(location.origin)}/api/owntracks · UserID ${S.who} · Password 로그인 비밀번호 · Authentication 켜기</p>
       <div class="row2"><button class="btn gray" data-act="close">닫기</button></div>`);
   }
 
-  document.addEventListener("input", (e) => { if (e.target.id === "sensRange") store.set("cp_sens", String(57 - Number(e.target.value))); });
+
+  document.addEventListener("input", (e) => { if (e.target.id === "sensRange") store.set("cp_sens2", String(62 - Number(e.target.value))); });
   function settingsSheet() {
     openSheet(`
       <h2>${ic("gear")}설정</h2>
+      <div class="me-av">
+        <button class="me-av-pic" data-act="avatarPick" aria-label="프로필 사진 바꾸기">${av(S.who, "xl")}<span class="cam">${ic("camera")}</span></button>
+        <div><b>${esc(nm(S.who))}</b><span>프로필 사진을 눌러서 바꿀 수 있어요</span>${avSrc(S.who) ? `<button class="link" data-act="avatarDel">사진 지우기</button>` : ""}</div>
+        <input type="file" id="avInput" accept="image/*" hidden>
+      </div>
       <label>${esc(nm("a"))} 이름<input id="stA" type="text" maxlength="20" value="${esc(nm("a"))}"></label>
       <label>${esc(nm("b"))} 이름<input id="stB" type="text" maxlength="20" value="${esc(nm("b"))}"></label>
       <label>사귄 날<input id="stStart" type="date" value="${S.start}"></label>
@@ -1086,7 +1155,7 @@
       <div class="row2">
         <button class="btn ${nearEnabled() ? "soft" : "gray"}" data-act="toggleNear">소리 감지 ${nearEnabled() ? "켜짐" : "꺼짐"}</button>
       </div>
-      <label>가까이 감도 (오른쪽일수록 멀리서도 반응)<input type="range" id="sensRange" min="12" max="45" value="${57 - sensThr()}" style="accent-color:var(--rose);padding:0;border:0;min-height:0"></label>
+      <label>가까이 감도 (오른쪽일수록 멀리서도 반응)<input type="range" id="sensRange" min="12" max="50" value="${62 - sensThr()}" style="accent-color:var(--rose);padding:0;border:0;min-height:0"></label>
       <div class="sens-row"><span>${esc(nm(other()))} 폰 신호</span><div class="progress"><i id="sensBar" style="width:0;transition:width .08s"></i></div></div>
       <div class="sens-row"><span>내 폰 소리</span><div class="progress"><i id="selfBar" style="width:0;transition:width .08s"></i></div></div>
       <div class="near-stat" id="nearStat">${nearStatusText()}</div>
@@ -1111,6 +1180,17 @@
   // ---------- 버튼 동작 ----------
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
+    bucketOpen: () => bucketSheet(),
+    avatarPick: () => $("#avInput").click(),
+    async avatarDel() {
+      await api("avatar", { method: "DELETE" });
+      delete S.avatars[S.who]; settingsSheet(); setBrand(); toast("프로필 사진을 지웠어요");
+    },
+    albumGo() { S.memView = "album"; setTab("calendar"); },
+    memView(el) { S.memView = el.dataset.v; render(); },
+    albumUp: () => $("#alInput").click(),
+    albumMore: () => renderAlbum(true),
+    openAlbum(el) { openLightbox(S.album.photos, Number(el.dataset.i)); },
     dmSend: () => sendChat(),
     dmPhoto: () => $("#dmFile").click(),
     rxClose: closeRx,
@@ -1258,7 +1338,7 @@
         S.lbList.splice(S.lbIdx, 1);
         if (S.lbIdx >= S.lbList.length) S.lbIdx = S.lbList.length - 1;
         drawLightbox();
-        S.calData = null; render(true);
+        S.calData = null; S.album = null; render(true);
       } catch (e) { toast(e.message); }
     },
 
@@ -1266,19 +1346,20 @@
     async bkAdd() {
       const title = $("#bkTitle").value.trim();
       if (!title) return toast("하고 싶은 걸 적어주세요");
+      $("#bkTitle").value = "";
       await api("bucket", { method: "POST", body: { title } });
-      render(true);
+      bucketSheet();
     },
     async bkToggle(el) {
       const done = el.dataset.done !== "1";
       await api(`bucket/${el.dataset.id}`, { method: "POST", body: { done, date: today() } });
       if (done) toast("하나 이뤘어요!");
-      render(true);
+      bucketSheet();
     },
     async bkDel(el) {
       if (!confirm("이 버킷을 지울까요?")) return;
       await api(`bucket/${el.dataset.id}`, { method: "DELETE" });
-      render(true);
+      bucketSheet();
     },
 
     // 지도
@@ -1287,8 +1368,25 @@
       try { await sendPos(await getPos()); toast("내 위치를 보냈어요"); }
       catch (e) { toast(e.code ? geoMsg(e) : e.message); }
     },
-    liveToggle: toggleLive,
+
     otSheet,
+    async otSetup() {
+      const pw = $("#otPw").value;
+      if (!pw) return toast("비밀번호를 입력하세요");
+      const u8 = new TextEncoder().encode(`${S.who}:${pw}`);
+      const basic = btoa(String.fromCharCode(...u8));
+      const r = await fetch("/api/owntracks", { method: "POST", headers: { authorization: "Basic " + basic, "content-type": "application/json" }, body: "{}" });
+      if (r.status === 401) return toast("비밀번호가 틀렸어요");
+      const conf = {
+        _type: "configuration", mode: 3, url: location.origin + "/api/owntracks",
+        auth: true, username: S.who, password: pw, deviceId: "phone", tid: S.who.toUpperCase(),
+        monitoring: 2, locatorDisplacement: 50, locatorInterval: 120, ignoreInaccurateLocations: 150,
+        allowRemoteLocation: true, cmd: true,
+      };
+      const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(conf))));
+      location.href = "owntracks:///config?inline=" + encodeURIComponent(b64);
+      setTimeout(() => toast("OwnTracks가 안 열리면 앱을 먼저 설치하세요"), 1500);
+    },
     fitMap,
     flyTo(el) {
       const l = S.locs[el.dataset.w];
@@ -1318,7 +1416,6 @@
     async locDel() {
       if (!confirm("서버에 저장된 내 위치를 지울까요?")) return;
       await api("loc", { method: "DELETE" });
-      if (S.watchId !== null) toggleLive();
       closeSheet(); toast("내 위치를 지웠어요");
       refreshLoc();
     },
@@ -1336,6 +1433,8 @@
   });
   document.addEventListener("change", (e) => {
     if (e.target.id === "phInput" && e.target.files.length) uploadPhotos([...e.target.files]);
+    if (e.target.id === "alInput" && e.target.files.length) albumUpload([...e.target.files]);
+    if (e.target.id === "avInput" && e.target.files.length) uploadAvatar(e.target.files[0]);
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.isComposing) return;
@@ -1392,11 +1491,12 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created;
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {};
       setBrand();
       await loadAnniv();
       showOnly("app");
       await pulse(true);
+      S.lastSent = null; startAutoLoc();
       setTab(TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home");
       registerSW();
     } catch (e) {
@@ -1418,7 +1518,8 @@
         S.lastPlaceSeen = p.place ? p.place.t : 0;
         return;
       }
-      if (p.touch > S.lastTouchSeen && Date.now() - p.touch < 15000) playFx(p.touch);
+      if (p.now) S.clockOff = p.now - Date.now();
+      if (p.touch > S.lastTouchSeen && Date.now() - S.clockOff - p.touch < 6000) scheduleFx(p.touch, p.at);
       if (unread && p.last.id > (S.lastBannerMsg || 0) && S.tab !== "chat") {
         showBanner(nm(p.last.who), p.last.text || "사진을 보냈어요", "chat");
       }
@@ -1436,6 +1537,8 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden || !S.who) return;
     pulse();
+    api("me").then((m) => { S.avatars = m.avatars || {}; }).catch(() => {});
+    S.lastSent = null; stopAutoLoc(); startAutoLoc();
     if (S.tab === "chat" && S.chat) refreshChat(); else if (S.tab === "map") refreshLoc(); else if (S.tab === "home" || S.tab === "question") render(true);
   });
 

@@ -1146,6 +1146,20 @@
 
 
   document.addEventListener("input", (e) => { if (e.target.id === "sensRange") store.set("cp_sens2", String(62 - Number(e.target.value))); });
+  async function nfcSheet() {
+    let link = "";
+    try { link = (await api("nfclink")).url; } catch {}
+    openSheet(`
+      <h2>${ic("phone")}폰 맞대기 설정</h2>
+      <p>아이폰은 화면이 켜져 있으면 NFC 스티커를 저절로 읽어요. 그래서 각자 폰 뒤에 스티커를 붙이고, 상대 스티커를 읽으면 이 링크가 열리게 해두면 돼요. 앱 설치도 권한도 필요 없어요.</p>
+      <div class="nfc-step"><b>1</b><div><strong>NFC 스티커 준비</strong><span>NTAG213/215 스티커 2개 (쿠팡·다이소 등, 개당 수백 원). 각자 폰 케이스 <b>뒷면 위쪽</b>에 붙여요.</span></div></div>
+      <div class="nfc-step"><b>2</b><div><strong>내 맞대기 링크 복사</strong><span>${esc(nm(S.who))}님 전용 링크예요. 남한테 보여주지 마세요.</span>
+        <div class="kv" style="margin-top:8px"><span class="v" id="nfcLink">${esc(link)}</span><button data-act="copy" data-t="nfcLink">${ic("copy")}</button></div></div></div>
+      <div class="nfc-step"><b>3</b><div><strong>단축어 자동화 만들기</strong><span>단축어 앱 ${ic("right", "arr")} 자동화 ${ic("right", "arr")} 새로운 자동화 ${ic("right", "arr")} <b>NFC</b> ${ic("right", "arr")} 스캔을 누르고 <b>${esc(nm(other()))}님 폰 뒤의 스티커</b>에 내 폰을 대요 ${ic("right", "arr")} 이름 정하기 ${ic("right", "arr")} <b>즉시 실행</b> 선택 ${ic("right", "arr")} 새로운 빈 단축어 ${ic("right", "arr")} 동작 추가에서 <b>URL 열기</b> ${ic("right", "arr")} 2번 링크 붙여넣기</span></div></div>
+      <div class="nfc-step"><b>4</b><div><strong>맞대기</strong><span>둘 다 화면을 켜고(잠금 해제) 폰 뒷면 위쪽끼리 맞대면 두 폰에서 동시에 터져요.</span></div></div>
+      <p class="note">${esc(nm(other()))}님도 자기 폰에서 똑같이 하되, 3번에서 <b>${esc(nm(S.who))}님 폰의 스티커</b>를 스캔해야 해요. 비밀번호를 바꾸면 링크도 바뀌니까 단축어의 링크를 새로 넣어주세요.</p>
+      <div class="row2"><button class="btn gray" data-act="close">닫기</button></div>`);
+  }
   function settingsSheet() {
     openSheet(`
       <h2>${ic("gear")}설정</h2>
@@ -1174,8 +1188,9 @@
         return `<div class="row2"><button class="btn primary" data-act="pushOn">${ic("bell")}알림 켜기</button></div>`;
       })()}
       <hr>
-      <h2 style="font-size:16px;margin-top:4px">${ic("heart")}같이 하트 누르기</h2>
-      <p class="muted" style="font-size:13px">홈의 하트를 둘이 동시에 누르면 두 폰에 같은 순간 애니메이션이 나와요. 둘이 가까워지면 위치로 알아채서 "만났어요"도 떠요.</p>
+      <h2 style="font-size:16px;margin-top:4px">${ic("heart")}폰 맞대기</h2>
+      <p class="muted" style="font-size:13px">두 폰 뒷면을 맞대면 같은 순간 애니메이션이 나와요. NFC 스티커와 단축어 앱으로 한 번만 설정하면 돼요.</p>
+      <div class="row2"><button class="btn primary" data-act="nfcSheet">${ic("phone")}맞대기 설정하기</button></div>
       <hr>
       <div class="row2">
         <button class="btn gray" data-act="otSheet">${ic("phone")}꺼도 공유 설정</button>
@@ -1198,6 +1213,7 @@
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     bucketOpen: () => bucketSheet(),
+    nfcSheet: () => nfcSheet(),
     async tapHeart(el) {
       el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");
       try { navigator.vibrate && navigator.vibrate(15); } catch {}

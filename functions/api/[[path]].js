@@ -136,6 +136,41 @@ export async function onRequest({ request, env, params, waitUntil }) {
       return json([msg]);
     }
 
+    // ---------- NFC 맞대기 (단축어 앱이 여는 링크, 로그인 없이 개인 토큰으로) ----------
+    const nfcToken = async (w) => {
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(st.secret || ""), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("nfc:" + w)));
+      return w + [...sig.slice(0, 9)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    };
+    const nfcWho = async (k) => {
+      if (!isSetup || typeof k !== "string" || k.length < 10) return null;
+      const w = k[0];
+      if (!["a", "b"].includes(w)) return null;
+      return safeEq(k, await nfcToken(w)) ? w : null;
+    };
+    if (p0 === "nfc") {
+      const b = m === "POST" ? await body(request) : {};
+      const nw = await nfcWho(m === "POST" ? b.k : q("k"));
+      if (!nw) return err(403, "링크가 올바르지 않아요");
+      const now = Date.now();
+      const base = { names: { a: st.a_name, b: st.b_name }, who: nw, start: st.start, now };
+      if (m === "GET") return json({ ...base, touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "" });
+      const other = nw === "a" ? "b" : "a";
+      await DB.batch([
+        DB.prepare("DELETE FROM touches WHERE t < ?1").bind(now - 60000),
+        DB.prepare("INSERT INTO touches (who, kind, t) VALUES (?1, 'nfc', ?2)").bind(nw, now),
+      ]);
+      // 두 폰이 6초 안에 서로의 스티커를 읽었으면 성공
+      const r = await DB.prepare("SELECT COUNT(*) AS n FROM touches WHERE who = ?1 AND kind = 'nfc' AND t > ?2").bind(other, now - 6000).first();
+      const last = Number(st.last_touch) || 0;
+      if (r && r.n > 0 && now - last > 4000) {
+        const at = now + 1500;
+        await setSettings(env, { last_touch: now, last_touch_at: at, last_touch_kind: "nfc" });
+        return json({ ...base, match: true, touch: now, at, kind: "nfc" });
+      }
+      return json({ ...base, match: false, touch: last, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "" });
+    }
+
     // ---------- 여기부터 로그인 필요 ----------
     if (!isSetup) return err(401, "처음 설정이 필요해요");
     const who = await readToken(st.secret, getCookie(request, "cp"));
@@ -144,6 +179,8 @@ export async function onRequest({ request, env, params, waitUntil }) {
     const route = `${m} ${p0}`;
 
     switch (route) {
+      case "GET nfclink":
+        return json({ url: `${url.origin}/touch.html#${await nfcToken(who)}` });
       case "GET me": {
         const { results: av } = await DB.prepare("SELECT who, t FROM avatars").all();
         const avatars = {};

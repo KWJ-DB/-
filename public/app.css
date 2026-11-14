@@ -641,3 +641,9 @@ svg.i.arr { width: 13px; height: 13px; vertical-align: -2px; margin: 0 1px; stro
 .hero-tap.pulse svg { animation: tapPulse .6s cubic-bezier(.3,1.6,.5,1); }
 @keyframes tapPulse { 0% { transform: scale(.8); } 50% { transform: scale(1.25); } 100% { transform: scale(1); } }
 .hero { position: relative; }
+
+.nfc-step { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.nfc-step > b { flex: none; width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #FF8FA3, #B65FE0); color: #fff; font-size: 13px; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+.nfc-step strong { display: block; font-size: 15px; margin-bottom: 3px; }
+.nfc-step span { font-size: 13px; color: #5A4E5C; line-height: 1.6; }
+.nfc-step .kv .v { font-size: 11px; }

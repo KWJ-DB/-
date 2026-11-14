@@ -698,31 +698,10 @@
     $("#dmText").addEventListener("blur", () => { const w = $("#chatWrap"); w.style.top = ""; w.style.bottom = ""; });
   }
 
-  // ---------- 폰 맞대기: 부딪히기(동작 센서) ----------
-  const T = { motionOn: false, asked: false, lastBump: 0, prevMag: 0, polling: null, near: null };
-  const bumpEnabled = () => store.get("cp_bump") !== "0";
-  async function enableMotion(fromGesture) {
-    if (T.motionOn || !bumpEnabled() || typeof DeviceMotionEvent === "undefined") return;
-    if (typeof DeviceMotionEvent.requestPermission === "function") {
-      if (!fromGesture || T.asked) return;
-      T.asked = true;
-      try { if ((await DeviceMotionEvent.requestPermission()) !== "granted") return; } catch { T.asked = false; return; }
-    }
-    window.addEventListener("devicemotion", onMotion);
-    T.motionOn = true;
-  }
-  function onMotion(e) {
-    let mag;
-    const a = e.acceleration;
-    if (a && a.x != null) mag = Math.hypot(a.x, a.y, a.z);
-    else { const g = e.accelerationIncludingGravity; if (!g || g.x == null) return; mag = Math.abs(Math.hypot(g.x, g.y, g.z) - 9.81); }
-    const now = Date.now();
-    // 가만히 있다가 갑자기 톡 치는 충격만 인식
-    if (mag > 15 && T.prevMag < 7 && now - T.lastBump > 2500) { T.lastBump = now; sendTouch("bump"); }
-    T.prevMag = T.prevMag * 0.6 + mag * 0.4;
-  }
-  // 처음 화면을 터치할 때 자동으로 센서 허용 요청 (아이폰은 열 때마다 한 번)
-  const onGesture = () => { if (S.who) { enableMotion(true); startNear(); } };
+  // ---------- 폰 맞대기 ----------
+  const T = { polling: null, near: null };
+  // 처음 화면을 터치할 때 소리 감지 시작 (아이폰은 열 때마다 마이크 허용을 한 번 물어봄)
+  const onGesture = () => { if (S.who) startNear(); };
   document.addEventListener("click", onGesture, true);
   document.addEventListener("touchend", onGesture, true);
 
@@ -860,12 +839,11 @@
       <hr>
       <h2 style="font-size:16px;margin-top:4px">${ic("heart")}폰 맞대기</h2>
       <div class="row2">
-        <button class="btn ${bumpEnabled() ? "soft" : "gray"}" data-act="toggleBump">부딪히기 ${bumpEnabled() ? "켜짐" : "꺼짐"}</button>
         <button class="btn ${nearEnabled() ? "soft" : "gray"}" data-act="toggleNear">소리 감지 ${nearEnabled() ? "켜짐" : "꺼짐"}</button>
       </div>
       <label>가까이 감도 (오른쪽일수록 멀리서도 반응)<input type="range" id="sensRange" min="12" max="45" value="${57 - sensThr()}" style="accent-color:var(--rose);padding:0;border:0;min-height:0"></label>
       <div class="progress" style="margin-top:8px"><i id="sensBar" style="width:0;transition:width .08s"></i></div>
-      <p class="muted" style="font-size:12px;margin-top:8px">막대는 지금 들리는 상대 폰 신호예요. 둘이 원하는 거리에 폰을 두고, 막대가 차는 정도를 보면서 감도를 맞추면 돼요. 사이트를 열고 처음 터치할 때 센서와 마이크 허용을 물어봐요(아이폰은 열 때마다 한 번).</p>
+      <p class="muted" style="font-size:12px;margin-top:8px">막대는 지금 들리는 상대 폰 신호예요. 둘이 원하는 거리에 폰을 두고, 막대가 차는 정도를 보면서 감도를 맞추면 돼요. 사이트를 열고 처음 터치할 때 마이크 허용을 물어봐요(아이폰은 열 때마다 한 번).</p>
       <div class="row2">
         <button class="btn gray" data-act="otSheet">${ic("phone")}꺼도 공유 설정</button>
         <button class="btn danger" data-act="locDel">내 위치 지우기</button>
@@ -901,13 +879,6 @@
       const on = !nearEnabled();
       store.set("cp_near", on ? "1" : "0");
       if (on) { T.nearDenied = false; startNear(); } else nearStop();
-      settingsSheet();
-    },
-    toggleBump() {
-      const on = !bumpEnabled();
-      store.set("cp_bump", on ? "1" : "0");
-      if (!on && T.motionOn) { window.removeEventListener("devicemotion", onMotion); T.motionOn = false; }
-      if (on) { T.asked = false; enableMotion(true); }
       settingsSheet();
     },
     close: closeSheet,

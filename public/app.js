@@ -1114,20 +1114,20 @@
   $("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
 
   function otSheet() {
+    const url = `${location.origin}/api/owntracks`;
     openSheet(`
       <h2>${ic("phone")}화면 꺼도 위치 공유</h2>
-      <p>화면이 꺼져 있어도 위치를 보내려면 무료 앱 <b>OwnTracks</b>가 필요해요. 설치한 뒤 아래 버튼만 누르면 설정이 자동으로 들어가요.</p>
-      <ol>
-        <li>App Store에서 <b>OwnTracks</b> 설치 후 한 번 열기</li>
-        <li>여기에 로그인 비밀번호 입력 후 <b>자동 설정</b> 누르기</li>
-        <li>OwnTracks가 열리면 설정 가져오기 허용, 위치 권한은 <b>항상 허용</b></li>
-      </ol>
-      <label>로그인 비밀번호<input type="password" id="otPw" autocomplete="current-password"></label>
-      <div class="row2"><button class="btn primary" data-act="otSetup">${ic("phone")}OwnTracks 자동 설정</button></div>
-      <p class="note">50m 움직일 때마다 위치를 보내도록 설정돼요. 배터리를 아끼고 싶으면 OwnTracks 지도 위 모드 버튼에서 Significant로 바꾸면 돼요.</p>
-      <p class="muted" style="font-size:12px;margin-top:10px">직접 입력하려면: Mode HTTP · URL ${esc(location.origin)}/api/owntracks · UserID ${S.who} · Password 로그인 비밀번호 · Authentication 켜기</p>
+      <p>무료 앱 <b>OwnTracks</b>에서 왼쪽 위 <b>(i)</b> → <b>Settings</b>로 들어가 아래처럼 입력하세요.</p>
+      <div class="kv"><span class="k">Mode</span><span class="v">HTTP</span></div>
+      <div class="kv"><span class="k">URL</span><span class="v" id="kvUrl">${esc(url)}</span><button data-act="copy" data-t="kvUrl">${ic("copy")}</button></div>
+      <div class="kv"><span class="k">Authentication</span><span class="v">켜기 (ON)</span></div>
+      <div class="kv"><span class="k">UserID</span><span class="v" id="kvUser">${S.who}</span><button data-act="copy" data-t="kvUser">${ic("copy")}</button></div>
+      <div class="kv"><span class="k">Password</span><span class="v">로그인 비밀번호</span></div>
+      <div class="kv"><span class="k">DeviceID</span><span class="v">phone</span></div>
+      <p class="note">UserID는 한글 이름 말고 꼭 <b>${S.who}</b> (${esc(nm("a"))} = a, ${esc(nm("b"))} = b). 지도 위 모드는 <b>Move</b>, 위치 권한은 <b>항상 허용</b>으로 해두면 가장 확실해요.</p>
       <div class="row2"><button class="btn gray" data-act="close">닫기</button></div>`);
   }
+
 
 
   document.addEventListener("input", (e) => { if (e.target.id === "sensRange") store.set("cp_sens2", String(62 - Number(e.target.value))); });

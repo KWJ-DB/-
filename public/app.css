@@ -398,8 +398,9 @@ body.typing .dm-input { padding-bottom: 8px; }
 .dm-rx i { display: flex; }
 .dm-rx svg.i { width: 15px; height: 15px; stroke-width: 2; }
 .r-heart svg.i { color: #F2466B; fill: #F2466B; stroke-width: 1 !important; }
-.r-laugh svg.i { color: #F0A21A; } .r-wow svg.i { color: #8B6CF0; } .r-sad svg.i { color: #4C9BE8; }
-.r-fire svg.i { color: #FF6A2B; fill: rgba(255,140,60,.25); } .r-like svg.i { color: #3D8BFD; }
+.r-laugh svg.i, .r-wow svg.i, .r-sad svg.i, .r-fire svg.i, .r-like svg.i { color: #8A6A86; }
+.rx-bar .r-laugh svg.i, .rx-bar .r-wow svg.i, .rx-bar .r-sad svg.i, .rx-bar .r-fire svg.i, .rx-bar .r-like svg.i { color: #7C5C78; }
+.rx-bar button.on svg.i { color: var(--rose); }
 .dm-pop { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; pointer-events: none; animation: dmpop .7s ease-out forwards; filter: drop-shadow(0 2px 6px rgba(0,0,0,.25)); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .dm-pop.r-heart { color: #fff; fill: #F2466B; stroke: #fff; }
 .dm-cam { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #FF8FA3, #B65FE0); color: #fff !important; display: flex; align-items: center; justify-content: center; padding: 0 !important; flex: none; margin-left: -10px; }
@@ -562,3 +563,5 @@ body.typing .tabbar { display: none; }
 .r-sparkle svg.i { color: #F0A21A; fill: rgba(255,200,60,.35); }
 .r-star svg.i { color: #F5B400; fill: rgba(255,210,70,.4); }
 .r-hug svg.i { color: #B65FE0; fill: rgba(182,95,224,.15); }
+
+svg.i.arr { width: 13px; height: 13px; vertical-align: -2px; margin: 0 1px; stroke-width: 2.2; }

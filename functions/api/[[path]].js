@@ -419,7 +419,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
           DB.prepare("INSERT INTO touches (who, kind, t) VALUES (?1, ?2, ?3)").bind(who, kind, now),
         ]);
         if (kind === "listen") return json({ match: false, touch: Number(st.last_touch) || 0, now });
-        // 두 폰이 서로의 소리를 2.5초 안에 다 들었을 때만 성공 (한쪽만 들으면 안 됨 → 멀리서 안 터짐)
+        // 두 폰이 서로의 소리를 2.5초 안에 다 들었을 때만 성공 (한쪽만 들으면 안 됨 그래서 멀리서 안 터짐)
         const r = await DB.prepare("SELECT COUNT(*) AS n FROM touches WHERE who = ?1 AND kind IN ('bump','near') AND t > ?2")
           .bind(other, now - 2500).first();
         const last = Number(st.last_touch) || 0;

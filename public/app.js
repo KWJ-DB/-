@@ -201,8 +201,8 @@
       ${(() => {
         const ps = pushState();
         if (ps === "granted" || ps === "unsupported") return "";
-        if (ps === "needs-home") return `<div class="card push-card">${ic("bell")}<div><b>앱을 꺼도 알림 받기</b><span>Safari 아래 공유 버튼 → <b>홈 화면에 추가</b> → 홈 화면의 아이콘으로 열고 여기서 알림을 켜주세요</span></div></div>`;
-        if (ps === "denied") return `<div class="card push-card">${ic("bell")}<div><b>알림이 꺼져 있어요</b><span>아이폰 설정 → 알림 → 이 앱에서 알림 허용을 켜주세요</span></div></div>`;
+        if (ps === "needs-home") return `<div class="card push-card">${ic("bell")}<div><b>앱을 꺼도 알림 받기</b><span>Safari 아래 공유 버튼 ${ic("right", "arr")} <b>홈 화면에 추가</b> ${ic("right", "arr")} 홈 화면의 아이콘으로 열고 여기서 알림을 켜주세요</span></div></div>`;
+        if (ps === "denied") return `<div class="card push-card">${ic("bell")}<div><b>알림이 꺼져 있어요</b><span>아이폰 설정 ${ic("right", "arr")} 알림 ${ic("right", "arr")} 이 앱에서 알림 허용을 켜주세요</span></div></div>`;
         return `<button class="card push-card" data-act="pushOn">${ic("bell")}<div><b>알림 켜기</b><span>앱을 꺼도 메시지와 장소 알림이 와요. 눌러서 허용해 주세요</span></div></button>`;
       })()}
 
@@ -547,9 +547,10 @@
     });
     map.touchZoomRotate.disableRotation();
     map.on("load", () => {
-      // 지명을 한국어로
+      // 지명을 한국어로 + 가게/정류장 그림 아이콘은 숨겨서 깔끔하게
       for (const ly of map.getStyle().layers) {
         if (ly.type !== "symbol") continue;
+        if (/^poi|airport|road_one_way|highway-shield|road_shield/.test(ly.id)) { map.setLayoutProperty(ly.id, "visibility", "none"); continue; }
         const tf = JSON.stringify((ly.layout && ly.layout["text-field"]) || "");
         if (tf.includes("name") && !tf.includes('"ref"')) {
           map.setLayoutProperty(ly.id, "text-field", ["coalesce", ["get", "name:ko"], ["get", "name"]]);
@@ -1124,7 +1125,7 @@
     const url = `${location.origin}/api/owntracks`;
     openSheet(`
       <h2>${ic("phone")}화면 꺼도 위치 공유</h2>
-      <p>무료 앱 <b>OwnTracks</b>에서 왼쪽 위 <b>(i)</b> → <b>Settings</b>로 들어가 아래처럼 입력하세요.</p>
+      <p>무료 앱 <b>OwnTracks</b>에서 왼쪽 위 <b>(i)</b> ${ic("right", "arr")} <b>Settings</b>로 들어가 아래처럼 입력하세요.</p>
       <div class="kv"><span class="k">Mode</span><span class="v">HTTP</span></div>
       <div class="kv"><span class="k">URL</span><span class="v" id="kvUrl">${esc(url)}</span><button data-act="copy" data-t="kvUrl">${ic("copy")}</button></div>
       <div class="kv"><span class="k">Authentication</span><span class="v">켜기 (ON)</span></div>
@@ -1160,8 +1161,8 @@
       ${(() => {
         const st = pushState();
         if (st === "granted") return `<p class="muted" style="font-size:13px">이 기기에서 메시지와 장소 도착/출발 알림을 받아요.</p><div class="row2"><button class="btn soft" data-act="pushTest">테스트 알림 보내기</button></div>`;
-        if (st === "needs-home") return `<p class="note">아이폰은 Safari 공유 버튼 → <b>홈 화면에 추가</b>로 앱을 설치한 뒤, 그 앱에서 알림을 켜야 해요 (iOS 16.4 이상).</p>`;
-        if (st === "denied") return `<p class="note">알림이 차단돼 있어요. 아이폰 설정 → 알림 → 이 앱에서 허용해 주세요.</p>`;
+        if (st === "needs-home") return `<p class="note">아이폰은 Safari 공유 버튼 ${ic("right", "arr")} <b>홈 화면에 추가</b>로 앱을 설치한 뒤, 그 앱에서 알림을 켜야 해요 (iOS 16.4 이상).</p>`;
+        if (st === "denied") return `<p class="note">알림이 차단돼 있어요. 아이폰 설정 ${ic("right", "arr")} 알림 ${ic("right", "arr")} 이 앱에서 허용해 주세요.</p>`;
         if (st === "unsupported") return `<p class="muted" style="font-size:13px">이 브라우저는 알림을 지원하지 않아요.</p>`;
         return `<div class="row2"><button class="btn primary" data-act="pushOn">${ic("bell")}알림 켜기</button></div>`;
       })()}

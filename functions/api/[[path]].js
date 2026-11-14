@@ -26,9 +26,9 @@ export async function onRequest({ request, env, params, waitUntil }) {
     const st = await getSettings(env);
     const isSetup = !!st.pass_hash;
     // 위치가 저장된 뒤 장소 도착/출발이면 상대에게 알림
-    const placeNotify = async (who, lat, lon, acc) => {
+    const placeNotify = async (who, lat, lon, acc, t) => {
       try {
-        const changes = await checkPlaces(DB, who, Number(lat), Number(lon), acc);
+        const changes = await checkPlaces(DB, who, Number(lat), Number(lon), acc, t);
         if (!changes.length) return;
         const name = who === "a" ? st.a_name : st.b_name;
         const other = who === "a" ? "b" : "a";
@@ -123,7 +123,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       if (b && b._type === "location") {
         try {
           await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, batt: b.batt, t: b.tst ? b.tst * 1000 : Date.now(), src: "app" });
-          await later(placeNotify(who, b.lat, b.lon, b.acc).then(togetherCheck));
+          await later(placeNotify(who, b.lat, b.lon, b.acc, b.tst ? b.tst * 1000 : Date.now()).then(togetherCheck));
         } catch {}
       }
       const other = who === "a" ? "b" : "a";
@@ -185,14 +185,45 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const { results: av } = await DB.prepare("SELECT who, t FROM avatars").all();
         const avatars = {};
         for (const r of av || []) avatars[r.who] = r.t;
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars });
+        const mood = {};
+        for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood });
+      }
+      case "POST mood": {
+        const b = await body(request);
+        const MOODS = ["happy", "flutter", "tired", "busy", "study", "gloomy", "hungry", "miss", "exercise"];
+        const m = MOODS.includes(b.m) ? b.m : null;
+        const v = m ? JSON.stringify({ m, text: str(b.text, 30), t: Date.now() }) : "";
+        await setSettings(env, { ["mood_" + who]: v });
+        return json(OK);
+      }
+      case "POST miss": {
+        // 보고싶어: 상대에게 알림 + 앱 안 표시
+        const now = Date.now();
+        const last = Number(st["miss_t_" + who]) || 0;
+        if (now - last < 10000) return json({ ok: true, throttled: true });
+        const name = who === "a" ? st.a_name : st.b_name;
+        await setSettings(env, { ["miss_t_" + who]: now, last_miss: JSON.stringify({ who, t: now }) });
+        const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: name, body: `${name}님이 보고 싶대요`, url: "/#home", tag: "miss" });
+        if (waitUntil) waitUntil(job); else await job;
+        return json(OK);
       }
       case "GET avatar": {
-        const w = p1 === "b" ? "b" : "a";
+        const w = p1 === "b" ? "b" : p1 === "cover" ? "cover" : "a";
         const r = await DB.prepare("SELECT data FROM avatars WHERE who = ?1").bind(w).first();
         if (!r) return err(404, "사진 없음");
         return new Response(fromB64(r.data), { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable" } });
       }
+      case "POST cover": {
+        const b = await body(request);
+        if (typeof b.data !== "string" || !b.data || b.data.length > 600000) return err(400, "사진이 올바르지 않아요");
+        const t = Date.now();
+        await DB.prepare("INSERT INTO avatars (who, data, t) VALUES ('cover', ?1, ?2) ON CONFLICT(who) DO UPDATE SET data = excluded.data, t = excluded.t").bind(b.data, t).run();
+        return json({ ok: true, t });
+      }
+      case "DELETE cover":
+        await DB.prepare("DELETE FROM avatars WHERE who = 'cover'").run();
+        return json(OK);
       case "POST avatar": {
         const b = await body(request);
         if (typeof b.data !== "string" || !b.data || b.data.length > 200000) return err(400, "사진이 올바르지 않아요");
@@ -232,7 +263,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "POST loc": {
         const b = await body(request);
         await saveLoc(DB, who, { ...b, src: "web", t: Date.now() });
-        await later(placeNotify(who, b.lat, b.lon, b.acc).then(togetherCheck));
+        await later(placeNotify(who, b.lat, b.lon, b.acc, Date.now()).then(togetherCheck));
         return json(OK);
       }
       case "DELETE loc":
@@ -472,7 +503,10 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const last = await DB.prepare("SELECT id, who, substr(text, 1, 60) AS text, img FROM messages ORDER BY id DESC LIMIT 1").first();
         let place = null;
         try { place = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
-        return json({ last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "", now: Date.now(), place, together: st.together === "1" });
+        let miss = null;
+        try { miss = st.last_miss ? JSON.parse(st.last_miss) : null; } catch {}
+        const moodT = { a: st.mood_a ? (JSON.parse(st.mood_a).t || 0) : 0, b: st.mood_b ? (JSON.parse(st.mood_b).t || 0) : 0 };
+        return json({ miss, moodT, last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "", now: Date.now(), place, together: st.together === "1" });
       }
 
       // ----- 부딪히기 / 가까이 대기 -----

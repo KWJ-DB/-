@@ -159,28 +159,34 @@ const distM = (a, b) => {
   return 2 * R * Math.asin(Math.sqrt(x));
 };
 // 바뀐 것만 돌려줌: [{ place, inside }]
-export async function checkPlaces(DB, who, lat, lon, acc) {
-  // 그 사람의 장소(또는 둘 다의 장소)만 확인
+// 한 번만 알리도록: 정확도 낮은 위치·오래된 위치는 무시, 경계 여유를 크게, 같은 장소는 20분 안에 다시 안 바꿈
+export async function checkPlaces(DB, who, lat, lon, acc, t) {
+  const now = Date.now();
+  const a = Number(acc) || 0;
+  if (a > 120) return [];
+  if (t && now - Number(t) > 10 * 60000) return []; // 밀려서 늦게 온 옛날 위치
+  const latest = await DB.prepare("SELECT t FROM couple_locs WHERE who = ?1").bind(who).first();
+  if (latest && t && Number(t) < latest.t - 1000) return []; // 더 새 위치가 이미 있음
   const { results: places } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE owner IS NULL OR owner = 'both' OR owner = ?1").bind(who).all();
   if (!places || !places.length) return [];
-  const { results: states } = await DB.prepare("SELECT place_id, inside FROM place_state WHERE who = ?1").bind(who).all();
-  const prev = new Map((states || []).map((s) => [s.place_id, s.inside]));
+  const { results: states } = await DB.prepare("SELECT place_id, inside, t FROM place_state WHERE who = ?1").bind(who).all();
+  const prev = new Map((states || []).map((s) => [s.place_id, s]));
   const changes = [], writes = [];
-  const a = Math.min(Number(acc) || 0, 150);
   for (const p of places) {
     const d = distM({ lat, lon }, p);
-    const was = prev.get(p.id);
-    // 경계에서 왔다갔다 하지 않게 여유를 둠
+    const ps = prev.get(p.id);
+    const was = ps ? ps.inside : undefined;
     let inside;
-    if (was === 1) inside = d - a * 0.5 <= p.radius + 40 ? 1 : 0;
-    else inside = d + a * 0.3 <= p.radius ? 1 : 0;
+    if (was === 1) inside = d <= p.radius + Math.max(80, a) ? 1 : 0; // 확실히 멀어져야 출발
+    else inside = d + a * 0.5 <= p.radius ? 1 : 0;                  // 확실히 안에 들어와야 도착
     if (was === undefined) {
-      writes.push(DB.prepare("INSERT INTO place_state (who, place_id, inside, t) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(who, place_id) DO UPDATE SET inside = excluded.inside, t = excluded.t").bind(who, p.id, inside, Date.now()));
-      continue; // 처음 위치는 알림 없이 기록만
+      writes.push(DB.prepare("INSERT INTO place_state (who, place_id, inside, t) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(who, place_id) DO UPDATE SET inside = excluded.inside, t = excluded.t").bind(who, p.id, inside, now));
+      continue;
     }
     if (inside !== was) {
+      if (ps.t && now - ps.t < 20 * 60000) continue; // 20분 안에는 다시 안 바꿈
       changes.push({ place: p, inside: !!inside });
-      writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, Date.now(), who, p.id));
+      writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, now, who, p.id));
     }
   }
   if (writes.length) await DB.batch(writes);

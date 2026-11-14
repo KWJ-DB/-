@@ -164,6 +164,27 @@
   }
   const spinner = () => { if (!view.innerHTML.trim()) view.innerHTML = `<div class="spin"></div>`; };
 
+  // ---------- 오늘 기분 ----------
+  const MOODS = [
+    ["happy", "sun", "기분 좋아"], ["flutter", "sparkle", "설레"], ["miss", "heart", "보고 싶어"],
+    ["tired", "moon", "피곤해"], ["busy", "clock", "바빠"], ["study", "book", "공부 중"],
+    ["exercise", "run", "운동 중"], ["hungry", "bowl", "배고파"], ["gloomy", "cloud", "우울해"],
+  ];
+  const moodOf = (w) => { const m = S.mood && S.mood[w]; if (!m) return null; const d = MOODS.find((x) => x[0] === m.m); return d ? { ic: d[1], label: d[2], text: m.text, t: m.t } : null; };
+  function moodChip(w) {
+    const m = moodOf(w);
+    return `<button class="mood-chip ${w}" ${w === S.who ? 'data-act="moodSheet"' : ""}>${av(w)}<span><b>${esc(nm(w))}</b><em>${m ? `${ic(m.ic)}${esc(m.text || m.label)}` : w === S.who ? "오늘 기분 남기기" : "아직 없음"}</em></span></button>`;
+  }
+  function moodSheet() {
+    const cur = S.mood && S.mood[S.who];
+    openSheet(`
+      <h2>${ic("sparkle")}오늘 내 기분</h2>
+      <div class="mood-grid">${MOODS.map(([k, i, l]) => `<button class="${cur && cur.m === k ? "on" : ""}" data-act="moodPick" data-m="${k}">${ic(i)}<span>${l}</span></button>`).join("")}</div>
+      <label>한 줄 상태 (선택)<input type="text" id="moodText" maxlength="30" placeholder="예: 학원 끝나고 갈게" value="${esc(cur ? cur.text || "" : "")}"></label>
+      <div class="row2"><button class="btn gray" data-act="moodClear">지우기</button><button class="btn primary" data-act="moodSave">남기기</button></div>`);
+    S.moodPick = cur ? cur.m : null;
+  }
+
   // ---------- 홈 ----------
   async function renderHome() {
     view.innerHTML = `<div class="spin"></div>`;
@@ -187,12 +208,14 @@
 
     const nextDays = next ? diff(t, next.date) : null;
     view.innerHTML = `
-      <div class="hero">
+      <div class="hero${S.avatars && S.avatars.cover ? " has-cover" : ""}" ${S.avatars && S.avatars.cover ? `style="background-image:linear-gradient(180deg,rgba(40,10,30,.05) 20%,rgba(40,10,30,.55)),url('/api/avatar/cover?v=${S.avatars.cover}')"` : ""}>
         <div class="pair"><span class="pair-av">${av("a")}${av("b")}</span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</div>
         <div class="dday">${dp > 0 ? dp : dlabel(1 - dp)}${dp > 0 ? "<small>일째</small>" : ""}</div>
         <div class="since">${fmtDot(S.start)}부터 함께</div>
         <button class="hero-tap" data-act="swOpen" aria-label="폰 맞대기">${HEART}<span>맞대기</span></button>
       </div>
+      <div class="moods">${moodChip(S.who)}${moodChip(other())}</div>
+      <button class="miss-btn" data-act="missYou">${HEART}<span>${esc(nm(other()))}에게 보고싶어 보내기</span></button>
       ${(() => {
         const ps = pushState();
         if (ps === "granted" || ps === "unsupported") return "";
@@ -333,6 +356,16 @@
       settingsSheet(); toast("프로필 사진을 바꿨어요");
       if (S.chat) drawChat();
       if (map) { Object.values(markers).forEach((mk) => mk.remove()); for (const k in markers) delete markers[k]; drawMap(); }
+    } catch (e) { toast(e.message); }
+  }
+
+  async function uploadCover(file) {
+    try {
+      const im = await loadImg(file);
+      const f = draw(im, 1200, 0.8);
+      const r = await api("cover", { method: "POST", body: { data: f.b64 } });
+      S.avatars.cover = r.t;
+      settingsSheet(); toast("배경 사진을 바꿨어요");
     } catch (e) { toast(e.message); }
   }
 
@@ -962,6 +995,14 @@
     } catch {}
   }
   const HEART = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 21s-7.8-4.8-9.6-9.7C1.1 7.6 3.4 4 7 4c2.1 0 3.7 1.1 5 3 1.3-1.9 2.9-3 5-3 3.6 0 5.9 3.6 4.6 7.3C19.8 16.2 12 21 12 21z"/></svg>`;
+  // 보고싶어 받았을 때: 하트가 화면 위로 둥실
+  function missFx() {
+    const box = document.createElement("div");
+    box.className = "miss-fx";
+    box.innerHTML = Array.from({ length: 9 }, (_, i) => `<span style="left:${10 + i * 10}%;--d:${(i % 3) * 0.15}s;--s:${18 + (i % 4) * 6}px">${HEART}</span>`).join("");
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 3200);
+  }
   function playFx(t) {
     S.lastTouchSeen = Math.max(S.lastTouchSeen, t || Date.now());
     const fx = $("#fx");
@@ -1204,7 +1245,7 @@
   }
   function showBanner(title, body, tab) {
     const b = $("#banner");
-    b.innerHTML = `<span class="bn-ic">${ic(tab === "map" ? "pin" : "msg")}</span><span class="bn-t"><b>${esc(title)}</b><span>${esc(body)}</span></span>`;
+    b.innerHTML = `<span class="bn-ic">${ic(tab === "map" ? "pin" : tab === "home" ? "heart" : "msg")}</span><span class="bn-t"><b>${esc(title)}</b><span>${esc(body)}</span></span>`;
     b.dataset.act = "bannerGo";
     S.bannerTab = tab;
     b.hidden = false;
@@ -1258,6 +1299,11 @@
         <div><b>${esc(nm(S.who))}</b><span>프로필 사진을 눌러서 바꿀 수 있어요</span>${avSrc(S.who) ? `<button class="link" data-act="avatarDel">사진 지우기</button>` : ""}</div>
         <input type="file" id="avInput" accept="image/*" hidden>
       </div>
+      <div class="row2">
+        <button class="btn soft" data-act="coverPick">${ic("image")}홈 배경 사진 ${S.avatars && S.avatars.cover ? "바꾸기" : "넣기"}</button>
+        ${S.avatars && S.avatars.cover ? `<button class="btn gray" data-act="coverDel">배경 지우기</button>` : ""}
+      </div>
+      <input type="file" id="coverInput" accept="image/*" hidden>
       <label>${esc(nm("a"))} 이름<input id="stA" type="text" maxlength="20" value="${esc(nm("a"))}"></label>
       <label>${esc(nm("b"))} 이름<input id="stB" type="text" maxlength="20" value="${esc(nm("b"))}"></label>
       <label>사귄 날<input id="stStart" type="date" value="${S.start}"></label>
@@ -1303,6 +1349,24 @@
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     bucketOpen: () => bucketSheet(),
+    moodSheet: () => moodSheet(),
+    moodPick(el) { S.moodPick = el.dataset.m; $$(".mood-grid button").forEach((b) => b.classList.toggle("on", b === el)); },
+    async moodSave() {
+      if (!S.moodPick) return toast("기분을 골라주세요");
+      const text = $("#moodText").value.trim();
+      await api("mood", { method: "POST", body: { m: S.moodPick, text } });
+      S.mood[S.who] = { m: S.moodPick, text, t: Date.now() };
+      closeSheet(); render(true);
+    },
+    async moodClear() { await api("mood", { method: "POST", body: { m: null } }); S.mood[S.who] = null; closeSheet(); render(true); },
+    async missYou(el) {
+      el.classList.remove("sent"); void el.offsetWidth; el.classList.add("sent");
+      try { navigator.vibrate && navigator.vibrate(20); } catch {}
+      const r = await api("miss", { method: "POST", body: {} });
+      toast(r.throttled ? "방금 보냈어요" : `${nm(other())}님에게 보고싶다고 전했어요`);
+    },
+    coverPick: () => $("#coverInput").click(),
+    async coverDel() { await api("cover", { method: "DELETE" }); delete S.avatars.cover; settingsSheet(); toast("배경 사진을 지웠어요"); },
     swOpen: () => swOpen(),
     swClose: () => swClose(),
     nfcSheet: () => nfcSheet(),
@@ -1583,6 +1647,7 @@
     if (e.target.id === "phInput" && e.target.files.length) uploadPhotos([...e.target.files]);
     if (e.target.id === "alInput" && e.target.files.length) albumUpload([...e.target.files]);
     if (e.target.id === "avInput" && e.target.files.length) uploadAvatar(e.target.files[0]);
+    if (e.target.id === "coverInput" && e.target.files.length) uploadCover(e.target.files[0]);
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.isComposing) return;
@@ -1639,7 +1704,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {};
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {};
       setBrand();
       await loadAnniv();
       showOnly("app");
@@ -1663,11 +1728,20 @@
       if (first) {
         S.lastTouchSeen = p.touch;
         S.together = p.together;
+        S.lastMissSeen = p.miss ? p.miss.t : 1;
         S.lastBannerMsg = p.last ? p.last.id : 0;
         S.lastPlaceSeen = p.place ? p.place.t : 0;
         return;
       }
       if (p.now) S.clockOff = p.now - Date.now();
+      if (p.miss && p.miss.t > (S.lastMissSeen || 0)) {
+        if (S.lastMissSeen && p.miss.who !== S.who) { showBanner(nm(p.miss.who), `${nm(p.miss.who)}님이 보고 싶대요`, "home"); missFx(); }
+        S.lastMissSeen = p.miss.t;
+      }
+      if (p.moodT) {
+        const o = other(), mt = (S.mood && S.mood[o] && S.mood[o].t) || 0;
+        if (p.moodT[o] && p.moodT[o] !== mt) api("me").then((m) => { S.mood = m.mood || {}; if (S.tab === "home") render(true); }).catch(() => {});
+      }
       const lim = p.kind === "meet" ? 60000 : 6000;
       if (p.touch > S.lastTouchSeen && Date.now() - S.clockOff - p.touch < lim) scheduleFx(p.touch, p.at, p.kind);
       if (S.together !== p.together) { S.together = p.together; if (S.tab === "home") render(true); if (S.tab === "map") renderMapCard(); }

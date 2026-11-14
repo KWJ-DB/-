@@ -611,3 +611,33 @@ svg.i.arr { width: 13px; height: 13px; vertical-align: -2px; margin: 0 1px; stro
 .arch .chev { width: 16px; height: 16px; color: #C9BEC6; transition: transform .2s; }
 .arch.open .chev { transform: rotate(90deg); }
 .arch .inner .q-card { box-shadow: none; border: 1px solid var(--line); background: #FFFBFA; }
+
+/* =========================================================
+   단순하게: 홈 타일, 질문 헤더
+   ========================================================= */
+.hero { padding: 24px 22px; }
+.hero .dday { margin: 12px 0 4px; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.tile { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto auto; column-gap: 8px; row-gap: 4px; align-items: center; text-align: left; padding: 16px; border-radius: 22px; background: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.9); box-shadow: 0 4px 18px rgba(186,92,120,.07); }
+.tile:active { transform: scale(.98); }
+.tile .ti { width: 30px; height: 30px; border-radius: 10px; background: var(--rose-soft); color: var(--rose); display: flex; align-items: center; justify-content: center; }
+.tile .ti svg.i { width: 17px; height: 17px; }
+.tile .tl { font-size: 13px; font-weight: 700; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile b { grid-column: 1 / -1; font-size: 26px; font-weight: 850; letter-spacing: -0.03em; margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile b small { font-size: 15px; color: var(--sub); font-weight: 650; margin-left: 2px; }
+.tile .th { grid-column: 1 / -1; font-size: 12px; color: var(--sub); }
+.strip.plain { margin: 0 -16px; padding: 0 16px; }
+.strip.plain button { width: 84px; height: 84px; border-radius: 18px; }
+.push-card { padding: 14px 16px; }
+.qp-row { display: flex; gap: 6px; }
+.qp-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px 4px 4px; border-radius: 999px; background: rgba(255,255,255,.85); font-size: 12px; font-weight: 750; color: var(--sub); box-shadow: 0 2px 8px rgba(186,92,120,.08); }
+.qp-chip .av { width: 22px; height: 22px; font-size: 10px; }
+.ann .x { margin-left: 6px; }
+
+.hero-tap { position: absolute; right: 18px; bottom: 18px; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 4px; color: #fff; }
+.hero-tap svg { width: 46px; height: 46px; filter: drop-shadow(0 4px 12px rgba(150,30,80,.35)); transition: transform .15s; }
+.hero-tap span { font-size: 11px; font-weight: 700; opacity: .9; }
+.hero-tap:active svg { transform: scale(.85); }
+.hero-tap.pulse svg { animation: tapPulse .6s cubic-bezier(.3,1.6,.5,1); }
+@keyframes tapPulse { 0% { transform: scale(.8); } 50% { transform: scale(1.25); } 100% { transform: scale(1); } }
+.hero { position: relative; }

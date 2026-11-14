@@ -185,57 +185,55 @@
     const bk = bkR.bucket, bkDone = bk.filter((b) => b.done).length;
     S.homePhotos = phR.photos;
 
+    const nextDays = next ? diff(t, next.date) : null;
     view.innerHTML = `
       <div class="hero">
         <div class="pair"><span class="pair-av">${av("a")}${av("b")}</span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</div>
         <div class="dday">${dp > 0 ? dp : dlabel(1 - dp)}${dp > 0 ? "<small>일째</small>" : ""}</div>
         <div class="since">${fmtDot(S.start)}부터 함께</div>
-        ${next ? `<div class="next">${ic("gift")}${esc(next.title)}까지 ${dlabel(diff(t, next.date))}</div>` : ""}
+        <button class="hero-tap" data-act="tapHeart" aria-label="같이 하트 누르기">${HEART}<span>같이 누르기</span></button>
       </div>
-
-      <div class="mini-grid">
-        <button class="mini" data-act="tab" data-tab="question">
-          <span class="lb">${ic("chat")}오늘의 질문</span>
-          <span class="val">${myCnt}<small>/4 답함</small></span>
-          <span class="hint">${esc(nm(other()))} ${otCnt}/4 ${myCnt < 4 ? "· 답하러 가기" : ""}</span>
-        </button>
-        <button class="mini" data-act="tab" data-tab="map">
-          <span class="lb">${ic("route")}우리 사이</span>
-          <span class="val">${S.together ? "함께 있어요" : dist || "-"}</span>
-          <span class="hint">${S.together ? (dist ? dist + " 거리" : "") : dist ? "위치 보기" : "위치를 보내면 보여요"}</span>
-        </button>
-      </div>
-
-
       ${(() => {
         const ps = pushState();
         if (ps === "granted" || ps === "unsupported") return "";
-        if (ps === "needs-home") return `<div class="card push-card">${ic("bell")}<div><b>앱을 꺼도 알림 받기</b><span>Safari 아래 공유 버튼 ${ic("right", "arr")} <b>홈 화면에 추가</b> ${ic("right", "arr")} 홈 화면의 아이콘으로 열고 여기서 알림을 켜주세요</span></div></div>`;
-        if (ps === "denied") return `<div class="card push-card">${ic("bell")}<div><b>알림이 꺼져 있어요</b><span>아이폰 설정 ${ic("right", "arr")} 알림 ${ic("right", "arr")} 이 앱에서 알림 허용을 켜주세요</span></div></div>`;
-        return `<button class="card push-card" data-act="pushOn">${ic("bell")}<div><b>알림 켜기</b><span>앱을 꺼도 메시지와 장소 알림이 와요. 눌러서 허용해 주세요</span></div></button>`;
+        if (ps === "needs-home") return `<div class="card push-card">${ic("bell")}<div><b>앱을 꺼도 알림 받기</b><span>공유 버튼 ${ic("right", "arr")} 홈 화면에 추가 후, 그 아이콘으로 열어서 알림을 켜주세요</span></div></div>`;
+        if (ps === "denied") return `<div class="card push-card">${ic("bell")}<div><b>알림이 꺼져 있어요</b><span>아이폰 설정 ${ic("right", "arr")} 알림에서 허용해 주세요</span></div></div>`;
+        return `<button class="card push-card" data-act="pushOn">${ic("bell")}<div><b>알림 켜기</b><span>앱을 꺼도 메시지와 장소 알림이 와요</span></div></button>`;
       })()}
-
-      <div class="card">
-        <div class="card-h"><h3>${ic("heart")}다가오는 기념일</h3><button class="more" data-act="annivAdd" data-date="${t}">${ic("plus")}추가</button></div>
-        ${up.map((a) => `
-          <div class="ann">
-            <div class="ic">${ic(a.kind === "custom" ? "star" : "gift")}</div>
-            <div class="t"><b>${esc(a.title)}</b><span>${fmtK(a.date)}${a.date.slice(0, 4) !== t.slice(0, 4) ? " · " + a.date.slice(0, 4) : ""}</span></div>
-            <div class="d">${dlabel(diff(t, a.date))}</div>
-          </div>`).join("") || `<div class="empty">기념일이 없어요</div>`}
+      <div class="tiles">
+        <button class="tile" data-act="tab" data-tab="question">
+          <span class="ti">${ic("chat")}</span><span class="tl">오늘의 질문</span>
+          <b>${myCnt}<small>/4</small></b><span class="th">${myCnt < 4 ? "답하러 가기" : `${esc(nm(other()))} ${otCnt}/4`}</span>
+        </button>
+        <button class="tile" data-act="tab" data-tab="map">
+          <span class="ti">${ic("pin")}</span><span class="tl">우리 사이</span>
+          <b>${S.together ? "함께" : dist || "-"}</b><span class="th">${S.together ? "같이 있어요" : dist ? "거리" : "위치 없음"}</span>
+        </button>
+        <button class="tile" data-act="annivSheet">
+          <span class="ti">${ic("gift")}</span><span class="tl">${next ? esc(next.title) : "기념일"}</span>
+          <b>${next ? dlabel(nextDays) : "-"}</b><span class="th">${next ? fmtK(next.date).replace(/ \(.\)/, "") : "추가하기"}</span>
+        </button>
+        <button class="tile" data-act="bucketOpen">
+          <span class="ti">${ic("list")}</span><span class="tl">버킷리스트</span>
+          <b>${bkDone}<small>/${bk.length}</small></b><span class="th">${bk.length ? "이룬 것" : "적어보기"}</span>
+        </button>
       </div>
+      ${S.homePhotos.length ? `<div class="strip plain">${S.homePhotos.slice(0, 8).map((p, i) => `<button data-act="openHomePhoto" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""></button>`).join("")}</div>` : ""}`;
+  }
 
-      <div class="card">
-        <div class="card-h"><h3>${ic("image")}우리 사진</h3><button class="more" data-act="albumGo">앨범${ic("right")}</button></div>
-        ${S.homePhotos.length ? `<div class="strip">${S.homePhotos.map((p, i) => `
-          <button data-act="openHomePhoto" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""><span>${fmtDot(p.date).slice(5)}</span></button>`).join("")}</div>`
-          : `<div class="empty">앨범에 같이 찍은 사진을 올려보세요</div>`}
-      </div>
-
-      <button class="card" style="display:block;width:100%;text-align:left" data-act="bucketOpen">
-        <div class="card-h"><h3>${ic("list")}버킷리스트</h3><span class="more">${bkDone}/${bk.length}${ic("right")}</span></div>
-        <div class="progress"><i style="width:${bk.length ? (bkDone / bk.length) * 100 : 0}%"></i></div>
-      </button>`;
+  function annivSheetList() {
+    const t = today();
+    const up = annivList(t, addDays(t, 800)).filter((a) => a.kind !== "start").slice(0, 8);
+    openSheet(`
+      <h2>${ic("gift")}다가오는 기념일</h2>
+      ${up.map((a) => `
+        <div class="ann">
+          <div class="ic">${ic(a.kind === "custom" ? "star" : "gift")}</div>
+          <div class="t"><b>${esc(a.title)}</b><span>${fmtK(a.date)}${a.date.slice(0, 4) !== t.slice(0, 4) ? " · " + a.date.slice(0, 4) : ""}</span></div>
+          <div class="d">${dlabel(diff(t, a.date))}</div>
+          ${a.kind === "custom" ? `<button class="x" data-act="annivDel" data-id="${a.id}" aria-label="삭제">${ic("x")}</button>` : ""}
+        </div>`).join("")}
+      <div class="row2"><button class="btn gray" data-act="close">닫기</button><button class="btn primary" data-act="annivAdd" data-date="${t}">${ic("plus")}기념일 추가</button></div>`);
   }
 
   // ---------- 질문 ----------
@@ -251,7 +249,7 @@
     updateBadge();
     if (S.tab !== "question") return;
 
-    const prog = (w) => `<div class="qp-item">${av(w)}<div><b>${esc(nm(w))}</b><span>${answeredCount(t, w)}/4</span></div><div class="qp-bar"><i style="width:${(answeredCount(t, w) / 4) * 100}%"></i></div></div>`;
+    const prog = (w) => `<span class="qp-chip">${av(w)}${answeredCount(t, w)}/4</span>`;
     let arch = "";
     for (let d = addDays(t, -1); d >= from; d = addDays(d, -1)) {
       const open = S.openArch.has(d);
@@ -270,10 +268,10 @@
     view.innerHTML = `
       <div class="q-top">
         <div><h2>오늘의 질문</h2><span>${fmtK(t)}</span></div>
+        <div class="qp-row">${prog(S.who)}${prog(other())}</div>
       </div>
-      <div class="qp">${prog(S.who)}${prog(other())}</div>
       ${qCard(t, "t")}
-      <div class="q-sec">둘 중 하나 <span>한 번 고르면 못 바꿔요</span></div>
+      <div class="q-sec">둘 중 하나 <span>한 번만 고를 수 있어요</span></div>
       ${CSLOTS.map((sl, k) => choiceOne(t, sl, k)).join("")}
       ${arch ? `<div class="q-sec" style="margin-top:26px">지난 질문 <span>매일 저장돼요</span></div>${arch}` : ""}
       ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:8px">더 지난 질문 보기</button>` : ""}`;
@@ -300,7 +298,6 @@
       else body += `<div class="locked">${ic("clock")}${esc(nm(ot))}님은 아직 답하지 않았어요</div>`;
     }
     return `<div class="q-card q-main">
-      <span class="q-type t">${ic("pen")}오늘의 이야기</span>
       <div class="q-text">${esc(Q.q)}</div>${body}</div>`;
   }
 
@@ -935,7 +932,7 @@
   // ---------- 폰 맞대기 ----------
   const T = { polling: null, near: null };
   // 처음 화면을 터치할 때 소리 감지 시작 (아이폰은 열 때마다 마이크 허용을 한 번 물어봄)
-  const onGesture = () => { if (S.who) startNear(); };
+  const onGesture = () => {}; // 소리 감지(마이크)는 사용 안 함
   document.addEventListener("click", onGesture, true);
   document.addEventListener("touchend", onGesture, true);
 
@@ -977,7 +974,7 @@
       <div class="fx-ripple"></div>
       <div class="fx-big">${grad("fxc", "#FF9BB4", "#C86BE6")}</div>
       <div class="fx-float">${floaters}</div>
-      <div class="fx-text"><b>${S.fxKind === "meet" ? "우리 만났어요" : "우리 지금 닿았어요"}</b><span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</span></div>`;
+      <div class="fx-text"><b>${S.fxKind === "meet" ? "우리 만났어요" : S.fxKind === "tap" ? "마음이 통했어요" : "우리 지금 닿았어요"}</b><span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</span></div>`;
     fx.hidden = false;
     fx.classList.remove("out");
     try { navigator.vibrate && navigator.vibrate([30, 80, 30]); } catch {}
@@ -1177,15 +1174,9 @@
         return `<div class="row2"><button class="btn primary" data-act="pushOn">${ic("bell")}알림 켜기</button></div>`;
       })()}
       <hr>
-      <h2 style="font-size:16px;margin-top:4px">${ic("heart")}폰 맞대기</h2>
-      <div class="row2">
-        <button class="btn ${nearEnabled() ? "soft" : "gray"}" data-act="toggleNear">소리 감지 ${nearEnabled() ? "켜짐" : "꺼짐"}</button>
-      </div>
-      <label>가까이 감도 (오른쪽일수록 멀리서도 반응)<input type="range" id="sensRange" min="12" max="50" value="${62 - sensThr()}" style="accent-color:var(--rose);padding:0;border:0;min-height:0"></label>
-      <div class="sens-row"><span>${esc(nm(other()))} 폰 신호</span><div class="progress"><i id="sensBar" style="width:0;transition:width .08s"></i></div></div>
-      <div class="sens-row"><span>내 폰 소리</span><div class="progress"><i id="selfBar" style="width:0;transition:width .08s"></i></div></div>
-      <div class="near-stat" id="nearStat">${nearStatusText()}</div>
-      <p class="muted" style="font-size:12px;margin-top:8px">"내 폰 소리" 막대가 차면 내 폰은 정상이에요. 안 차면 무음 모드를 끄고 볼륨을 올려보세요. 둘이 원하는 거리에 폰을 두고 위쪽 막대를 보면서 감도를 맞추면 돼요.</p>
+      <h2 style="font-size:16px;margin-top:4px">${ic("heart")}같이 하트 누르기</h2>
+      <p class="muted" style="font-size:13px">홈의 하트를 둘이 동시에 누르면 두 폰에 같은 순간 애니메이션이 나와요. 둘이 가까워지면 위치로 알아채서 "만났어요"도 떠요.</p>
+      <hr>
       <div class="row2">
         <button class="btn gray" data-act="otSheet">${ic("phone")}꺼도 공유 설정</button>
         <button class="btn danger" data-act="locDel">내 위치 지우기</button>
@@ -1207,6 +1198,25 @@
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     bucketOpen: () => bucketSheet(),
+    async tapHeart(el) {
+      el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");
+      try { navigator.vibrate && navigator.vibrate(15); } catch {}
+      const sent = Date.now();
+      try {
+        const r = await timedApi("touch", { method: "POST", body: { kind: "tap" } });
+        if (r.match) return scheduleFx(r.touch, r.at, "tap");
+      } catch {}
+      toast(`${nm(other())}님도 같이 누르면 터져요`);
+      // 상대가 조금 늦게 누를 수 있어서 잠깐 확인
+      let n = 0;
+      clearInterval(S.tapPoll);
+      S.tapPoll = setInterval(async () => {
+        if (++n > 8) return clearInterval(S.tapPoll);
+        const r = await timedApi("touch").catch(() => null);
+        if (r && r.touch > S.lastTouchSeen && r.touch >= sent - 3000) { clearInterval(S.tapPoll); scheduleFx(r.touch, r.at, r.kind); }
+      }, 400);
+    },
+    annivSheet: () => annivSheetList(),
     avatarPick: () => $("#avInput").click(),
     async avatarDel() {
       await api("avatar", { method: "DELETE" });
@@ -1354,6 +1364,7 @@
       if (!confirm("이 기념일을 지울까요?")) return;
       await api(`anniv/${el.dataset.id}`, { method: "DELETE" });
       await loadAnniv(); render(true);
+      if (!$("#sheet").hidden && $("#sheetBox").textContent.includes("다가오는 기념일")) annivSheetList();
     },
 
     // 라이트박스

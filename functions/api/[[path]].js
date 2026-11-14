@@ -441,7 +441,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       // ----- 부딪히기 / 가까이 대기 -----
       case "POST touch": {
         const b = await body(request);
-        const kind = ["bump", "near", "listen"].includes(b.kind) ? b.kind : null;
+        const kind = ["bump", "near", "listen", "tap"].includes(b.kind) ? b.kind : null;
         if (!kind) return err(400, "잘못된 요청");
         const now = Date.now();
         const other = who === "a" ? "b" : "a";
@@ -451,13 +451,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
         ]);
         if (kind === "listen") return json({ match: false, touch: Number(st.last_touch) || 0, now });
         // 두 폰이 서로의 소리를 2.5초 안에 다 들었을 때만 성공 (한쪽만 들으면 안 됨 그래서 멀리서 안 터짐)
-        const r = await DB.prepare("SELECT COUNT(*) AS n FROM touches WHERE who = ?1 AND kind IN ('bump','near') AND t > ?2")
-          .bind(other, now - 2500).first();
+        const r = await DB.prepare("SELECT COUNT(*) AS n FROM touches WHERE who = ?1 AND kind = ?3 AND t > ?2")
+          .bind(other, now - 2500, kind).first();
         const last = Number(st.last_touch) || 0;
-        if (r && r.n > 0 && now - last > 5000) {
+        if (r && r.n > 0 && now - last > 4000) {
           // 두 폰이 같은 시각에 재생하도록 1.2초 뒤를 재생 시각으로 정함
           const at = now + 1200;
-          await setSettings(env, { last_touch: now, last_touch_at: at, last_touch_kind: "near" });
+          await setSettings(env, { last_touch: now, last_touch_at: at, last_touch_kind: kind });
           return json({ match: true, touch: now, at, now });
         }
         return json({ match: false, touch: last, at: Number(st.last_touch_at) || 0, now });

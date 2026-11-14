@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cut">
+<meta name="theme-color" content="#111827">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>친구 위치</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #0f172a; --card: #ffffff; --ink: #0f172a; --muted: #64748b;
+    --line: #e2e8f0; --accent: #2563eb; --danger: #dc2626; --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", sans-serif; color: var(--ink); background: #f1f5f9; }
+  button { font: inherit; cursor: pointer; }
+  svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* 로그인 */
+  #login { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(160deg, #0f172a, #1e3a8a); z-index: 2000; }
+  #login .box { width: 100%; max-width: 360px; background: var(--card); border-radius: 20px; padding: 28px 22px; }
+  #login h1 { margin: 0 0 6px; font-size: 22px; display: flex; align-items: center; gap: 8px; }
+  #login p { margin: 0 0 20px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  input[type=text], input[type=password] { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font-size: 16px; outline: none; }
+  input:focus { border-color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 600; font-size: 15px; }
+  .btn.primary { background: var(--accent); color: #fff; width: 100%; margin-top: 20px; }
+  .btn.ghost { background: #f1f5f9; color: var(--ink); }
+  .err { color: var(--danger); font-size: 13px; min-height: 18px; margin-top: 8px; }
+
+  /* 지도 화면 */
+  #app { position: fixed; inset: 0; display: none; }
+  #map { position: absolute; inset: 0; }
+  .top { position: absolute; top: calc(env(safe-area-inset-top) + 10px); left: 10px; right: 10px; z-index: 1000; display: flex; gap: 8px; align-items: center; }
+  .pill { background: var(--card); border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.12); padding: 10px 14px; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .pill.grow { flex: 1; min-width: 0; }
+  .pill .room { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .iconbtn { background: var(--card); border: 0; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.12); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--ink); }
+
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000; background: var(--card); border-radius: 20px 20px 0 0; box-shadow: 0 -4px 20px rgba(0,0,0,.12); padding: 10px 14px calc(env(safe-area-inset-bottom) + 14px); max-height: 45vh; display: flex; flex-direction: column; }
+  .handle { width: 40px; height: 4px; border-radius: 4px; background: var(--line); margin: 0 auto 10px; }
+  .actions { display: flex; gap: 8px; margin-bottom: 10px; }
+  .actions .btn { flex: 1; padding: 11px 10px; font-size: 14px; }
+  .btn.on { background: #dcfce7; color: #166534; }
+  #list { overflow-y: auto; margin: 0 -14px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); cursor: pointer; }
+  .row:active { background: #f8fafc; }
+  .av { width: 38px; height: 38px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+  .row .meta { flex: 1; min-width: 0; }
+  .row .nm { font-weight: 600; font-size: 15px; }
+  .row .sub { color: var(--muted); font-size: 12px; display: flex; gap: 10px; align-items: center; margin-top: 2px; }
+  .row .sub svg.i { width: 14px; height: 14px; }
+  .tag { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: #eff6ff; color: var(--accent); }
+  .empty { color: var(--muted); font-size: 14px; padding: 14px; text-align: center; }
+
+  .marker { width: 36px; height: 36px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); color: #fff; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+  .marker.old { opacity: .5; }
+
+  /* 모달 */
+  .modal { position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 3000; display: none; align-items: flex-end; justify-content: center; }
+  .modal.show { display: flex; }
+  .modal .box { width: 100%; max-width: 520px; background: var(--card); border-radius: 20px 20px 0 0; padding: 20px 18px calc(env(safe-area-inset-bottom) + 20px); max-height: 88vh; overflow-y: auto; }
+  .modal h2 { margin: 0 0 4px; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+  .modal p, .modal li { font-size: 14px; color: #334155; line-height: 1.6; }
+  .modal ol { padding-left: 20px; margin: 8px 0; }
+  .kv { display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 6px 0; }
+  .kv .k { font-size: 12px; color: var(--muted); width: 82px; flex: none; }
+  .kv .v { flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; }
+  .kv button { border: 0; background: #e2e8f0; border-radius: 8px; padding: 6px 8px; display: flex; }
+  .kv button svg.i { width: 16px; height: 16px; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: #78350f; margin-top: 12px; line-height: 1.5; }
+  .row2 { display: flex; gap: 8px; margin-top: 16px; }
+  .row2 .btn { flex: 1; }
+  .btn.danger { background: #fef2f2; color: var(--danger); }
+  #toast { position: fixed; left: 50%; bottom: 50%; transform: translateX(-50%); background: rgba(15,23,42,.92); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 4000; display: none; }
+</style>
+</head>
+<body>
+
+<!-- 아이콘 (선 아이콘) -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="ic-pin" viewBox="0 0 24 24"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+  <symbol id="ic-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2A5 5 0 0 1 21.5 19"/></symbol>
+  <symbol id="ic-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol>
+  <symbol id="ic-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/></symbol>
+  <symbol id="ic-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></symbol>
+  <symbol id="ic-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></symbol>
+  <symbol id="ic-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="ic-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="ic-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="ic-batt" viewBox="0 0 24 24"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/></symbol>
+  <symbol id="ic-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+</svg>
+
+<div id="login">
+  <div class="box">
+    <h1><svg class="i"><use href="#ic-pin"/></svg>친구 위치</h1>
+    <p>같은 방 코드를 입력한 친구끼리만 서로 위치가 보여요.</p>
+    <label for="inName">내 이름</label>
+    <input id="inName" type="text" maxlength="20" placeholder="예: 우진" autocomplete="nickname">
+    <label for="inCode">방 코드 (6자 이상, 친구와 똑같이)</label>
+    <input id="inCode" type="password" maxlength="64" placeholder="친구들끼리 정한 비밀 코드">
+    <div class="err" id="loginErr"></div>
+    <button class="btn primary" id="btnJoin"><svg class="i"><use href="#ic-users"/></svg>입장</button>
+  </div>
+</div>
+
+<div id="app">
+  <div id="map"></div>
+  <div class="top">
+    <div class="pill grow"><svg class="i"><use href="#ic-users"/></svg><span class="room" id="roomLabel"></span></div>
+    <button class="iconbtn" id="btnCenter" aria-label="모두 보기"><svg class="i"><use href="#ic-target"/></svg></button>
+    <button class="iconbtn" id="btnSettings" aria-label="설정"><svg class="i"><use href="#ic-gear"/></svg></button>
+  </div>
+  <div class="sheet">
+    <div class="handle"></div>
+    <div class="actions">
+      <button class="btn ghost" id="btnSend"><svg class="i"><use href="#ic-send"/></svg>지금 보내기</button>
+      <button class="btn ghost" id="btnLive"><svg class="i"><use href="#ic-radio"/></svg>자동 공유 꺼짐</button>
+      <button class="btn ghost" id="btnApp"><svg class="i"><use href="#ic-phone"/></svg>꺼도 공유</button>
+    </div>
+    <div id="list"><div class="empty">불러오는 중...</div></div>
+  </div>
+</div>
+
+<!-- 꺼도 공유 (OwnTracks 연결) -->
+<div class="modal" id="mApp">
+  <div class="box">
+    <h2><svg class="i"><use href="#ic-phone"/></svg>화면 꺼도 위치 공유하기</h2>
+    <p>웹페이지는 화면이 꺼지면 위치를 못 보내요. 무료 앱 <b>OwnTracks</b>가 대신 백그라운드에서 이 사이트로 위치를 보내도록 연결하면 돼요. (아이폰·안드로이드 모두 가능)</p>
+    <ol>
+      <li>App Store / Play 스토어에서 <b>OwnTracks</b> 설치</li>
+      <li>앱 설정(Settings)에서 <b>Mode</b>를 <b>HTTP</b>로 변경</li>
+      <li>아래 값을 그대로 입력</li>
+    </ol>
+    <div class="kv"><span class="k">URL</span><span class="v" id="vUrl"></span><button data-copy="vUrl" aria-label="복사"><svg class="i"><use href="#ic-copy"/></svg></button></div>
+    <div class="kv"><span class="k">UserID</span><span class="v" id="vUser"></span><button data-copy="vUser" aria-label="복사"><svg class="i"><use href="#ic-copy"/></svg></button></div>
+    <div class="kv"><span class="k">Password</span><span class="v" id="vPass"></span><button data-copy="vPass" aria-label="복사"><svg class="i"><use href="#ic-copy"/></svg></button></div>
+    <div class="kv"><span class="k">DeviceID</span><span class="v">phone</span></div>
+    <ol start="4">
+      <li>위치 권한을 <b>항상 허용</b>으로 설정</li>
+      <li>지도 화면 위쪽에서 모니터링 모드를 <b>Significant</b>(배터리 절약, 수백 m 움직이면 전송) 또는 <b>Move</b>(자주 전송, 배터리 많이 씀)로 선택</li>
+    </ol>
+    <div class="note">이름과 방 코드는 이 사이트에 입력한 것과 똑같아야 같은 사람으로 표시돼요. 앱 지도에서도 친구 위치가 보여요. 공유를 멈추려면 앱에서 Quiet 모드로 바꾸거나 앱을 삭제하면 돼요.</div>
+    <div class="row2"><button class="btn ghost" data-close>닫기</button></div>
+  </div>
+</div>
+
+<!-- 설정 -->
+<div class="modal" id="mSettings">
+  <div class="box">
+    <h2><svg class="i"><use href="#ic-gear"/></svg>설정</h2>
+    <p id="meInfo"></p>
+    <div class="row2">
+      <button class="btn danger" id="btnLeave">내 위치 삭제</button>
+      <button class="btn ghost" id="btnLogout">방 나가기</button>
+    </div>
+    <div class="row2"><button class="btn ghost" data-close>닫기</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(() => {
+  const POLL_MS = 15000;          // 친구 위치 새로고침 간격
+  const LIVE_MIN_MS = 30000;      // 자동 공유: 최소 전송 간격
+  const LIVE_MAX_MS = 5 * 60000;  // 자동 공유: 안 움직여도 이 간격마다 전송
+  const LIVE_MIN_M = 25;          // 자동 공유: 이만큼 움직이면 전송
+
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+
+  let me = { name: store.get("fm_name") || "", code: store.get("fm_code") || "" };
+  let map, markers = {}, members = [], firstFit = true, pollTimer = null;
+  let watchId = null, lastSent = null;
+
+  function toast(msg) {
+    const t = $("toast"); t.textContent = msg; t.style.display = "block";
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = "none", 2200);
+  }
+  function colorOf(name) {
+    let h = 0; for (const c of name) h = (h * 31 + c.codePointAt(0)) >>> 0;
+    return `hsl(${h % 360} 65% 45%)`;
+  }
+  function initial(name) { return [...name][0] || "?"; }
+  function ago(t, now) {
+    const s = Math.max(0, Math.round((now - t) / 1000));
+    if (s < 60) return "방금";
+    if (s < 3600) return Math.floor(s / 60) + "분 전";
+    if (s < 86400) return Math.floor(s / 3600) + "시간 전";
+    return Math.floor(s / 86400) + "일 전";
+  }
+  function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+  function dist(a, b) {
+    const R = 6371000, r = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+
+  // ---------- 로그인 ----------
+  $("inName").value = me.name;
+  $("btnJoin").onclick = () => {
+    const name = $("inName").value.trim(), code = $("inCode").value;
+    if (!name) return $("loginErr").textContent = "이름을 입력하세요";
+    if (code.length < 6) return $("loginErr").textContent = "방 코드는 6자 이상이어야 해요";
+    me = { name, code };
+    store.set("fm_name", name); store.set("fm_code", code);
+    start();
+  };
+  $("inCode").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnJoin").click(); });
+
+  function start() {
+    $("login").style.display = "none";
+    $("app").style.display = "block";
+    $("roomLabel").textContent = me.name + " · 방 " + "•".repeat(Math.min(me.code.length, 8));
+    if (!map) {
+      map = L.map("map", { zoomControl: false, attributionControl: true }).setView([35.8714, 128.6014], 12);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19, attribution: "&copy; OpenStreetMap",
+      }).addTo(map);
+    }
+    setTimeout(() => map.invalidateSize(), 50);
+    refresh();
+    clearInterval(pollTimer);
+    pollTimer = setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
+  }
+
+  // ---------- 친구 위치 불러오기 ----------
+  async function refresh() {
+    try {
+      const r = await fetch("/api/locations", { headers: { "X-Room": encodeURIComponent(me.code) } });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "오류");
+      members = d.members;
+      render(d.now);
+    } catch (e) {
+      $("list").innerHTML = `<div class="empty">불러오기 실패: ${esc(e.message)}</div>`;
+    }
+  }
+
+  function render(now) {
+    const seen = new Set();
+    for (const m of members) {
+      seen.add(m.name);
+      const old = now - m.t > 30 * 60000;
+      const html = `<div class="marker${old ? " old" : ""}" style="background:${colorOf(m.name)}">${esc(initial(m.name))}</div>`;
+      const icon = L.divIcon({ html, className: "", iconSize: [36, 36], iconAnchor: [18, 18] });
+      const pop = `<b>${esc(m.name)}</b><br>${ago(m.t, now)}${m.batt != null ? " · 배터리 " + m.batt + "%" : ""}`;
+      if (markers[m.name]) {
+        markers[m.name].setLatLng([m.lat, m.lon]).setIcon(icon).setPopupContent(pop);
+      } else {
+        markers[m.name] = L.marker([m.lat, m.lon], { icon }).addTo(map).bindPopup(pop);
+      }
+    }
+    for (const n of Object.keys(markers)) if (!seen.has(n)) { map.removeLayer(markers[n]); delete markers[n]; }
+
+    if (!members.length) {
+      $("list").innerHTML = `<div class="empty">아직 아무도 위치를 안 보냈어요. "지금 보내기"를 눌러보세요.</div>`;
+    } else {
+      $("list").innerHTML = members.map((m) => `
+        <div class="row" data-name="${esc(m.name)}">
+          <div class="av" style="background:${colorOf(m.name)}">${esc(initial(m.name))}</div>
+          <div class="meta">
+            <div class="nm">${esc(m.name)}${m.name === me.name ? ' <span class="tag">나</span>' : ""}</div>
+            <div class="sub">
+              <span style="display:flex;gap:4px;align-items:center"><svg class="i"><use href="#ic-clock"/></svg>${ago(m.t, now)}</span>
+              ${m.batt != null ? `<span style="display:flex;gap:4px;align-items:center"><svg class="i"><use href="#ic-batt"/></svg>${m.batt}%</span>` : ""}
+              <span>${m.src === "app" ? "앱" : "웹"}</span>
+            </div>
+          </div>
+        </div>`).join("");
+      $("list").querySelectorAll(".row").forEach((el) => el.onclick = () => {
+        const mk = markers[el.dataset.name];
+        if (mk) { map.setView(mk.getLatLng(), 16); mk.openPopup(); }
+      });
+    }
+    if (firstFit && members.length) { fitAll(); firstFit = false; }
+  }
+
+  function fitAll() {
+    const pts = members.map((m) => [m.lat, m.lon]);
+    if (!pts.length) return;
+    if (pts.length === 1) map.setView(pts[0], 15);
+    else map.fitBounds(pts, { padding: [60, 60], maxZoom: 16 });
+  }
+  $("btnCenter").onclick = fitAll;
+
+  // ---------- 내 위치 보내기 ----------
+  async function batteryLevel() {
+    try { if (navigator.getBattery) { const b = await navigator.getBattery(); return Math.round(b.level * 100); } } catch {}
+    return null;
+  }
+  async function sendPos(pos) {
+    const body = {
+      name: me.name, code: me.code,
+      lat: pos.coords.latitude, lon: pos.coords.longitude,
+      acc: pos.coords.accuracy, batt: await batteryLevel(),
+    };
+    const r = await fetch("/api/update", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "전송 실패");
+    lastSent = { lat: body.lat, lon: body.lon, t: Date.now() };
+    refresh();
+  }
+  function geoErr(e) {
+    const msg = { 1: "위치 권한이 거부됐어요. 브라우저 설정에서 허용해 주세요.", 2: "위치를 찾을 수 없어요.", 3: "위치 찾기 시간 초과" }[e.code] || e.message;
+    toast(msg);
+  }
+
+  $("btnSend").onclick = () => {
+    if (!navigator.geolocation) return toast("이 브라우저는 위치를 지원하지 않아요");
+    toast("위치 찾는 중...");
+    navigator.geolocation.getCurrentPosition(
+      (p) => sendPos(p).then(() => toast("보냈어요")).catch((e) => toast(e.message)),
+      geoErr, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+    );
+  };
+
+  $("btnLive").onclick = () => {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId); watchId = null;
+      $("btnLive").classList.remove("on");
+      $("btnLive").lastChild.textContent = "자동 공유 꺼짐";
+      return;
+    }
+    if (!navigator.geolocation) return toast("이 브라우저는 위치를 지원하지 않아요");
+    watchId = navigator.geolocation.watchPosition((p) => {
+      const now = Date.now();
+      const cur = { lat: p.coords.latitude, lon: p.coords.longitude };
+      const due = !lastSent
+        || now - lastSent.t > LIVE_MAX_MS
+        || (now - lastSent.t > LIVE_MIN_MS && dist(lastSent, cur) > LIVE_MIN_M);
+      if (due) sendPos(p).catch(() => {});
+    }, geoErr, { enableHighAccuracy: true, maximumAge: 10000 });
+    $("btnLive").classList.add("on");
+    $("btnLive").lastChild.textContent = "자동 공유 켜짐";
+    toast("이 페이지를 열어둔 동안 자동으로 보내요");
+  };
+
+  // ---------- 모달 ----------
+  function openModal(id) { $(id).classList.add("show"); }
+  document.querySelectorAll(".modal").forEach((m) => {
+    m.addEventListener("click", (e) => { if (e.target === m || e.target.closest("[data-close]")) m.classList.remove("show"); });
+  });
+  $("btnApp").onclick = () => {
+    $("vUrl").textContent = location.origin + "/api/owntracks";
+    $("vUser").textContent = me.name;
+    $("vPass").textContent = me.code;
+    openModal("mApp");
+  };
+  document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = async () => {
+    const text = $(b.dataset.copy).textContent;
+    try { await navigator.clipboard.writeText(text); toast("복사했어요"); }
+    catch { toast("복사 실패: 길게 눌러 직접 복사하세요"); }
+  });
+  $("btnSettings").onclick = () => {
+    $("meInfo").textContent = `이름: ${me.name}`;
+    openModal("mSettings");
+  };
+  $("btnLeave").onclick = async () => {
+    try {
+      await fetch("/api/leave", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: me.name, code: me.code }) });
+      toast("내 위치를 지웠어요 (앱 연결 중이면 앱도 꺼주세요)");
+      $("mSettings").classList.remove("show");
+      refresh();
+    } catch { toast("삭제 실패"); }
+  };
+  $("btnLogout").onclick = () => {
+    if (watchId !== null) $("btnLive").click();
+    clearInterval(pollTimer);
+    store.del("fm_code");
+    Object.values(markers).forEach((mk) => map.removeLayer(mk)); markers = {}; firstFit = true;
+    $("mSettings").classList.remove("show");
+    $("app").style.display = "none";
+    $("login").style.display = "flex";
+    $("inCode").value = "";
+  };
+
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && me.code && $("app").style.display === "block") refresh(); });
+
+  if (me.name && me.code) start();
+})();
+</script>
+</body>
+</html>

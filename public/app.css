@@ -1595,3 +1595,10 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .st-row > span:last-child svg.i { width: 13px; height: 13px; color: #F2A01E; fill: currentColor; stroke-width: 0; }
 .st-note { font-size: 12.5px; color: var(--sub); margin: 6px 2px 0; }
 .eat-hero { height: 160px; }
+/* 목록 화면: 위쪽 요소가 눌려서 잘리지 않게, 지도 버튼과 겹치지 않게 */
+.eat2-list > *:not(.eat-list) { flex-shrink: 0; }
+.eat2-list { max-height: min(56vh, calc(100vh - var(--tab-h) - var(--safe-b) - 300px)); }
+.eat2-list .eat-chips { padding-bottom: 4px; }
+.map-card { z-index: 22 !important; }
+.map-fabs { z-index: 21 !important; }
+.tall-card .map-fabs { opacity: 0; pointer-events: none; transition: opacity .2s; }

@@ -1278,6 +1278,7 @@
   }
   function setEatOn(on) {
     S.eatOn = on;
+    if (!on) $("#mapWrap").classList.remove("tall-card");
     const b = $("#eatBtn"); if (b) b.classList.toggle("on", on);
     if (on) { S.trail = null; E.fitNext = true; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); loadEats(); }
     drawEatMarkers(); renderMapCard();
@@ -1324,11 +1325,11 @@
     if (/카페|커피|cafe/i.test(c)) return "카페";
     if (/디저트|베이커리|제과|빵|케이크|아이스크림|ice_cream/.test(c)) return "디저트";
     if (/술집|주점|호프|이자카야|bar|pub|와인|포차/i.test(c)) return "술집";
-    if (/분식|떡볶이|김밥|fast_food/.test(c)) return "분식";
+    if (/분식|떡볶이|김밥|간식|도시락|fast_food/.test(c) && !/베이커리|제과|아이스크림/.test(c)) return "분식";
     if (/육류|고기|삼겹|갈비|곱창|막창|족발|보쌈|닭갈비|치킨/.test(c)) return "고기";
     if (/일식|초밥|돈가스|라멘|우동|이자카야|일본/.test(c)) return "일식";
     if (/중식|중국|마라|훠궈|딤섬/.test(c)) return "중식";
-    if (/양식|이탈리|파스타|피자|스테이크|버거|햄버거|브런치|프랑스/.test(c)) return "양식";
+    if (/양식|이탈리|파스타|피자|스테이크|버거|햄버거|패스트푸드|샌드위치|샐러드|브런치|프랑스|멕시칸/.test(c)) return "양식";
     if (/아시아|베트남|태국|쌀국수|인도|멕시/.test(c)) return "아시안";
     if (/한식|국밥|찌개|냉면|국수|해장|한정식|백반|칼국수|순대|감자탕/.test(c)) return "한식";
     return c ? "기타" : "한식";
@@ -1623,6 +1624,7 @@
   function renderMapCard() {
     const mc = $("#mapCard");
     if (!$("#pick") && mc.hidden) mc.hidden = false;
+    $("#mapWrap").classList.toggle("tall-card", !!(S.eatOn && E.view === "list" && !S.trail));
     if (S.trail) return renderTrailCard();
     if (S.eatOn) return renderEatCard();
     const la = S.locs.a, lb = S.locs.b, o = other(), lo = S.locs[o];
@@ -2927,7 +2929,7 @@
     },
     eatSort(el) { E.sort = el.dataset.v; renderEatCard(); },
     eatFindClear() { E.q = ""; renderEatCard(); },
-    eatView(el) { E.view = el.dataset.v; $("#mapCard").innerHTML = ""; renderEatCard(); },
+    eatView(el) { E.view = el.dataset.v; $("#mapCard").innerHTML = ""; renderMapCard(); },
     eatMk(el) {
       const id = Number(el.dataset.id);
       if (E.view === "cards" && E.sel !== id) { selectEat(id, true); return; }

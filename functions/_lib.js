@@ -130,6 +130,22 @@ export async function saveLoc(DB, who, d) {
   const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Math.round(Number(v)));
   let t = Number(d.t);
   if (!Number.isFinite(t) || t > Date.now() + 60000) t = Date.now();
+  // 현재 위치가 튀지 않게: 오차가 큰 위치나 순간이동 같은 위치는 최근 정확한 위치를 덮어쓰지 않음
+  const acc0 = Number(d.acc);
+  const accN = Number.isFinite(acc0) ? acc0 : 50;
+  const cur = await DB.prepare("SELECT lat, lon, acc, t FROM couple_locs WHERE who = ?1").bind(who).first();
+  if (cur && t >= cur.t) {
+    const age = (t - cur.t) / 1000;
+    const curAcc = cur.acc != null ? cur.acc : 50;
+    const dist = distM({ lat, lon }, cur);
+    const worse = accN > Math.max(60, curAcc * 2);
+    // 1) 최근(3분 안) 정확한 위치가 있는데 훨씬 흐린 위치가 오차 범위 안에서 들어오면 무시
+    if (worse && age < 180 && dist < accN) { await DB.prepare("UPDATE couple_locs SET batt = COALESCE(?2, batt) WHERE who = ?1").bind(who, num(d.batt)).run(); return; }
+    // 2) 시속 200km 넘게 순간이동한 것처럼 보이는 점은 무시 (10분 안)
+    if (age < 600 && dist > 300 && dist - accN - curAcc > 0 && dist / Math.max(age, 1) > 55) return;
+    // 3) 오차 300m 넘는 위치는 10분 넘게 소식이 없을 때만 받음
+    if (accN > 300 && age < 600) return;
+  }
   await DB.prepare(
     `INSERT INTO couple_locs (who, lat, lon, acc, batt, src, t, vel) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
      ON CONFLICT(who) DO UPDATE SET lat = excluded.lat, lon = excluded.lon, acc = excluded.acc,

@@ -964,8 +964,9 @@
         markers[w] = newMarker({ element: el, anchor: "bottom" }).setLngLat([l.lon, l.lat]).addTo(map);
       }
       const el = markers[w].getElement();
-      el.className = cls; el.innerHTML = html;
-      markers[w].setLngLat([l.lon, l.lat]);
+      el.className = cls;
+      if (el._h !== html) { el.innerHTML = html; el._h = html; }
+      glide(markers[w], l.lon, l.lat);
     }
     if (mapLoaded) {
       map.getSource("link").setData({
@@ -974,6 +975,23 @@
       });
     }
     if (pts.length > fitted) { fitMap(); fitted = pts.length; }
+  }
+  // 마커가 순간이동하지 않고 부드럽게 미끄러지게
+  function glide(mk, lon, lat) {
+    const from = mk.getLngLat();
+    if (!from) return mk.setLngLat([lon, lat]);
+    const fx = from.lng, fy = from.lat;
+    if (Math.abs(fx - lon) < 1e-7 && Math.abs(fy - lat) < 1e-7) return;
+    const far = distM({ lat: fy, lon: fx }, { lat, lon }) > 3000;
+    if (far || document.hidden) return mk.setLngLat([lon, lat]);
+    cancelAnimationFrame(mk._raf);
+    const t0 = performance.now(), D = 900;
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - k, 3);
+      mk.setLngLat([fx + (lon - fx) * e, fy + (lat - fy) * e]);
+      if (k < 1) mk._raf = requestAnimationFrame(step);
+    };
+    mk._raf = requestAnimationFrame(step);
   }
   // ---------- 장소 ----------
   const placeMarkers = [];

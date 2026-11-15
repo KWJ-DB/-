@@ -1726,3 +1726,13 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .bk-bulk-t svg.i { width: 15px; height: 15px; }
 .bk-bulk { margin-bottom: 14px; }
 #bkBulkText { display: block; width: 100%; box-sizing: border-box; font-size: 14px; line-height: 1.5; }
+/* 추억: 날짜별 */
+.al-month { font-size: 20px !important; font-weight: 800 !important; color: var(--ink) !important; margin: 22px 4px 4px !important; letter-spacing: -.02em; }
+.al-day { margin-top: 12px; }
+.al-day-h { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 8px; }
+.al-day-h b { font-size: 15px; font-weight: 750; }
+.al-day-h span { font-size: 12px; color: var(--sub); }
+.al-day .al-grid { border-radius: var(--r-surface); overflow: hidden; }
+.al-day .al-grid button span { display: none; }
+.al-day .al-grid { border-radius: 0 !important; overflow: visible; gap: 4px !important; }
+.al-day .al-grid button { border-radius: 10px !important; overflow: hidden; }

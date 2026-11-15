@@ -670,17 +670,22 @@
     else { const d = await api(`album?offset=${S.album.photos.length}`); S.album.photos = S.album.photos.concat(d.photos); S.album.total = d.total; }
     if (S.tab !== "calendar" || S.memView === "cal") return;
     const ph = S.album.photos;
-    let html = "", cur = "";
+    // 날짜별로 묶기 (달이 바뀌면 달 제목도)
+    let html = "", curM = "", curD = "";
+    const cnt = {};
+    ph.forEach((p) => { cnt[p.date] = (cnt[p.date] || 0) + 1; });
     ph.forEach((p, i) => {
       const ym = p.date.slice(0, 7);
-      if (ym !== cur) {
-        if (cur) html += `</div>`;
-        cur = ym;
-        html += `<div class="al-month">${+ym.slice(0, 4)}년 ${+ym.slice(5)}월</div><div class="al-grid">`;
+      if (p.date !== curD) {
+        if (curD) html += `</div></section>`;
+        if (ym !== curM) { curM = ym; html += `<div class="al-month">${+ym.slice(0, 4)}년 ${+ym.slice(5)}월</div>`; }
+        curD = p.date;
+        const dw = "일월화수목금토"[new Date(p.date + "T00:00:00").getDay()];
+        html += `<section class="al-day"><div class="al-day-h"><b>${+p.date.slice(5, 7)}월 ${+p.date.slice(8)}일 ${dw}요일</b><span>우리 ${dplus(p.date)}일째 · ${cnt[p.date]}장</span></div><div class="al-grid">`;
       }
-      html += `<button data-act="openAlbum" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""><span>${+p.date.slice(8)}일</span></button>`;
+      html += `<button data-act="openAlbum" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""></button>`;
     });
-    if (cur) html += `</div>`;
+    if (curD) html += `</div></section>`;
     view.innerHTML = `
       ${segHtml()}
       <div class="al-head">

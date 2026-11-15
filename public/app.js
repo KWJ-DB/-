@@ -1462,7 +1462,7 @@
         <button data-act="eatPlan">${ic("cal")}<span>같이 가기</span></button>
         <button data-act="eatDm">${ic("send")}<span>보내기</span></button>
         <button data-act="eatNav">${ic("route")}<span>길찾기</span></button>
-        <button data-act="eatNaver">${e.link && /kakao/.test(e.link) ? `<span class="kk-logo sm">K</span><span>가게 정보</span>` : `<span class="nv-logo sm">N</span><span>가게 정보</span>`}</button>
+        <button data-act="eatNaver"><span class="nv-logo sm">N</span><span>가게 정보</span></button>
       </div>
       <div class="eat-photos">
         <button class="eat-ph-add" data-act="eatPhoto" aria-label="사진 추가">${ic("camera")}<span>사진</span></button>
@@ -3040,7 +3040,17 @@
         S.tab === "map" ? eatAddSheet() : closeSheet();
       } catch (e) { toast(e.message); b.disabled = false; b.textContent = "연결하기"; }
     },
-    eatNaver() { const e = E.list.find((x) => x.id === S.eatCur); if (e.link) return window.open(e.link, "_blank"); window.open(`https://map.naver.com/p/search/${encodeURIComponent(e.name)}?c=${e.lon},${e.lat},17,0,0,0,dh`, "_blank"); },
+    eatNaver() {
+      const e = E.list.find((x) => x.id === S.eatCur); if (!e) return;
+      // 같은 이름 가게가 많아서 주소의 구·동을 붙여서 찾음
+      const area = (e.addr || "").split(" ").filter((w) => /[구동읍면]$/.test(w)).slice(0, 1).join(" ");
+      const q = encodeURIComponent(`${e.name}${area ? " " + area : ""}`);
+      const app = `nmap://search?query=${q}&appname=wooju.pages.dev`;
+      const web = `https://m.map.naver.com/search2/search.naver?query=${q}&sm=hty&style=v5`;
+      const t0 = Date.now();
+      location.href = app;
+      setTimeout(() => { if (!document.hidden && Date.now() - t0 < 2500) location.href = web; }, 1400);
+    },
     eatPickMap: () => eatPickMap(),
     eatPickOk() {
       const c = eatPickPoint();

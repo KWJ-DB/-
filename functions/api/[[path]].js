@@ -406,6 +406,70 @@ export async function onRequest({ request, env, params, waitUntil }) {
         await DB.prepare("DELETE FROM couple_locs WHERE who = ?1").bind(who).run();
         return json(OK);
 
+      // ----- 맛집 지도 -----
+      case "GET eats": {
+        const { results } = await DB.prepare("SELECT * FROM eats ORDER BY id DESC").all();
+        return json({ eats: results || [] });
+      }
+      case "POST eats": {
+        const b = await body(request);
+        const CATS = ["한식", "일식", "중식", "양식", "아시안", "카페", "디저트", "분식", "고기", "술집", "기타"];
+        if (id) {
+          const cur = await DB.prepare("SELECT * FROM eats WHERE id = ?1").bind(id).first();
+          if (!cur) return err(404, "맛집이 없어요");
+          const up = {};
+          if (b.name !== undefined) { const n = str(b.name, 40); if (!n) return err(400, "이름을 입력하세요"); up.name = n; }
+          if (b.cat !== undefined) up.cat = CATS.includes(b.cat) ? b.cat : "기타";
+          if (b.memo !== undefined) up.memo = str(b.memo, 300) || null;
+          if (b.status !== undefined) { up.status = b.status === "been" ? "been" : "want"; if (up.status === "been" && !cur.been) up.been = todayKST(); }
+          if (b.rate !== undefined) { const r = Math.round(Number(b.rate)); up["r" + who] = r >= 1 && r <= 5 ? r : null; if (!cur.been) { up.status = "been"; up.been = todayKST(); } }
+          const keys = Object.keys(up);
+          if (keys.length) await DB.prepare(`UPDATE eats SET ${keys.map((k, i) => `${k} = ?${i + 1}`).join(", ")} WHERE id = ?${keys.length + 1}`).bind(...keys.map((k) => up[k]), id).run();
+          return json(OK);
+        }
+        const name = str(b.name, 40);
+        const lat = Number(b.lat), lon = Number(b.lon);
+        if (!name) return err(400, "이름을 입력하세요");
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return err(400, "위치가 올바르지 않아요");
+        const status = b.status === "been" ? "been" : "want";
+        const r = await DB.prepare("INSERT INTO eats (name, cat, lat, lon, addr, status, memo, who, t, been) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")
+          .bind(name, CATS.includes(b.cat) ? b.cat : "기타", lat, lon, str(b.addr, 120) || null, status, str(b.memo, 300) || null, who, Date.now(), status === "been" ? todayKST() : null).run();
+        const nmMe = who === "a" ? st.a_name : st.b_name;
+        const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "맛집 지도", body: `${nmMe}님이 ${status === "been" ? "다녀온" : "가보고 싶은"} 곳을 추가했어요: ${name}`, url: "/#map", tag: "eat" });
+        if (waitUntil) waitUntil(job); else await job;
+        return json({ ok: true, id: r.meta.last_row_id });
+      }
+      case "DELETE eats": {
+        if (!id) return err(400, "id가 필요해요");
+        await DB.prepare("DELETE FROM eats WHERE id = ?1").bind(id).run();
+        return json(OK);
+      }
+      // 장소 이름 검색 (Photon → 안 되면 Nominatim)
+      case "GET geo": {
+        const kw = str(q("q"), 60);
+        if (!kw) return json({ results: [] });
+        const la = Number(q("lat")), lo = Number(q("lon"));
+        const bias = Number.isFinite(la) && Number.isFinite(lo) ? `&lat=${la}&lon=${lo}` : "";
+        const out = [];
+        try {
+          const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(kw)}&limit=10${bias}`, { headers: { "User-Agent": "wooju-couple/1.0" } });
+          const d = await r.json();
+          for (const f of d.features || []) {
+            const p = f.properties || {}, [x, y] = f.geometry.coordinates;
+            if (p.countrycode && p.countrycode !== "KR") continue;
+            out.push({ name: p.name || kw, addr: [p.city || p.county, p.district, p.street, p.housenumber].filter(Boolean).join(" "), lat: y, lon: x, kind: p.osm_value || "" });
+          }
+        } catch {}
+        if (!out.length) {
+          try {
+            const vb = bias ? `&viewbox=${lo - 0.3},${la + 0.3},${lo + 0.3},${la - 0.3}` : "";
+            const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&accept-language=ko&countrycodes=kr&limit=10&q=${encodeURIComponent(kw)}${vb}`, { headers: { "User-Agent": "wooju-couple/1.0 (private couple site)" } });
+            for (const p of await r.json()) out.push({ name: p.name || p.display_name.split(",")[0], addr: p.display_name.split(",").slice(1, 4).join(" ").trim(), lat: Number(p.lat), lon: Number(p.lon), kind: p.type || "" });
+          } catch {}
+        }
+        return json({ results: out });
+      }
+
       // ----- 장소 (도착/출발 알림) -----
       case "GET places": {
         const { results } = await DB.prepare("SELECT id, name, lat, lon, radius, owner FROM places ORDER BY id").all();
@@ -607,7 +671,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (kind === "loc") {
           const la = Number(b.lat), lo = Number(b.lon);
           if (!Number.isFinite(la) || !Number.isFinite(lo)) return err(400, "위치가 없어요");
-          meta = JSON.stringify({ lat: la, lon: lo });
+          meta = JSON.stringify({ lat: la, lon: lo, name: str(b.name, 40) || undefined });
         }
         if (kind === "event") {
           const e = b.ev || {};

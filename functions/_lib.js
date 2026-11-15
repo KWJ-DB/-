@@ -55,6 +55,7 @@ export async function ensureSchema(env) {
     `CREATE TABLE IF NOT EXISTS loc_hist (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, t INTEGER NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS loc_hist_wt ON loc_hist(who, t)`,
     `CREATE TABLE IF NOT EXISTS place_events (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, place TEXT NOT NULL, inside INTEGER NOT NULL, t INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS eats (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, cat TEXT, lat REAL NOT NULL, lon REAL NOT NULL, addr TEXT, status TEXT DEFAULT 'want', ra INTEGER, rb INTEGER, memo TEXT, who TEXT, t INTEGER, been TEXT)`,
     `CREATE TABLE IF NOT EXISTS bucket (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, done INTEGER DEFAULT 0, done_date TEXT, who TEXT, t INTEGER)`,
   ];
   await env.DB.batch(sql.map((q) => env.DB.prepare(q)));

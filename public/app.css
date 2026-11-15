@@ -1253,3 +1253,60 @@ button, a, [data-act] { touch-action: manipulation; }
 /* 스크롤 부드럽게 */
 #view, .dm-list, .sheet-box, .tr-tl { -webkit-overflow-scrolling: touch; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* ===== 맛집 지도 ===== */
+.eat-mk { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0; background: none; border: 0; cursor: pointer; animation: eatPop .35s cubic-bezier(.3,1.5,.5,1) both; }
+@keyframes eatPop { from { transform: scale(.4) translateY(8px); opacity: 0; } }
+.eat-mk .eat-ic { width: 32px; height: 32px; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg); background: #fff; border: 2.5px solid #8B8993; display: grid; place-items: center; box-shadow: 0 3px 8px rgba(0,0,0,.18); order: 1; }
+.eat-mk .eat-ic svg.i { width: 17px; height: 17px; transform: rotate(45deg); color: #8B8993; }
+.eat-mk.been .eat-ic { background: var(--rose); border-color: #fff; }
+.eat-mk.been .eat-ic svg.i { color: #fff; }
+.eat-mk .eat-nm { order: 0; font-size: 11.5px; font-weight: 700; color: var(--ink); background: rgba(255,255,255,.95); padding: 3px 8px; border-radius: 999px; box-shadow: 0 1px 4px rgba(0,0,0,.12); white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
+.eat-mk .eat-nm em { font-style: normal; color: #F2A01E; display: inline-flex; align-items: center; gap: 1px; }
+.eat-mk .eat-nm em svg.i { width: 11px; height: 11px; fill: currentColor; stroke-width: 0; }
+.eat-mk:active .eat-ic { transform: rotate(-45deg) scale(.9); }
+.eat { display: flex; flex-direction: column; max-height: 50vh; }
+.eat-top { display: flex; align-items: baseline; gap: 8px; }
+.eat-top b { font-size: 17px; font-weight: 800; }
+.eat-top span { font-size: 12px; color: var(--sub); }
+.eat-top .icon-btn { margin-left: auto; width: 32px; height: 32px; align-self: center; }
+.eat-chips { display: flex; gap: 5px; overflow-x: auto; margin: 10px -4px 6px; padding: 0 4px 2px; scrollbar-width: none; }
+.eat-chips::-webkit-scrollbar { display: none; }
+.eat .chip, .eat-cats .chip { flex: none; border: 0; background: #F4F4F6; font-size: 12.5px; font-weight: 650; padding: 6px 12px; border-radius: 999px; color: var(--sub); }
+.eat .chip.on, .eat-cats .chip.on { background: var(--ink); color: #fff; }
+.eat-list { overflow-y: auto; min-height: 0; flex: 1; margin: 0 -4px; overscroll-behavior: contain; }
+.eat-li { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 4px; border-radius: 12px; }
+.eat-li:active { background: #F4F4F6; }
+.eat-dot { width: 34px; height: 34px; border-radius: 12px; background: #F4F4F6; color: var(--sub); display: grid; place-items: center; flex: none; }
+.eat-dot.been { background: #FDECF1; color: var(--rose); }
+.eat-dot svg.i { width: 18px; height: 18px; }
+.eat-dot.big { width: 46px; height: 46px; border-radius: 15px; }
+.eat-dot.big svg.i { width: 24px; height: 24px; }
+.eat-t { flex: 1; min-width: 0; }
+.eat-t b { display: block; font-size: 14.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eat-t span { font-size: 12px; color: var(--sub); }
+.eat-r { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.eat-r svg.i { width: 14px; height: 14px; color: #F2A01E; fill: currentColor; stroke-width: 0; }
+.eat-btns { margin-top: 8px; }
+.eat-btns .btn { font-size: 14px; }
+.eat-btns .btn[disabled] { opacity: .4; }
+.eat-cats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.eat-pick { width: 40px !important; height: 40px !important; margin: -40px 0 0 -20px !important; border-radius: 50% 50% 50% 4px !important; transform: rotate(-45deg); background: var(--rose) !important; display: grid; place-items: center; }
+.eat-pick svg.i { width: 20px; height: 20px; color: #fff; transform: rotate(45deg); }
+.eat-d-top { display: flex; align-items: center; gap: 12px; }
+.eat-d-top .sheet-sub { display: block; margin-top: 2px; }
+.eat-st small { font-weight: 500; font-size: 11px; opacity: .7; }
+.eat-rates { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 14px; padding: 14px; background: #F7F7F9; border-radius: 16px; }
+.eat-rates > div { display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 650; }
+.stars { display: inline-flex; gap: 2px; }
+.stars i, .stars button { display: grid; place-items: center; color: #DCDAE0; padding: 0; }
+.stars svg.i { width: 16px; height: 16px; fill: currentColor; stroke-width: 0; }
+.stars.big svg.i { width: 26px; height: 26px; }
+.stars .on { color: #F2A01E; }
+.stars.tap button { transition: transform .2s cubic-bezier(.3,1.8,.5,1); }
+.stars.tap button:active { transform: scale(.8); }
+.eat-acts { display: flex; gap: 6px; margin-top: 14px; }
+.eat-acts button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 12px; font-weight: 650; color: var(--ink); padding: 10px 0; border-radius: 14px; background: #F4F4F6; }
+.eat-acts button svg.i { width: 20px; height: 20px; }
+.eat-acts button.del { color: #E0424A; }
+.btn.full { width: 100%; }

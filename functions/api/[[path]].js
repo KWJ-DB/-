@@ -197,7 +197,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "" });
       }
       case "POST meet": {
         const b = await body(request);
@@ -522,6 +522,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const t = await naverLocal("맛집", idk, sec);
         if (!t.ok) return err(400, t.msg);
         await setSettings(env, { naver_id: idk, naver_secret: sec });
+        return json(OK);
+      }
+      case "POST kakaojs": {
+        const b = await body(request);
+        const k = str(b.key, 80);
+        if (k && !/^[0-9a-f]{32}$/i.test(k)) return err(400, "JavaScript 키는 영문·숫자 32자예요. REST API 키와 헷갈리지 않았는지 확인해 주세요");
+        await setSettings(env, { kakao_js: k || "" });
         return json(OK);
       }
       case "POST kakaokey": {

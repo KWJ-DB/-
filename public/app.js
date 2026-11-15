@@ -860,6 +860,23 @@
   // ---------- 지도 ----------
   let map = null, mapLoaded = false, fitted = 0;
   const markers = {};
+  // 카카오맵 키가 있으면 카카오맵, 없으면 기본 지도
+  let kakaoP = null;
+  function loadKakao() {
+    if (!S.kakaoJs) return Promise.resolve(false);
+    if (kakaoP) return kakaoP;
+    kakaoP = new Promise((res) => {
+      const sc = document.createElement("script");
+      sc.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(S.kakaoJs)}&autoload=false`;
+      sc.onload = () => { try { kakao.maps.load(() => { S.useKakao = true; res(true); }); } catch { res(false); } };
+      sc.onerror = () => { toast("카카오맵을 못 불러와서 기본 지도로 보여줘요. 도메인 등록을 확인해 주세요"); res(false); };
+      document.head.appendChild(sc);
+      setTimeout(() => res(false), 5000);
+    });
+    return kakaoP;
+  }
+  const newMap = (o) => (S.useKakao ? new KMap(o) : new maplibregl.Map(o));
+  const newMarker = (o) => (S.useKakao ? new KMarker(o) : new maplibregl.Marker(o));
   // 지명·가게 이름을 한국어로, 가게·정류장은 가까이서 보이게
   function koLabels(m) {
     for (const ly of m.getStyle().layers) {
@@ -875,28 +892,30 @@
   function miniMap(elId, lat, lon, opts = {}) {
     if (mini) { try { mini.remove(); } catch {} mini = null; }
     const el = document.getElementById(elId);
-    if (!el || !window.maplibregl) return null;
-    mini = new maplibregl.Map({
+    if (!el || (!window.maplibregl && !S.useKakao)) return null;
+    mini = newMap({
       container: el, style: "https://tiles.openfreemap.org/styles/liberty",
       center: [lon, lat], zoom: opts.zoom || 17.5, maxZoom: 20, attributionControl: false,
       interactive: !opts.still, dragRotate: false, pitchWithRotate: false,
     });
-    if (mini.touchZoomRotate) mini.touchZoomRotate.disableRotation();
+    if (mini.touchZoomRotate && mini.touchZoomRotate.disableRotation) mini.touchZoomRotate.disableRotation();
     mini.on("load", () => { try { koLabels(mini); } catch {} });
     if (opts.onMove) mini.on("moveend", () => { const c = mini.getCenter(); opts.onMove(c.lat, c.lng); });
     return mini;
   }
   function ensureMap() {
     if (map) { setTimeout(() => map.resize(), 30); return; }
-    if (!window.maplibregl) { $("#mapCard").innerHTML = `<div class="empty">지도를 불러오지 못했어요</div>`; return; }
-    map = new maplibregl.Map({
+    if (S.kakaoJs && !kakaoP) { loadKakao().then(() => { if (!map) ensureMap(); }); return; }
+    if (kakaoP && !S.useKakao && !ensureMap.waited) { ensureMap.waited = true; kakaoP.then(() => { if (!map) ensureMap(); }); return; }
+    if (!window.maplibregl && !S.useKakao) { $("#mapCard").innerHTML = `<div class="empty">지도를 불러오지 못했어요</div>`; return; }
+    map = newMap({
       container: "map",
       style: "https://tiles.openfreemap.org/styles/liberty",
       center: [128.6014, 35.8714], zoom: 11.5, maxZoom: 19.5,
       attributionControl: { compact: true },
       dragRotate: false, pitchWithRotate: false,
     });
-    map.touchZoomRotate.disableRotation();
+    if (map.touchZoomRotate) map.touchZoomRotate.disableRotation();
     map.on("load", () => {
       // 상세 지도: 가게·정류장·건물 이름까지 한국어로 표시
       const firstSym = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
@@ -941,7 +960,7 @@
       if (!markers[w]) {
         const el = document.createElement("div");
         el.addEventListener("click", () => map.flyTo({ center: markers[w].getLngLat(), zoom: 16 }));
-        markers[w] = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([l.lon, l.lat]).addTo(map);
+        markers[w] = newMarker({ element: el, anchor: "bottom" }).setLngLat([l.lon, l.lat]).addTo(map);
       }
       const el = markers[w].getElement();
       el.className = cls; el.innerHTML = html;
@@ -984,7 +1003,7 @@
       el.className = "pl-mk";
       el.innerHTML = `${ic("pin")}${p.owner === "a" || p.owner === "b" ? esc(nm(p.owner)) + " · " : ""}${esc(p.name)}`;
       if (p.owner === "a" || p.owner === "b") el.classList.add("own-" + p.owner);
-      placeMarkers.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map));
+      placeMarkers.push(newMarker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map));
     }
   }
   const ownerLabel = (o) => (o === "a" || o === "b" ? nm(o) : "둘 다");
@@ -1075,7 +1094,7 @@
     const { lat, lon } = S.flyTo; S.flyTo = null;
     if (flyMk) flyMk.remove();
     const el = document.createElement("div"); el.className = "fly-mk"; el.innerHTML = ic("pin");
-    flyMk = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([lon, lat]).addTo(map);
+    flyMk = newMarker({ element: el, anchor: "bottom" }).setLngLat([lon, lat]).addTo(map);
     map.flyTo({ center: [lon, lat], zoom: 17 });
   }
   // ---------- 맛집 지도 ----------
@@ -1131,7 +1150,7 @@
       el.style.setProperty("--c", catCol(e.cat));
       const r = avgRate(e);
       el.innerHTML = `<span class="eat-ic">${ic(catIc(e.cat))}</span><span class="eat-nm">${esc(e.name)}${r ? `<em>${ic("star")}${r.toFixed(1)}</em>` : ""}</span>`;
-      const mk = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, 7] }).setLngLat([e.lon, e.lat]).addTo(map);
+      const mk = newMarker({ element: el, anchor: "bottom", offset: [0, 7] }).setLngLat([e.lon, e.lat]).addTo(map);
       mk._eid = e.id;
       E.markers.push(mk);
     }
@@ -1328,7 +1347,16 @@
         <li>왼쪽 <b>앱 키</b>(또는 플랫폼 키)에서 <b>REST API 키</b>를 복사해서 아래에 붙여넣어요</li>
       </ol>
       <input type="text" id="kkKey" placeholder="REST API 키" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:12px">
-      <div class="row2" style="margin-top:14px">${S.kakao ? `<button class="btn gray" data-act="kakaoOff">연결 해제</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="kakaoSave">연결하기</button></div>`
+      <div class="row2" style="margin-top:14px">${S.kakao ? `<button class="btn gray" data-act="kakaoOff">연결 해제</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="kakaoSave">연결하기</button></div>
+      <div class="kk-map">
+        <h3>${ic("pin")}카카오맵으로 지도 보기 ${S.kakaoJs ? `<span class="ok-tag">사용 중</span>` : ""}</h3>
+        <ol class="nv-steps">
+          <li>같은 카카오 앱의 <b>앱 키</b>(또는 플랫폼 키)에서 <b>JavaScript 키</b>를 복사해요 (REST API 키 말고)</li>
+          <li><b>플랫폼</b> &gt; <b>Web</b>(또는 JavaScript 키 설정의 <b>JavaScript SDK 도메인</b>)에 <b>https://wooju.pages.dev</b> 를 등록해요</li>
+        </ol>
+        <input type="text" id="kkJs" placeholder="JavaScript 키" value="${esc(S.kakaoJs || "")}" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:10px">
+        <div class="row2" style="margin-top:10px">${S.kakaoJs ? `<button class="btn gray" data-act="kakaoJsOff">기본 지도로</button>` : ""}<button class="btn primary" data-act="kakaoJsSave">카카오맵 쓰기</button></div>
+      </div>`
       : `
       <p class="nv-note">네이버는 2026년 7월부터 개발자센터에서 검색 키를 새로 안 내주고, <b>네이버 클라우드 플랫폼</b>에서만 받을 수 있어요. 가입할 때 카드 등록을 요구할 수 있어서 카카오가 더 간단해요.</p>
       <ol class="nv-steps">
@@ -2809,6 +2837,17 @@
         S.tab === "map" ? eatAddSheet() : closeSheet();
       } catch (e) { toast(e.message); b.disabled = false; b.textContent = "연결하기"; }
     },
+    async kakaoJsSave() {
+      const key = $("#kkJs").value.trim();
+      if (!key) return toast("JavaScript 키를 붙여넣어 주세요");
+      try { await api("kakaojs", { method: "POST", body: { key } }); } catch (e) { return toast(e.message); }
+      toast("카카오맵으로 바꿨어요. 다시 불러올게요");
+      setTimeout(() => location.reload(), 900);
+    },
+    async kakaoJsOff() {
+      await api("kakaojs", { method: "POST", body: { key: "" } });
+      toast("기본 지도로 바꿨어요"); setTimeout(() => location.reload(), 800);
+    },
     async kakaoOff() { if (!confirm("카카오 검색 연결을 해제할까요?")) return; await api("kakaokey", { method: "POST", body: { key: "" } }); S.kakao = false; toast("연결을 해제했어요"); closeSheet(); },
     async naverOff() { if (!confirm("네이버 검색 연결을 해제할까요?")) return; await api("naverkey", { method: "POST", body: { id: "", secret: "" } }); S.naver = false; toast("연결을 해제했어요"); closeSheet(); },
     async naverSave() {
@@ -3355,7 +3394,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao;
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || "";
       setBrand();
       await loadAnniv();
       showOnly("app");

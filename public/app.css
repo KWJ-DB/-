@@ -1719,3 +1719,6 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .route-note { display: flex; align-items: center; gap: 6px; font-size: 12px !important; color: var(--sub) !important; margin: 12px 2px 0; }
 .route-addr { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; padding: 12px; border-radius: var(--r-control); background: #F4F4F6; font-size: 14px; font-weight: 650; color: var(--ink); line-height: 1.45; }
 .route-addr svg.i { width: 18px; height: 18px; color: var(--rose); flex: none; margin-top: 1px; }
+.loc-card.eat-card .eat-dot { width: 40px; height: 40px; flex: none; }
+.loc-card.eat-card .eat-dot svg.i { width: 21px; height: 21px; }
+.sheet-box { background: linear-gradient(180deg, rgba(255,255,255,.985), rgba(255,255,255,.96)) !important; }

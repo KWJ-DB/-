@@ -827,7 +827,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (kind === "loc") {
           const la = Number(b.lat), lo = Number(b.lon);
           if (!Number.isFinite(la) || !Number.isFinite(lo)) return err(400, "위치가 없어요");
-          meta = JSON.stringify({ lat: la, lon: lo, name: str(b.name, 40) || undefined });
+          meta = JSON.stringify({ lat: la, lon: lo, name: str(b.name, 40) || undefined, eat: Number(b.eat) > 0 ? Number(b.eat) : undefined, cat: str(b.cat, 10) || undefined, ek: b.ek === "place" ? "place" : b.eat ? "food" : undefined });
         }
         if (kind === "event") {
           const e = b.ev || {};

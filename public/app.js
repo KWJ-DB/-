@@ -1251,6 +1251,7 @@
   }
   function fitEatsNow() {
     if (!S.eatOn) return;
+    if (E.noFit) { E.noFit = false; return; }
     const me = S.locs[S.who];
     let pts = E.list.map((e) => [e.lon, e.lat]);
     if (me) { const near = E.list.filter((e) => distM(me, e) < 15000); if (near.length) pts = near.map((e) => [e.lon, e.lat]).concat([[me.lon, me.lat]]); }
@@ -1300,6 +1301,19 @@
       </div>`;
     if (card.querySelector(".eat2-list")) { const t = document.createElement("template"); t.innerHTML = html.trim(); morphKids(card, t.content); }
     else card.innerHTML = html;
+  }
+  // 디엠에서 보낸 맛집을 누르면 위치 탭 맛집 화면으로 가서 바로 상세
+  async function openEatFromChat(id, ek, lat, lon) {
+    setTab("map");
+    if (E.kind !== ek) setKind(ek || "food");
+    S.eatOn = true; const b = $("#eatBtn"); if (b) b.classList.add("on");
+    E.view = "cards"; E.noFit = true;
+    await loadEats();
+    const e = E.list.find((x) => x.id === id);
+    if (!e) { toast("지워진 곳이에요"); if (map) map.flyTo({ center: [lon, lat], zoom: 16 }); return; }
+    E.sel = id; drawEatMarkers(); renderMapCard();
+    const go = () => { map.flyTo({ center: [e.lon, e.lat], zoom: 16.5, offset: [0, -innerHeight * 0.2] }); selectEat(id, true); eatDetail(e); };
+    if (map && mapLoaded) setTimeout(go, 350); else setTimeout(() => map && go(), 1200);
   }
   function setEatOn(on) {
     S.eatOn = on;
@@ -1943,6 +1957,10 @@
       const e = m.meta;
       return `<span class="ev-card" data-date="${e.date}"><span class="ev-d"><em>${Number(e.date.slice(5, 7))}월</em><b>${Number(e.date.slice(8))}</b></span><span><b>${esc(e.title)}</b><em>${fmtK(e.date)}${e.time ? " " + esc(e.time) : ""}</em></span></span>${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}`;
     }
+    if (m.kind === "loc" && m.meta && m.meta.eat) {
+      const k = m.meta.ek === "place" ? "갈 곳" : "맛집";
+      return `<span class="loc-card eat-card" data-eat="${m.meta.eat}" data-ek="${m.meta.ek || "food"}" data-lat="${m.meta.lat}" data-lon="${m.meta.lon}"><span class="eat-dot" style="--c:${catCol(m.meta.cat)}">${ic(catIc(m.meta.cat))}</span><span><b>${esc(m.meta.name)}</b><em>${k}${m.meta.cat ? " · " + esc(m.meta.cat) : ""} · 눌러서 보기</em></span></span>`;
+    }
     if (m.kind === "loc" && m.meta) return `<span class="loc-card" data-lat="${m.meta.lat}" data-lon="${m.meta.lon}">${ic("pin")}<span><b>${m.meta.name ? esc(m.meta.name) : m.who === S.who ? "내 위치" : esc(nm(m.who)) + "님 위치"}</b><em>지도에서 보기</em></span></span>`;
     let rq = "";
     if (m.reply) {
@@ -2215,6 +2233,8 @@
       if (rq) { gotoMsg(Number(rq.dataset.goto)); return; }
       const ec = e.target.closest(".ev-card");
       if (ec) { const d = ec.dataset.date; S.cal = { y: +d.slice(0, 4), m: +d.slice(5, 7) - 1, sel: d }; S.memView = "cal"; setTab("calendar"); return; }
+      const ecd = e.target.closest(".eat-card");
+      if (ecd) { openEatFromChat(Number(ecd.dataset.eat), ecd.dataset.ek, +ecd.dataset.lat, +ecd.dataset.lon); return; }
       const lc = e.target.closest(".loc-card");
       if (lc) { S.flyTo = { lat: +lc.dataset.lat, lon: +lc.dataset.lon }; setTab("map"); return; }
       const bub = e.target.closest(".dm-bub");
@@ -3109,7 +3129,7 @@
     eatNav() { const e = E.list.find((x) => x.id === S.eatCur); routeSheet({ lat: e.lat, lon: e.lon, name: e.name }); },
     async eatDm() {
       const e = E.list.find((x) => x.id === S.eatCur);
-      try { await api("messages", { method: "POST", body: { kind: "loc", lat: e.lat, lon: e.lon, name: e.name, text: "" } }); toast(`${nm(other())}님에게 보냈어요`); if (S.chat) S.chat.sig = ""; } catch (er) { toast(er.message); }
+      try { await api("messages", { method: "POST", body: { kind: "loc", lat: e.lat, lon: e.lon, name: e.name, text: "", eat: e.id, cat: e.cat || "", ek: e.kind || "food" } }); toast(`${nm(other())}님에게 보냈어요`); if (S.chat) S.chat.sig = ""; } catch (er) { toast(er.message); }
     },
     async eatDel() {
       const e = E.list.find((x) => x.id === S.eatCur);

@@ -56,6 +56,8 @@ export async function ensureSchema(env) {
     `CREATE INDEX IF NOT EXISTS loc_hist_wt ON loc_hist(who, t)`,
     `CREATE TABLE IF NOT EXISTS place_events (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, place TEXT NOT NULL, inside INTEGER NOT NULL, t INTEGER NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS eats (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, cat TEXT, lat REAL NOT NULL, lon REAL NOT NULL, addr TEXT, status TEXT DEFAULT 'want', ra INTEGER, rb INTEGER, memo TEXT, who TEXT, t INTEGER, been TEXT)`,
+    `CREATE TABLE IF NOT EXISTS eat_imgs (id INTEGER PRIMARY KEY AUTOINCREMENT, eat_id INTEGER NOT NULL, who TEXT, w INTEGER, h INTEGER, thumb TEXT, data TEXT, t INTEGER)`,
+    `CREATE TABLE IF NOT EXISTS eat_visits (id INTEGER PRIMARY KEY AUTOINCREMENT, eat_id INTEGER NOT NULL, date TEXT NOT NULL, menu TEXT, who TEXT, t INTEGER)`,
     `CREATE TABLE IF NOT EXISTS bucket (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, done INTEGER DEFAULT 0, done_date TEXT, who TEXT, t INTEGER)`,
   ];
   await env.DB.batch(sql.map((q) => env.DB.prepare(q)));
@@ -87,6 +89,10 @@ export async function ensureSchema(env) {
       "ALTER TABLE couple_locs ADD COLUMN vel INTEGER",
     ]) { try { await env.DB.prepare(q).run(); } catch {} }
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '5') ON CONFLICT(k) DO UPDATE SET v = '5'").run();
+  }
+  if (!v || Number(v.v) < 6) {
+    for (const q of ["ALTER TABLE eats ADD COLUMN wa INTEGER DEFAULT 0", "ALTER TABLE eats ADD COLUMN wb INTEGER DEFAULT 0", "ALTER TABLE eats ADD COLUMN link TEXT"]) { try { await env.DB.prepare(q).run(); } catch {} }
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '6') ON CONFLICT(k) DO UPDATE SET v = '6'").run();
   }
   ready = true;
 }

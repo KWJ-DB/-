@@ -408,12 +408,68 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // ----- 맛집 지도 -----
       case "GET eats": {
-        const { results } = await DB.prepare("SELECT * FROM eats ORDER BY id DESC").all();
-        return json({ eats: results || [] });
+        if (id) {
+          const [im, vs] = await DB.batch([
+            DB.prepare("SELECT id, who, w, h, t FROM eat_imgs WHERE eat_id = ?1 ORDER BY id DESC").bind(id),
+            DB.prepare("SELECT id, date, menu, who FROM eat_visits WHERE eat_id = ?1 ORDER BY date DESC, id DESC").bind(id),
+          ]);
+          return json({ imgs: im.results || [], visits: vs.results || [] });
+        }
+        const [e, ic, vc] = await DB.batch([
+          DB.prepare("SELECT * FROM eats ORDER BY id DESC"),
+          DB.prepare("SELECT eat_id, COUNT(*) AS n, MAX(id) AS last FROM eat_imgs GROUP BY eat_id"),
+          DB.prepare("SELECT eat_id, COUNT(*) AS n, MAX(date) AS last FROM eat_visits GROUP BY eat_id"),
+        ]);
+        const im = {}, vi = {};
+        for (const r of ic.results || []) im[r.eat_id] = r;
+        for (const r of vc.results || []) vi[r.eat_id] = r;
+        return json({ eats: (e.results || []).map((x) => ({ ...x, imgN: im[x.id] ? im[x.id].n : 0, cover: im[x.id] ? im[x.id].last : null, visitN: vi[x.id] ? vi[x.id].n : 0, lastVisit: vi[x.id] ? vi[x.id].last : null })) });
+      }
+      case "GET eatimg": {
+        const col = q("thumb") ? "thumb" : "data";
+        const r = await DB.prepare(`SELECT ${col} AS img FROM eat_imgs WHERE id = ?1`).bind(id).first();
+        if (!r || !r.img) return err(404, "사진이 없어요");
+        return new Response(fromB64(r.img), { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable" } });
+      }
+      case "DELETE eatimg": {
+        await DB.prepare("DELETE FROM eat_imgs WHERE id = ?1").bind(id).run();
+        return json(OK);
+      }
+      case "DELETE eatvisit": {
+        await DB.prepare("DELETE FROM eat_visits WHERE id = ?1").bind(id).run();
+        return json(OK);
       }
       case "POST eats": {
         const b = await body(request);
         const CATS = ["한식", "일식", "중식", "양식", "아시안", "카페", "디저트", "분식", "고기", "술집", "기타"];
+        if (id && p2 === "img") {
+          const im = b.img || {};
+          if (typeof im.data !== "string" || typeof im.thumb !== "string") return err(400, "사진이 없어요");
+          if (im.data.length > 1500000 || im.thumb.length > 300000) return err(413, "사진이 너무 커요");
+          const r = await DB.prepare("INSERT INTO eat_imgs (eat_id, who, w, h, thumb, data, t) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+            .bind(id, who, Number(im.w) || 0, Number(im.h) || 0, im.thumb, im.data, Date.now()).run();
+          return json({ ok: true, id: r.meta.last_row_id });
+        }
+        if (id && p2 === "visit") {
+          const d = isDate(b.date) ? b.date : todayKST();
+          await DB.prepare("INSERT INTO eat_visits (eat_id, date, menu, who, t) VALUES (?1, ?2, ?3, ?4, ?5)").bind(id, d, str(b.menu, 120) || null, who, Date.now()).run();
+          await DB.prepare("UPDATE eats SET status = 'been', been = COALESCE(been, ?2) WHERE id = ?1").bind(id, d).run();
+          return json(OK);
+        }
+        if (id && p2 === "want") {
+          const cur = await DB.prepare("SELECT w" + who + " AS v, name FROM eats WHERE id = ?1").bind(id).first();
+          if (!cur) return err(404, "맛집이 없어요");
+          const on = cur.v ? 0 : 1;
+          await DB.prepare(`UPDATE eats SET w${who} = ?1 WHERE id = ?2`).bind(on, id).run();
+          if (on) {
+            const o = await DB.prepare(`SELECT w${who === "a" ? "b" : "a"} AS v FROM eats WHERE id = ?1`).bind(id).first();
+            if (o && o.v) {
+              const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "둘 다 가고 싶은 곳", body: `${cur.name}, 우리 둘 다 찜했어요`, url: "/#map", tag: "eatwant" });
+              if (waitUntil) waitUntil(job); else await job;
+            }
+          }
+          return json({ ok: true, on: !!on });
+        }
         if (id) {
           const cur = await DB.prepare("SELECT * FROM eats WHERE id = ?1").bind(id).first();
           if (!cur) return err(404, "맛집이 없어요");
@@ -432,8 +488,9 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!name) return err(400, "이름을 입력하세요");
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return err(400, "위치가 올바르지 않아요");
         const status = b.status === "been" ? "been" : "want";
-        const r = await DB.prepare("INSERT INTO eats (name, cat, lat, lon, addr, status, memo, who, t, been) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")
-          .bind(name, CATS.includes(b.cat) ? b.cat : "기타", lat, lon, str(b.addr, 120) || null, status, str(b.memo, 300) || null, who, Date.now(), status === "been" ? todayKST() : null).run();
+        const link = /^https?:\/\//.test(b.link || "") ? str(b.link, 200) : null;
+        const r = await DB.prepare(`INSERT INTO eats (name, cat, lat, lon, addr, status, memo, who, t, been, link, w${who}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`)
+          .bind(name, CATS.includes(b.cat) ? b.cat : "기타", lat, lon, str(b.addr, 120) || null, status, str(b.memo, 300) || null, who, Date.now(), status === "been" ? todayKST() : null, link, status === "want" ? 1 : 0).run();
         const nmMe = who === "a" ? st.a_name : st.b_name;
         const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "맛집 지도", body: `${nmMe}님이 ${status === "been" ? "다녀온" : "가보고 싶은"} 곳을 추가했어요: ${name}`, url: "/#map", tag: "eat" });
         if (waitUntil) waitUntil(job); else await job;
@@ -441,7 +498,11 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "DELETE eats": {
         if (!id) return err(400, "id가 필요해요");
-        await DB.prepare("DELETE FROM eats WHERE id = ?1").bind(id).run();
+        await DB.batch([
+          DB.prepare("DELETE FROM eats WHERE id = ?1").bind(id),
+          DB.prepare("DELETE FROM eat_imgs WHERE eat_id = ?1").bind(id),
+          DB.prepare("DELETE FROM eat_visits WHERE eat_id = ?1").bind(id),
+        ]);
         return json(OK);
       }
       // 네이버 검색 API 키 연결 (키는 서버에만 저장)

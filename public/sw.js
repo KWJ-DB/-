@@ -4,13 +4,13 @@ self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
 self.addEventListener("push", (e) => {
   let d = {};
-  try { d = e.data ? e.data.json() : {}; } catch { d = { title: "우리", body: e.data ? e.data.text() : "" }; }
+  try { d = e.data ? e.data.json() : {}; } catch { d = { title: "우주", body: e.data ? e.data.text() : "" }; }
   e.waitUntil((async () => {
     // 이미 채팅 화면을 보고 있으면 알림 생략
     const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const viewing = wins.some((w) => w.visibilityState === "visible" && w.url.includes("#chat"));
     if (viewing && d.tag === "dm") return;
-    await self.registration.showNotification(d.title || "우리", {
+    await self.registration.showNotification(d.title || "우주", {
       body: d.body || "",
       icon: "/icon-192.png",
       badge: "/icon-192.png",

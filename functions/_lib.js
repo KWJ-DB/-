@@ -99,6 +99,10 @@ export async function ensureSchema(env) {
   if (!v || Number(v.v) < 7) {
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '7') ON CONFLICT(k) DO UPDATE SET v = '7'").run();
   }
+  if (!v || Number(v.v) < 8) {
+    try { await env.DB.prepare("ALTER TABLE eats ADD COLUMN kind TEXT DEFAULT 'food'").run(); } catch {}
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '8') ON CONFLICT(k) DO UPDATE SET v = '8'").run();
+  }
   ready = true;
 }
 

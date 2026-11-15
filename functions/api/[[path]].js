@@ -441,7 +441,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST eats": {
         const b = await body(request);
-        const CATS = ["한식", "일식", "중식", "양식", "아시안", "카페", "디저트", "분식", "고기", "술집", "기타"];
+        const CATS = ["한식", "일식", "중식", "양식", "아시안", "카페", "디저트", "분식", "고기", "술집", "기타", "공원", "산책", "전시", "영화", "공연", "쇼핑", "놀거리", "야경", "여행"];
         if (id && p2 === "img") {
           const im = b.img || {};
           if (typeof im.data !== "string" || typeof im.thumb !== "string") return err(400, "사진이 없어요");
@@ -496,10 +496,11 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return err(400, "위치가 올바르지 않아요");
         const status = b.status === "been" ? "been" : "want";
         const link = /^https?:\/\//.test(b.link || "") ? str(b.link, 200) : null;
-        const r = await DB.prepare(`INSERT INTO eats (name, cat, lat, lon, addr, status, memo, who, t, been, link, w${who}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`)
-          .bind(name, CATS.includes(b.cat) ? b.cat : "기타", lat, lon, str(b.addr, 120) || null, status, str(b.memo, 300) || null, who, Date.now(), status === "been" ? todayKST() : null, link, status === "want" ? 1 : 0).run();
+        const kind = b.kind === "place" ? "place" : "food";
+        const r = await DB.prepare(`INSERT INTO eats (name, cat, lat, lon, addr, status, memo, who, t, been, link, w${who}, kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`)
+          .bind(name, CATS.includes(b.cat) ? b.cat : "기타", lat, lon, str(b.addr, 120) || null, status, str(b.memo, 300) || null, who, Date.now(), status === "been" ? todayKST() : null, link, status === "want" ? 1 : 0, kind).run();
         const nmMe = who === "a" ? st.a_name : st.b_name;
-        const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "맛집 지도", body: `${nmMe}님이 ${status === "been" ? "다녀온" : "가보고 싶은"} 곳을 추가했어요: ${name}`, url: "/#map", tag: "eat" });
+        const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: kind === "place" ? "갈 곳" : "맛집 지도", body: `${nmMe}님이 ${status === "been" ? "다녀온" : "가보고 싶은"} ${kind === "place" ? "곳" : "맛집"}을 추가했어요: ${name}`, url: "/#map", tag: "eat" });
         if (waitUntil) waitUntil(job); else await job;
         return json({ ok: true, id: r.meta.last_row_id });
       }
@@ -607,6 +608,10 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return err(400, "위치가 올바르지 않아요");
         if (!(radius >= 50 && radius <= 2000)) return err(400, "반경은 50m~2km");
         const owner = ["a", "b", "both"].includes(b.owner) ? b.owner : "both";
+        if (id) {
+          await DB.prepare("UPDATE places SET name = ?1, lat = ?2, lon = ?3, radius = ?4, owner = ?5 WHERE id = ?6").bind(name, lat, lon, radius, owner, id).run();
+          return json(OK);
+        }
         await DB.prepare("INSERT INTO places (name, lat, lon, radius, who, t, owner) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(name, lat, lon, radius, who, Date.now(), owner).run();
         return json(OK);
       }

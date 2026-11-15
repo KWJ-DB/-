@@ -932,3 +932,52 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 /* 지도: 사람 아래 이름표는 숨김 (아래 카드에 시간 표시) */
 .mk .lb { display: none; }
 .pl-mk { font-size: 10px; padding: 2px 7px 2px 4px; background: rgba(255,255,255,.85); box-shadow: none; }
+
+/* ---------- 질문 탭 v3: 묶음 두 개 + 지난 목록 ---------- */
+.q-top { margin: 8px 4px 14px; }
+.q-top span { display: block; margin-top: 4px; }
+.qp-row { display: none; }
+.qbox { background: var(--card); border-radius: var(--r-surface); padding: 20px 18px; margin-bottom: 12px; }
+.qbox-q { margin: 0 0 16px; font-size: 21px; font-weight: 750; line-height: 1.45; letter-spacing: -0.02em; word-break: keep-all; }
+.qbox-t { margin: 0 0 4px; font-size: 16px; font-weight: 800; display: flex; align-items: baseline; justify-content: space-between; }
+.qbox-t span { font-size: 12px; font-weight: 600; color: var(--sub); }
+.qa { padding: 12px 0; border-top: 1px solid var(--line); }
+.qa:first-of-type { border-top: 0; padding-top: 0; }
+.qa-h { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.qa-h .av { width: 24px; height: 24px; font-size: 10px; }
+.qa-h b { font-size: 13px; color: var(--sub); font-weight: 700; }
+.qa-edit { margin-left: auto; font-size: 13px; color: var(--sub); font-weight: 650; padding: 4px 6px; }
+.qa p { margin: 0; font-size: 16px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.qa-wait { display: flex; align-items: center; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--sub); }
+.qa-wait svg.i { width: 15px; height: 15px; }
+.qbox textarea { width: 100%; min-height: 96px; }
+.q-actions { margin-top: 10px; }
+.crow2 { padding: 16px 0; border-top: 1px solid var(--line); }
+.qbox-t + .crow2 { border-top: 0; padding-top: 12px; }
+.crow2-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.crow2-h b { font-size: 15px; font-weight: 700; word-break: keep-all; }
+.cres { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--sub); font-weight: 650; }
+.cres.same { color: var(--rose); }
+.cres svg.i { width: 13px; height: 13px; fill: var(--rose); stroke-width: 1; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border-radius: var(--r-control); background: #F2F1F5; }
+.opt { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; padding: 8px; border-radius: 11px; font-size: 14px; font-weight: 650; color: var(--ink); text-align: center; word-break: keep-all; }
+.opt.on { background: #fff; color: var(--rose); box-shadow: 0 1px 3px rgba(30,20,40,.08); }
+.opt:disabled:not(.on) { color: #A9A6B0; }
+.opt i { display: inline-flex; }
+.opt i .av { width: 20px; height: 20px; font-size: 9px; margin-left: -4px; border: 1.5px solid #fff; }
+.q-past { margin: 24px 4px 10px; font-size: 15px; font-weight: 800; }
+.arch2 .li-t b { font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arch2 .dots { display: flex; gap: 3px; }
+.arch2 .dots i { width: 7px; height: 7px; border-radius: 50%; background: #E3E1E8; }
+.arch2 .dots i.a { background: var(--a); } .arch2 .dots i.b { background: var(--b); }
+.arch2.open .li-chev { transform: rotate(90deg); }
+.arch2-in { padding: 0 12px 4px; background: #FAFAFB; }
+.arch2-in .qbox { background: transparent; padding: 14px 4px; margin: 0; }
+.arch2 + .arch2 .li { border-top: 1px solid var(--line); }
+.arch2:first-child .li { border-top: 0; }
+
+.idea2 { margin: 14px 0 4px; padding: 28px 20px 22px; border-radius: var(--r-surface); background: #F4F4F6; text-align: center; }
+.idea2 b { display: block; font-size: 22px; font-weight: 800; line-height: 1.4; letter-spacing: -0.02em; word-break: keep-all; min-height: 62px; display: flex; align-items: center; justify-content: center; }
+.idea2 b.land { animation: ideaIn .35s cubic-bezier(.3,1.5,.5,1); }
+.idea-tags { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
+.idea-tags span { font-size: 12px; font-weight: 650; color: var(--sub); background: #fff; padding: 4px 10px; border-radius: 999px; }

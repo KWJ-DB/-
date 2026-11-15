@@ -264,24 +264,44 @@
   }
 
   // ---------- 데이트 뭐 하지? (아이디어 뽑기) ----------
+  // [아이디어, 장소, 비용]
   const IDEAS = [
-    "동성로에서 인생네컷 찍기", "수성못 산책하고 오리배 타기", "방탈출 카페 도전", "보드게임 카페 가기", "코인노래방에서 듀엣곡 부르기",
-    "편의점 신상 간식 털기", "한강 대신 신천 둔치 피크닉", "서로 옷 골라주기", "같은 책 사서 읽기", "카페에서 같이 공부하기",
-    "영화 보고 한 줄 평 쓰기", "떡볶이 맛집 투어", "사진관에서 커플 사진", "공원에서 배드민턴", "볼링 내기 한 판",
-    "오락실 인형뽑기 도전", "서로에게 손편지 쓰기", "같이 요리해서 도시락 싸기", "야경 보러 앞산 전망대", "이월드 놀이기구 타기",
-    "아쿠아리움 가기", "서점에서 서로 책 골라주기", "커플 키링 만들기", "자전거 타고 동네 한 바퀴", "버스 종점까지 가보기",
-    "새로 생긴 카페 가보기", "서로의 플레이리스트 바꿔 듣기", "탕후루 만들어 먹기", "전시회 구경하기", "별 보러 가기",
-    "추억의 장소 다시 가기", "우리만의 비밀 장소 찾기", "폰 없이 한 시간 데이트", "교복 입고 사진 찍기", "서로 그림 그려주기",
-    "빙수 맛집 가기", "도서관 데이트", "시장 구경하고 길거리 음식", "운동장 걷기 + 음료 내기", "다음 기념일 계획 세우기",
+    ["인생네컷 찍기", "밖", "조금"], ["방탈출 카페 도전하기", "실내", "보통"], ["보드게임 카페 가기", "실내", "보통"],
+    ["코인노래방에서 듀엣곡 부르기", "실내", "조금"], ["편의점 신상 간식 하나씩 골라 먹기", "밖", "조금"], ["공원에서 돗자리 피크닉", "밖", "조금"],
+    ["서로 옷 골라주기", "밖", "보통"], ["같은 책 사서 같이 읽기", "실내", "보통"], ["카페에서 같이 공부하기", "실내", "조금"],
+    ["영화 보고 서로 별점 매기기", "실내", "보통"], ["떡볶이 맛집 찾아가기", "밖", "조금"], ["공원에서 배드민턴 치기", "밖", "무료"],
+    ["볼링 한 게임 내기", "실내", "보통"], ["인형뽑기 하나 뽑을 때까지", "실내", "조금"], ["서로에게 손편지 써서 바꾸기", "어디서나", "무료"],
+    ["같이 도시락 싸서 나가기", "밖", "조금"], ["야경 보러 전망대 가기", "밖", "무료"], ["놀이공원 가기", "밖", "많이"],
+    ["아쿠아리움 구경하기", "실내", "많이"], ["서점에서 서로 책 골라주기", "실내", "보통"], ["커플 키링 만들기", "실내", "보통"],
+    ["자전거 타고 동네 한 바퀴", "밖", "조금"], ["처음 가보는 동네 걸어보기", "밖", "무료"], ["새로 생긴 카페 가보기", "밖", "조금"],
+    ["서로 플레이리스트 만들어주기", "어디서나", "무료"], ["전시회 보러 가기", "실내", "보통"], ["처음 만난 곳 다시 가보기", "밖", "무료"],
+    ["교복 입고 사진 찍기", "밖", "무료"], ["서로 얼굴 그려주기", "어디서나", "무료"], ["빙수 하나 시켜서 나눠 먹기", "밖", "조금"],
+    ["도서관에서 같이 책 읽기", "실내", "무료"], ["시장 구경하면서 길거리 음식 먹기", "밖", "조금"], ["다음 기념일 계획 같이 세우기", "어디서나", "무료"],
+    ["영상통화로 같은 영화 보기", "집", "무료"], ["같이 탕후루 만들어 보기", "집", "조금"], ["하루 동안 사진 100장 찍기", "밖", "무료"],
   ];
   function ideaSheet(spin) {
-    const i = Math.floor(Math.random() * IDEAS.length);
-    S.idea = IDEAS[i];
+    // 같은 게 연달아 안 나오게 섞어서 차례로
+    if (!S.ideaBag || !S.ideaBag.length) S.ideaBag = IDEAS.map((_, i) => i).sort(() => Math.random() - 0.5);
+    const [title, place, cost] = IDEAS[S.ideaBag.pop()];
+    S.idea = title;
     openSheet(`
-      <h2>${ic("sparkle")}데이트 뭐 하지?</h2>
-      <div class="idea${spin ? " spin" : ""}"><span>${ic("heart")}</span><b>${esc(S.idea)}</b></div>
-      <div class="row2"><button class="btn gray" data-act="ideaAgain">${ic("wave")}다시 뽑기</button><button class="btn primary" data-act="ideaSave">${ic("list")}버킷에 담기</button></div>`);
+      <h2>데이트 뭐 하지?</h2>
+      <div class="idea2">
+        <b id="ideaText">${esc(title)}</b>
+        <div class="idea-tags"><span>${{ "밖": "야외", "집": "집에서" }[place] || place}</span><span>${cost === "무료" ? "돈 안 들어요" : `비용 ${cost}`}</span></div>
+      </div>
+      <div class="row2"><button class="btn gray" data-act="ideaAgain">${ic("refresh")}다른 거</button><button class="btn primary" data-act="ideaSave">버킷리스트에 담기</button></div>`);
+    if (spin) {
+      // 짧게 넘어가는 느낌만
+      const el = $("#ideaText");
+      let n = 0;
+      const iv = setInterval(() => {
+        el.textContent = IDEAS[Math.floor(Math.random() * IDEAS.length)][0];
+        if (++n > 6) { clearInterval(iv); el.textContent = title; el.classList.add("land"); }
+      }, 55);
+    }
   }
+
 
   // ---------- 다음 만남 ----------
   function meetSheet() {
@@ -350,69 +370,64 @@
       const open = S.openArch.has(d);
       const dot = (w) => `<i class="${answeredCount(d, w) ? w : ""}"></i>`;
       arch += `
-        <div class="arch${open ? " open" : ""}">
-          <button data-act="toggleArch" data-date="${d}">
-            <span class="ad">${fmtK(d)}</span>
-            <span class="tt">${esc(qFor(d, "t").q)}</span>
-            <span class="dots">${dot(S.who)}${dot(other())}</span>
-            ${ic("right", "chev")}
+        <div class="arch2${open ? " open" : ""}">
+          <button class="li" data-act="toggleArch" data-date="${d}">
+            <span class="li-t"><b>${esc(qFor(d, "t").q)}</b><span>${fmtK(d)}</span></span>
+            <span class="dots">${dot(S.who)}${dot(other())}</span>${ic("right", "li-chev")}
           </button>
-          ${open ? `<div class="inner">${qCard(d, "t")}${CSLOTS.map((sl, k) => choiceOne(d, sl, k)).join("")}</div>` : ""}
+          ${open ? `<div class="arch2-in">${qCard(d, "t")}<section class="qbox">${CSLOTS.map((sl) => choiceOne(d, sl)).join("")}</section></div>` : ""}
         </div>`;
     }
+    const mineN = answeredCount(t, S.who), otN = answeredCount(t, other());
     view.innerHTML = `
       <div class="q-top">
-        <div><h2>오늘의 질문</h2><span>${fmtK(t)}</span></div>
-        <div class="qp-row">${prog(S.who)}${prog(other())}</div>
+        <div><h2>오늘의 질문</h2><span>${fmtK(t)} · 나 ${mineN}/4, ${esc(nm(other()))} ${otN}/4</span></div>
       </div>
       ${qCard(t, "t")}
-      <div class="q-sec">둘 중 하나 <span>한 번만 고를 수 있어요</span></div>
-      ${CSLOTS.map((sl, k) => choiceOne(t, sl, k)).join("")}
-      ${arch ? `<div class="q-sec" style="margin-top:26px">지난 질문 <span>매일 저장돼요</span></div>${arch}` : ""}
-      ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:8px">더 지난 질문 보기</button>` : ""}`;
+      <section class="qbox">
+        <h3 class="qbox-t">둘 중 하나 <span>한 번만 고를 수 있어요</span></h3>
+        ${CSLOTS.map((sl) => choiceOne(t, sl)).join("")}
+      </section>
+      ${arch ? `<h3 class="q-past">지난 질문</h3><div class="list">${arch}</div>` : ""}
+      ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:10px">더 보기</button>` : ""}`;
   }
 
   function bubble(w, text) {
     return `<div class="bubble ${w}">${av(w)}<div style="flex:1;min-width:0"><div class="nm">${esc(nm(w))}</div><div class="body">${esc(text)}</div></div></div>`;
   }
+  // 서술형: 질문 → 내 답 → 상대 답 (말풍선 대신 이름표 + 글)
   function qCard(date, slot) {
     const Q = qFor(date, slot), me = S.who, ot = other();
     const mine = getAns(date, slot, me), theirs = getAns(date, slot, ot);
     const key = `${date}|${slot}`;
-    let body = "";
-    if (slot === "t") {
-      if (!mine || S.editing === key) {
-        body = `<textarea data-ta="${date}" placeholder="솔직하게 적어주세요" maxlength="1000">${esc(mine?.answer || "")}</textarea>
-          <div class="q-actions">${mine ? `<button class="btn gray sm" data-act="cancelEdit">취소</button>` : ""}
-          <button class="btn primary sm" data-act="saveT" data-date="${date}">${mine ? "수정 완료" : "답하기"}</button></div>`;
-      } else {
-        body = bubble(me, mine.answer) + `<div class="q-actions"><button class="btn gray sm" data-act="editT" data-key="${key}">${ic("pen")}수정</button></div>`;
-      }
-      if (theirs && !theirs.hidden) body += bubble(ot, theirs.answer);
-      else if (theirs) body += `<div class="locked">${ic("lock")}${esc(nm(ot))}님이 답했어요. 내 답을 남기면 열려요</div>`;
-      else body += `<div class="locked">${ic("clock")}${esc(nm(ot))}님은 아직 답하지 않았어요</div>`;
-    }
-    return `<div class="q-card q-main">
-      <div class="q-text">${esc(Q.q)}</div>${body}</div>`;
+    const ans = (w, text, edit) => `<div class="qa"><div class="qa-h">${av(w)}<b>${esc(nm(w))}</b>${edit ? `<button class="qa-edit" data-act="editT" data-key="${key}">수정</button>` : ""}</div><p>${esc(text)}</p></div>`;
+    let body;
+    if (!mine || S.editing === key) {
+      body = `<textarea data-ta="${date}" placeholder="내 생각을 적어주세요" maxlength="1000">${esc(mine?.answer || "")}</textarea>
+        <div class="q-actions">${mine ? `<button class="btn gray sm" data-act="cancelEdit">취소</button>` : ""}<button class="btn primary sm" data-act="saveT" data-date="${date}">${mine ? "저장" : "답하기"}</button></div>`;
+    } else body = ans(me, mine.answer, true);
+    if (theirs && !theirs.hidden) body += ans(ot, theirs.answer);
+    else body += `<div class="qa-wait">${ic(theirs ? "lock" : "clock")}${theirs ? `${esc(nm(ot))}님 답은 내가 답하면 보여요` : `${esc(nm(ot))}님은 아직이에요`}</div>`;
+    return `<section class="qbox"><h3 class="qbox-q">${esc(Q.q)}</h3>${body}</section>`;
   }
 
-  function choiceOne(date, slot, k) {
+
+  // 둘 중 하나: 한 묶음 안에 줄로 (번호 없이)
+  function choiceOne(date, slot) {
     const me = S.who, ot = other();
     const Q = qFor(date, slot);
     const mine = getAns(date, slot, me), theirs = getAns(date, slot, ot);
     const seen = mine && theirs && !theirs.hidden;
-    const btns = Q.a.map((txt, v) => {
+    const opts = Q.a.map((txt, v) => {
       const vs = String(v);
-      const who = (mine?.answer === vs ? av(me) : "") + (seen && theirs.answer === vs ? av(ot) : "");
-      return `<button class="choice ${mine?.answer === vs ? "mine" : ""} ${mine ? "locked" : ""}" data-act="pickC" data-date="${date}" data-slot="${slot}" data-v="${vs}" ${mine ? "disabled" : ""}>
-        <span>${esc(txt)}</span>${who ? `<span class="who">${who}</span>` : ""}</button>`;
+      const marks = (mine?.answer === vs ? av(me) : "") + (seen && theirs.answer === vs ? av(ot) : "");
+      return `<button class="opt ${mine?.answer === vs ? "on" : ""}" data-act="pickC" data-date="${date}" data-slot="${slot}" data-v="${vs}" ${mine ? "disabled" : ""}><span>${esc(txt)}</span>${marks ? `<i>${marks}</i>` : ""}</button>`;
     }).join("");
-    let foot = "";
-    if (seen) foot = mine.answer === theirs.answer ? `<div class="match">${ic("heart")}통했다!</div>` : `<div class="match diff">서로 달라요</div>`;
-    else if (mine) foot = `<div class="cwait">${ic("clock")}${esc(nm(ot))}님이 고르면 보여요</div>`;
-    else if (theirs) foot = `<div class="cwait">${ic("lock")}${esc(nm(ot))}님은 골랐어요</div>`;
-    return `<div class="q-card q-choice"><div class="cq"><span class="cn">${k + 1}</span>${esc(Q.q)}</div><div class="choices">${btns}</div>${foot}</div>`;
+    const res = seen ? (mine.answer === theirs.answer ? `<span class="cres same">${ic("heart")}같은 걸 골랐어요</span>` : `<span class="cres">서로 달라요</span>`)
+      : mine ? `<span class="cres">${esc(nm(ot))}님 기다리는 중</span>` : theirs ? `<span class="cres">${esc(nm(ot))}님은 골랐어요</span>` : "";
+    return `<div class="crow2"><div class="crow2-h"><b>${esc(Q.q)}</b>${res}</div><div class="opts">${opts}</div></div>`;
   }
+
 
   // ---------- 프로필 사진 (정사각형으로 잘라서 저장) ----------
   async function uploadAvatar(file) {
@@ -1601,7 +1616,7 @@
     async pickC(el) {
       if (el.disabled) return;
       $$(`[data-act="pickC"][data-date="${el.dataset.date}"][data-slot="${el.dataset.slot}"]`).forEach((b) => (b.disabled = true));
-      el.classList.add("mine", "pop");
+      el.classList.add("on");
       try {
         await api("answers", { method: "POST", body: { qdate: el.dataset.date, slot: el.dataset.slot, answer: el.dataset.v } });
       } catch (e) { toast(e.message); }

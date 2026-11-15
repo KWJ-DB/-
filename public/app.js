@@ -3106,7 +3106,7 @@
       eatUpdate({ rate: off ? 0 : v }).then(() => toast(off ? "별점을 지웠어요" : `별점 ${v}점을 줬어요`));
     },
     eatFly() { const e = E.list.find((x) => x.id === S.eatCur); closeSheet(); if (S.tab !== "map") setTab("map"); if (!S.eatOn) setEatOn(true); setTimeout(() => map.flyTo({ center: [e.lon, e.lat], zoom: 17 }), 300); },
-    eatNav() { const e = E.list.find((x) => x.id === S.eatCur); routeSheet({ lat: e.lat, lon: e.lon, name: e.name }); },
+    eatNav() { const e = E.list.find((x) => x.id === S.eatCur); naverRoute({ lat: e.lat, lon: e.lon, name: e.name }, "public"); },
     async eatDm() {
       const e = E.list.find((x) => x.id === S.eatCur);
       try { await api("messages", { method: "POST", body: { kind: "loc", lat: e.lat, lon: e.lon, name: e.name, text: "" } }); toast(`${nm(other())}님에게 보냈어요`); if (S.chat) S.chat.sig = ""; } catch (er) { toast(er.message); }
@@ -3483,7 +3483,8 @@
     trailDay(el) { S.trail = { ...S.trail, day: Number(el.dataset.v), data: null }; renderTrailCard(); loadTrail(); },
     navTo() {
       const l = S.locs[other()]; if (!l) return;
-      routeSheet({ lat: l.lat, lon: l.lon, name: `${nm(other())} 위치`, t: l.t, acc: l.acc, who: other(), lookup: true });
+      if ((S.locNow || Date.now()) - l.t > 10 * 60000) toast(`${nm(other())}님 위치가 ${ago(l.t, S.locNow)} 거예요`);
+      naverRoute({ lat: l.lat, lon: l.lon, name: `${nm(other())} 위치` }, "public");
     },
     routeGo(el) { const d = S.route; if (d) naverRoute(d, el.dataset.m); },
     async locReq() {

@@ -218,7 +218,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "" });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!(st.turn_id && st.turn_token) });
       }
       case "POST meet": {
         const b = await body(request);
@@ -925,6 +925,34 @@ export async function onRequest({ request, env, params, waitUntil }) {
           const parts = [a.city || a.county || a.state, a.borough || a.city_district, a.quarter || a.suburb, a.road ? `${a.road}${a.house_number ? " " + a.house_number : ""}` : a.neighbourhood].filter(Boolean);
           return json({ addr: parts.join(" "), building: d.name || a.building || a.amenity || "", jibun: "" });
         } catch { return json({ addr: "", building: "" }); }
+      }
+      // 통화 중계 서버(TURN) 정보: Cloudflare TURN 키가 있으면 짧게 쓰는 비밀번호를 만들어 줌
+      case "GET turn": {
+        const ice = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
+        if (st.turn_id && st.turn_token) {
+          try {
+            const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${st.turn_id}/credentials/generate-ice-servers`, {
+              method: "POST", headers: { Authorization: `Bearer ${st.turn_token}`, "Content-Type": "application/json" }, body: JSON.stringify({ ttl: 86400 }),
+            });
+            const d = await r.json();
+            const list = d.iceServers ? (Array.isArray(d.iceServers) ? d.iceServers : [d.iceServers]) : [];
+            // 브라우저에서 막히는 53번 포트 주소는 뺌
+            for (const sv of list) { const u = (Array.isArray(sv.urls) ? sv.urls : [sv.urls]).filter((x) => !/:53\b/.test(x)); if (u.length) ice.push({ ...sv, urls: u }); }
+            return json({ ice, turn: list.length > 0 });
+          } catch {}
+        }
+        return json({ ice, turn: false });
+      }
+      case "POST turnkey": {
+        const b = await body(request);
+        const idk = str(b.id, 100), tok = str(b.token, 200);
+        if (!idk && !tok) { await setSettings(env, { turn_id: "", turn_token: "" }); return json(OK); }
+        const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${idk}/credentials/generate-ice-servers`, {
+          method: "POST", headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" }, body: JSON.stringify({ ttl: 600 }),
+        }).catch(() => null);
+        if (!r || !r.ok) return err(400, "키가 맞지 않아요. Turn Token ID와 API Token을 확인해 주세요");
+        await setSettings(env, { turn_id: idk, turn_token: tok });
+        return json(OK);
       }
       // ----- 전화·영상통화 (WebRTC 신호 주고받기) -----
       case "GET call": {

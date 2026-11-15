@@ -1380,6 +1380,19 @@
     if (/한식|국밥|찌개|냉면|국수|해장|한정식|백반|칼국수|순대|감자탕/.test(c)) return "한식";
     return c ? "기타" : "한식";
   }
+  function turnSheet() {
+    openSheet(`
+      <h2>통화 연결 (중계 서버)</h2>
+      <p class="sheet-sub">통화가 "연결하는 중"에서 멈추면 통신사 망이 폰끼리 직접 연결을 막고 있는 거예요. Cloudflare의 무료 중계 서버를 켜면 어디서든 연결돼요. 우주 사이트를 올린 그 Cloudflare 계정에서 할 수 있어요.</p>
+      <ol class="nv-steps">
+        <li><a href="https://dash.cloudflare.com/?to=/:account/realtime/turn/overview" target="_blank" rel="noopener">Cloudflare 대시보드</a> 왼쪽 메뉴 <b>Realtime</b> &gt; <b>TURN Server</b>로 가요</li>
+        <li><b>Create</b>(TURN 앱 만들기)를 누르고 이름은 아무거나 (예: wooju)</li>
+        <li>나오는 <b>Turn Token ID</b>와 <b>API Token</b>을 아래에 붙여넣어요 (API Token은 이때만 보여요)</li>
+      </ol>
+      <input type="text" id="turnId" placeholder="Turn Token ID" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:12px">
+      <input type="text" id="turnTok" placeholder="API Token" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
+      <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="turnSave">켜기</button></div>`);
+  }
   function naverSheet(tab) {
     tab = tab || S.connTab || (S.naver && !S.kakao ? "naver" : "kakao");
     S.connTab = tab;
@@ -2700,6 +2713,7 @@
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
         ${row("placesSheet", "pin", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
+        ${row("turnSheet", "phone2", "통화 연결", S.turn ? "중계 서버 켜짐" : "통화가 연결 안 될 때")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>
@@ -2754,19 +2768,38 @@
       video: kind === "video" ? { facingMode: K.front ? "user" : "environment", width: { ideal: 720 }, height: { ideal: 1280 } } : false,
     });
   }
-  function newPC() {
-    const pc = new RTCPeerConnection({ iceServers: ICE });
+  let iceCache = null;
+  async function iceServers() {
+    if (iceCache && Date.now() - iceCache.t < 3600e3) return iceCache.ice;
+    try { const r = await api("turn"); iceCache = { t: Date.now(), ice: r.ice }; return r.ice; } catch { return ICE; }
+  }
+  function newPC(ice) {
+    const pc = new RTCPeerConnection({ iceServers: ice || ICE });
+    const onUp = () => { if (K.state !== "on") setCall("on"); clearTimeout(K.connT); };
+    pc.oniceconnectionstatechange = () => {
+      const s2 = pc.iceConnectionState;
+      if (s2 === "connected" || s2 === "completed") onUp();
+      if (s2 === "failed") failCall();
+    };
     pc.ontrack = (e) => {
       const st = e.streams[0];
       $("#callRemote").srcObject = st; $("#callAudio").srcObject = st;
       $("#call").classList.toggle("has-remote", K.kind === "video");
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") { setCall("on"); }
-      if (pc.connectionState === "failed") { toast("연결이 끊겼어요. 와이파이나 데이터를 확인해 주세요"); endCall(true); }
+      if (pc.connectionState === "connected") onUp();
+      if (pc.connectionState === "failed") failCall();
     };
     return pc;
   }
+  // 직접 연결이 안 될 때 (통신사 망이 막는 경우)
+  function failCall() {
+    if (!K.pc) return;
+    clearTimeout(K.connT);
+    toast(S.turn ? "연결이 안 돼요. 잠시 뒤 다시 걸어주세요" : "폰끼리 직접 연결이 막혔어요. 설정 > 통화 연결에서 중계 서버를 켜주세요");
+    endCall(true);
+  }
+  function watchConnect() { clearTimeout(K.connT); K.connT = setTimeout(() => { if (K.pc && K.state !== "on") failCall(); }, 20000); }
   function callUI(kind, who) {
     const c = $("#call");
     c.hidden = false; c.className = kind;
@@ -2804,7 +2837,7 @@
     try {
       K.local = await getMedia(kind);
       $("#callLocal").srcObject = K.local; $("#call").classList.add("has-local");
-      const pc = K.pc = newPC();
+      const pc = K.pc = newPC(await iceServers());
       K.local.getTracks().forEach((t) => pc.addTrack(t, K.local));
       if (kind === "voice") pc.addTransceiver("video", { direction: "inactive" });
       await pc.setLocalDescription(await pc.createOffer());
@@ -2816,7 +2849,7 @@
         try {
           const { call } = await api(`call/${K.id}`);
           if (call.state === "active" && call.answer && pc.signalingState === "have-local-offer") {
-            ringTone(false); setCall("connecting");
+            ringTone(false); setCall("connecting"); watchConnect();
             await pc.setRemoteDescription(JSON.parse(call.answer));
           } else if (["declined", "missed", "ended", "canceled"].includes(call.state)) {
             toast(call.state === "declined" ? `${nm(other())}님이 거절했어요` : call.state === "missed" ? "받지 않았어요" : "통화가 끝났어요");
@@ -2843,8 +2876,9 @@
       if (!offer) { toast("상대가 전화를 끊었어요"); return endCall(false); }
       K.local = await getMedia(c.kind);
       $("#callLocal").srcObject = K.local; $("#call").classList.add("has-local");
-      const pc = K.pc = newPC();
+      const pc = K.pc = newPC(await iceServers());
       K.local.getTracks().forEach((t) => pc.addTrack(t, K.local));
+      watchConnect();
       await pc.setRemoteDescription(JSON.parse(offer));
       await pc.setLocalDescription(await pc.createAnswer());
       await gathered(pc);
@@ -2859,7 +2893,7 @@
   }
   function endCall(tell) {
     ringTone(false);
-    clearInterval(K.poll); clearInterval(K.timer);
+    clearInterval(K.poll); clearInterval(K.timer); clearTimeout(K.connT);
     if (tell && K.id) api(`call/${K.id}/end`, { method: "POST", body: {} }).catch(() => {});
     if (K.pc) { try { K.pc.close(); } catch {} }
     if (K.local) K.local.getTracks().forEach((t) => t.stop());
@@ -3458,6 +3492,14 @@
       toast(`오늘은 ${e.name} 어때요?`);
       setTimeout(() => eatDetail(e), 1100);
     },
+    turnSheet: () => turnSheet(),
+    async turnSave() {
+      const id = $("#turnId").value.trim(), token = $("#turnTok").value.trim();
+      if (!id || !token) return toast("둘 다 붙여넣어 주세요");
+      try { await api("turnkey", { method: "POST", body: { id, token } }); S.turn = true; iceCache = null; toast("중계 서버를 켰어요. 이제 어디서든 연결돼요"); closeSheet(); }
+      catch (e) { toast(e.message); }
+    },
+    async turnOff() { await api("turnkey", { method: "POST", body: {} }); S.turn = false; iceCache = null; toast("껐어요"); closeSheet(); },
     callStart(el) { startCall(el.dataset.k); },
     callAccept: () => acceptCall(),
     callDecline() { endCall(true); },
@@ -3867,7 +3909,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || "";
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn;
       setBrand();
       await loadAnniv();
       showOnly("app");

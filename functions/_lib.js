@@ -186,7 +186,7 @@ export function fromB64(b) {
 }
 
 // ---------- 장소 도착/출발 판정 ----------
-const distM = (a, b) => {
+export const distM = (a, b) => {
   const R = 6371000, r = Math.PI / 180;
   const x = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lon - a.lon) * r) / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(x));

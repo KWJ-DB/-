@@ -3,7 +3,7 @@ import {
   json, err, body, isDate, isTime, str, todayKST,
   ensureSchema, getSettings, setSettings, saveLoc,
   randHex, hashPw, safeEq, makeToken, readToken, getCookie, cookieHeader,
-  parseBasic, fromB64, checkPlaces,
+  parseBasic, fromB64, checkPlaces, distM,
 } from "../_lib.js";
 import { getVapid, sendPush } from "../_push.js";
 
@@ -197,7 +197,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "" });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret) });
       }
       case "POST meet": {
         const b = await body(request);
@@ -444,13 +444,47 @@ export async function onRequest({ request, env, params, waitUntil }) {
         await DB.prepare("DELETE FROM eats WHERE id = ?1").bind(id).run();
         return json(OK);
       }
-      // 장소 이름 검색 (Photon → 안 되면 Nominatim)
+      // 네이버 검색 API 키 연결 (키는 서버에만 저장)
+      case "POST naverkey": {
+        const b = await body(request);
+        const idk = str(b.id, 80), sec = str(b.secret, 80);
+        if (!idk && !sec) { await setSettings(env, { naver_id: "", naver_secret: "" }); return json(OK); }
+        if (!idk || !sec) return err(400, "Client ID와 Client Secret을 둘 다 넣어주세요");
+        const t = await naverLocal("맛집", idk, sec);
+        if (!t.ok) return err(400, t.msg);
+        await setSettings(env, { naver_id: idk, naver_secret: sec });
+        return json(OK);
+      }
+      // 가게 검색: 네이버 → (없으면) Photon → Nominatim
       case "GET geo": {
         const kw = str(q("q"), 60);
         if (!kw) return json({ results: [] });
         const la = Number(q("lat")), lo = Number(q("lon"));
         const bias = Number.isFinite(la) && Number.isFinite(lo) ? `&lat=${la}&lon=${lo}` : "";
         const out = [];
+        if (st.naver_id && st.naver_secret) {
+          const qs = [kw];
+          // 동네 이름을 붙인 검색도 같이 해서 가까운 가게가 잘 나오게 (예: "수성구 파스타")
+          if (bias && !/[시군구동읍면로길역]\s/.test(kw + " ")) {
+            try {
+              const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=ko&zoom=14&lat=${la}&lon=${lo}`, { headers: { "User-Agent": "wooju-couple/1.0 (private couple site)" } });
+              const a = (await r.json()).address || {};
+              const area = a.borough || a.city_district || a.suburb || a.county || a.city;
+              const dong = a.quarter || a.neighbourhood || a.suburb;
+              if (area) qs.push(`${area} ${kw}`);
+              if (dong && dong !== area) qs.push(`${dong} ${kw}`);
+            } catch {}
+          }
+          const res = await Promise.all(qs.map((x) => naverLocal(x, st.naver_id, st.naver_secret)));
+          const seen = new Set();
+          for (const r of res) for (const it of r.items || []) {
+            const k = it.name + "|" + it.addr;
+            if (seen.has(k)) continue;
+            seen.add(k); out.push(it);
+          }
+          if (bias) out.sort((x, y) => distM({ lat: la, lon: lo }, x) - distM({ lat: la, lon: lo }, y));
+          if (out.length || res.some((r) => r.ok)) return json({ results: out, src: "naver" });
+        }
         try {
           const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(kw)}&limit=10${bias}`, { headers: { "User-Agent": "wooju-couple/1.0" } });
           const d = await r.json();
@@ -869,5 +903,26 @@ export async function onRequest({ request, env, params, waitUntil }) {
     return err(404, "없는 주소예요");
   } catch (e) {
     return err(500, e.message || "서버 오류");
+  }
+}
+
+
+// 네이버 지역 검색 (한 번에 최대 5개)
+async function naverLocal(query, id, secret) {
+  try {
+    const r = await fetch(`https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=5&sort=random`, {
+      headers: { "X-Naver-Client-Id": id, "X-Naver-Client-Secret": secret },
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, msg: d.errorMessage ? `네이버: ${d.errorMessage}` : `네이버 검색 오류 (${r.status})`, items: [] };
+    const strip = (x) => String(x || "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    const items = (d.items || []).map((it) => {
+      let x = Number(it.mapx), y = Number(it.mapy);
+      if (x > 1e8) { x /= 1e7; y /= 1e7; }
+      return { name: strip(it.title), cat: strip(it.category), addr: strip(it.roadAddress || it.address), lat: y, lon: x, kind: strip(it.category), link: it.link || "" };
+    }).filter((it) => it.lat > 30 && it.lat < 40 && it.lon > 120 && it.lon < 135);
+    return { ok: true, items };
+  } catch (e) {
+    return { ok: false, msg: "네이버에 연결하지 못했어요", items: [] };
   }
 }

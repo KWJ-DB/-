@@ -1108,7 +1108,8 @@
     openSheet(`
       <h2>맛집 추가</h2>
       <div class="add-row" style="margin-top:10px"><input type="text" id="eatQ" placeholder="가게 이름 검색 (예: 동성로 파스타)" maxlength="60"><button class="btn primary" data-act="eatSearch" aria-label="검색">${ic("search")}</button></div>
-      <div id="eatRes"><p class="sheet-sub" style="margin-top:12px">검색이 안 되는 가게는 지도에서 직접 고를 수 있어요</p></div>
+      <div id="eatRes">${S.naver ? `<p class="sheet-sub" style="margin-top:12px">네이버 검색으로 찾아요. 가까운 가게가 먼저 나와요</p>`
+        : `<button class="nv-cta" data-act="naverSheet"><span class="nv-logo">N</span><span><b>네이버 검색 연결하기</b><em>연결하면 네이버 지도처럼 동네 가게까지 정확히 찾아져요</em></span>${ic("right")}</button>`}</div>
       <button class="btn soft full" data-act="eatPickMap" style="margin-top:10px">${ic("target")}지도에서 직접 고르기</button>`);
     setTimeout(() => $("#eatQ") && $("#eatQ").focus(), 300);
     S.eatBias = me ? me : map ? { lat: map.getCenter().lat, lon: map.getCenter().lng } : null;
@@ -1121,9 +1122,38 @@
       const { results } = await api(`geo?q=${encodeURIComponent(qv)}${b}`);
       S.eatRes = results;
       $("#eatRes").innerHTML = results.length ? `<div class="list" style="margin-top:12px">${results.map((r, i) => `
-        <button class="li" data-act="eatResPick" data-i="${i}"><span class="li-t"><b>${esc(r.name)}</b><span>${esc(r.addr || "")}${S.eatBias ? (r.addr ? ", " : "") + fmtDist(distM(S.eatBias, r)) : ""}</span></span>${ic("plus", "li-chev")}</button>`).join("")}</div>`
+        <button class="li" data-act="eatResPick" data-i="${i}"><span class="li-t"><b>${esc(r.name)}</b><span>${r.cat ? esc(r.cat.split(">").pop()) + " · " : ""}${esc(r.addr || "")}${S.eatBias ? (r.addr ? ", " : "") + fmtDist(distM(S.eatBias, r)) : ""}</span></span>${ic("plus", "li-chev")}</button>`).join("")}</div>`
         : `<div class="empty">검색 결과가 없어요<br><small>지도에서 직접 골라주세요</small></div>`;
     } catch (e) { $("#eatRes").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  }
+  // 네이버 분류(음식점>한식 등)나 지도 데이터 종류를 우리 분류로
+  function catOf(k) {
+    const c = String(k);
+    if (/카페|커피|cafe/i.test(c)) return "카페";
+    if (/디저트|베이커리|제과|빵|케이크|아이스크림|ice_cream/.test(c)) return "디저트";
+    if (/술집|주점|호프|이자카야|bar|pub|와인|포차/i.test(c)) return "술집";
+    if (/분식|떡볶이|김밥|fast_food/.test(c)) return "분식";
+    if (/육류|고기|삼겹|갈비|곱창|막창|족발|보쌈|닭갈비|치킨/.test(c)) return "고기";
+    if (/일식|초밥|돈가스|라멘|우동|이자카야|일본/.test(c)) return "일식";
+    if (/중식|중국|마라|훠궈|딤섬/.test(c)) return "중식";
+    if (/양식|이탈리|파스타|피자|스테이크|버거|햄버거|브런치|프랑스/.test(c)) return "양식";
+    if (/아시아|베트남|태국|쌀국수|인도|멕시/.test(c)) return "아시안";
+    if (/한식|국밥|찌개|냉면|국수|해장|한정식|백반|칼국수|순대|감자탕/.test(c)) return "한식";
+    return c ? "기타" : "한식";
+  }
+  function naverSheet() {
+    openSheet(`
+      <h2><span class="nv-logo">N</span> 네이버 검색 연결</h2>
+      <p class="sheet-sub">네이버에서 무료 검색 키를 받아 한 번만 넣으면 둘 다 쓸 수 있어요. 5분이면 돼요.</p>
+      <ol class="nv-steps">
+        <li><a href="https://developers.naver.com/apps/#/register" target="_blank" rel="noopener">네이버 개발자센터 애플리케이션 등록</a>을 열고 네이버로 로그인해요</li>
+        <li>애플리케이션 이름은 아무거나 (예: 우리), <b>사용 API</b>에서 <b>검색</b>을 골라요</li>
+        <li><b>환경 추가</b>에서 <b>WEB 설정</b>을 고르고 주소에 <b>https://wooju.pages.dev</b> 를 넣어요</li>
+        <li>등록하면 나오는 <b>Client ID</b>와 <b>Client Secret</b>을 아래에 붙여넣어요</li>
+      </ol>
+      <input type="text" id="nvId" placeholder="Client ID" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:12px">
+      <input type="text" id="nvSec" placeholder="Client Secret" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+      <div class="row2" style="margin-top:14px">${S.naver ? `<button class="btn gray" data-act="naverOff">연결 해제</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="naverSave">연결하기</button></div>`);
   }
   function eatForm(p) {
     S.eatNew = p; S.eatCat = p.cat || "한식"; S.eatStatus = "want";
@@ -1171,6 +1201,7 @@
       <textarea id="eatMemoE" rows="2" placeholder="메모 (먹은 메뉴, 다음에 시킬 것)" maxlength="300">${esc(e.memo || "")}</textarea>
       <div class="eat-acts">
         <button data-act="eatFly">${ic("target")}<span>지도</span></button>
+        <button data-act="eatNaver"><span class="nv-logo sm">N</span><span>네이버 지도</span></button>
         <button data-act="eatNav">${ic("route")}<span>길찾기</span></button>
         <button data-act="eatDm">${ic("send")}<span>디엠 보내기</span></button>
         <button class="del" data-act="eatDel">${ic("trash")}<span>지우기</span></button>
@@ -2093,6 +2124,7 @@
         ${row(ps === "granted" ? "pushTest" : "pushOn", "bell", "알림", ps === "granted" ? "켜짐 · 눌러서 테스트" : ps === "needs-home" ? "홈 화면에 추가해야 켤 수 있어요" : ps === "denied" ? "아이폰 설정에서 허용해 주세요" : "꺼짐 · 눌러서 켜기")}
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
+        ${row("naverSheet", "search", "가게 검색 (네이버)", S.naver ? "연결됨" : "연결하면 맛집 검색이 정확해져요")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>
       <div class="list" style="margin-top:12px">
@@ -2349,7 +2381,20 @@
     eatFilter(el) { E.filter = el.dataset.v; drawEatMarkers(); renderEatCard(); },
     eatAdd: () => eatAddSheet(),
     eatSearch: () => eatSearch(),
-    eatResPick(el) { const r = S.eatRes[+el.dataset.i]; eatForm({ ...r, cat: /cafe/.test(r.kind) ? "카페" : /bar|pub/.test(r.kind) ? "술집" : /fast_food/.test(r.kind) ? "분식" : "한식" }); },
+    eatResPick(el) { const r = S.eatRes[+el.dataset.i]; eatForm({ ...r, cat: catOf(r.kind || "") }); },
+    naverSheet: () => naverSheet(),
+    async naverOff() { if (!confirm("네이버 검색 연결을 해제할까요?")) return; await api("naverkey", { method: "POST", body: { id: "", secret: "" } }); S.naver = false; toast("연결을 해제했어요"); closeSheet(); },
+    async naverSave() {
+      const id = $("#nvId").value.trim(), secret = $("#nvSec").value.trim();
+      const b = $("[data-act=naverSave]"); b.disabled = true; b.textContent = "확인 중...";
+      try {
+        await api("naverkey", { method: "POST", body: { id, secret } });
+        S.naver = !!(id && secret);
+        toast(S.naver ? "네이버 검색을 연결했어요" : "연결을 해제했어요");
+        S.tab === "map" ? eatAddSheet() : closeSheet();
+      } catch (e) { toast(e.message); b.disabled = false; b.textContent = "연결하기"; }
+    },
+    eatNaver() { const e = E.list.find((x) => x.id === S.eatCur); window.open(`https://map.naver.com/p/search/${encodeURIComponent(e.name)}?c=${e.lon},${e.lat},17,0,0,0,dh`, "_blank"); },
     eatPickMap: () => eatPickMap(),
     eatPickOk() {
       const dr = $(".pick-dot").getBoundingClientRect(), mr = map.getContainer().getBoundingClientRect();
@@ -2765,7 +2810,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || "";
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver;
       setBrand();
       await loadAnniv();
       showOnly("app");

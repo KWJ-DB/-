@@ -53,7 +53,9 @@
     const t = $("#toast");
     t.textContent = msg; t.hidden = false;
     t.style.animation = "none"; void t.offsetWidth; t.style.animation = "";
-    clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2300);
+    t.classList.remove("out");
+    clearTimeout(toast.t); clearTimeout(toast.t2);
+    toast.t = setTimeout(() => { t.classList.add("out"); toast.t2 = setTimeout(() => { t.hidden = true; t.classList.remove("out"); }, 220); }, 2200);
   }
 
   async function api(path, { method = "GET", body } = {}) {
@@ -165,6 +167,10 @@
   window.addEventListener("resize", movePill);
   function setTab(tab) {
     if (!TABS.includes(tab)) tab = "home";
+    if (document.activeElement && document.activeElement.blur && !document.activeElement.closest("#chatWrap")) document.activeElement.blur();
+    document.body.classList.remove("kb");
+    const prevI = TABS.indexOf(S.tab), nextI = TABS.indexOf(tab);
+    const dir = prevI < 0 || prevI === nextI ? "" : nextI > prevI ? "from-r" : "from-l";
     S.tab = tab;
     try { history.replaceState(null, "", "#" + tab); } catch {}
     $$(".tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
@@ -176,13 +182,14 @@
     document.documentElement.classList.toggle("lock", isMap || isChat);
     view.hidden = isMap || isChat;
     window.scrollTo(0, 0);
+    const shown = isMap ? $("#mapWrap") : isChat ? $("#chatWrap") : view;
+    if (dir) { shown.classList.remove("from-r", "from-l"); void shown.offsetWidth; shown.classList.add(dir); setTimeout(() => shown.classList.remove(dir), 320); }
     if (isMap) { ensureMap(); refreshLoc(true); flyPending(); return; }
     if (isChat) { openChat(); return; }
     const key = S.tab + (S.tab === "calendar" ? S.memView || "" : "");
     view.dataset.tab = "";
     if (viewCache[key]) { view.innerHTML = viewCache[key]; view.dataset.tab = S.tab; }
     else view.innerHTML = "";
-    view.classList.remove("tab-in"); void view.offsetWidth; view.classList.add("tab-in");
     render();
   }
   // 화면을 통째로 갈아끼우지 않고 바뀐 곳만 고쳐서 들썩임·깜빡임 없게
@@ -191,7 +198,7 @@
     if (o.nodeType === 3 || o.nodeType === 8) { if (o.data !== n.data) o.data = n.data; return; }
     if (o.nodeType !== 1) return;
     const focused = o === document.activeElement;
-    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name)) o.removeAttribute(a.name);
+    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name) && a.name !== "data-l") o.removeAttribute(a.name);
     for (const a of [...n.attributes]) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
     if (o.nodeName === "TEXTAREA" || o.nodeName === "INPUT" || o.nodeName === "SELECT") {
       if (!focused && o.nodeName === "TEXTAREA" && o.value !== n.value) { o.value = n.value; o.textContent = n.textContent; }
@@ -1562,7 +1569,11 @@
   $("#dmText").addEventListener("blur", () => { document.body.classList.remove("typing"); $("#chatWrap").style.height = ""; });
   const isField = (el) => el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !["checkbox", "radio", "file", "button", "range", "color"].includes(el.type)));
   document.addEventListener("focusin", (e) => { if (isField(e.target)) document.body.classList.add("kb"); });
-  document.addEventListener("focusout", (e) => { if (isField(e.target)) setTimeout(() => { if (!isField(document.activeElement)) document.body.classList.remove("kb"); }, 60); });
+  const kbCheck = () => { const a = document.activeElement; if (!isField(a) || !a.offsetParent) document.body.classList.remove("kb"); };
+  document.addEventListener("focusout", (e) => { if (isField(e.target)) setTimeout(kbCheck, 60); });
+  document.addEventListener("touchstart", kbCheck, { passive: true });
+  if (window.visualViewport) visualViewport.addEventListener("resize", () => { if (visualViewport.height > innerHeight * 0.85) kbCheck(); });
+  setInterval(kbCheck, 1500);
   if (window.visualViewport) {
     const fit = () => {
       if (!document.body.classList.contains("typing")) return;
@@ -1970,6 +1981,84 @@
       <label class="check" style="margin-top:14px"><input id="anYearly" type="checkbox" checked>매년 반복</label>
       <div class="row2"><button class="btn gray" data-act="close">취소</button><button class="btn primary" data-act="annivSave">추가</button></div>`);
   }
+
+  // ---------- 부드러운 손동작 ----------
+  // 사진은 다 불러온 뒤 살며시 나타나게
+  document.addEventListener("load", (e) => { const im = e.target; if (im.tagName === "IMG") im.setAttribute("data-l", "1"); }, true);
+  document.addEventListener("error", (e) => { const im = e.target; if (im.tagName === "IMG") im.setAttribute("data-l", "1"); }, true);
+  // 시트: 손잡이나 맨 위에서 아래로 끌면 닫힘
+  (() => {
+    const box = $("#sheetBox");
+    let st = null;
+    box.addEventListener("touchstart", (e) => {
+      if (box.scrollTop > 0 || e.target.closest("input, textarea, select")) return;
+      st = { y: e.touches[0].clientY, dy: 0, t: Date.now() };
+    }, { passive: true });
+    box.addEventListener("touchmove", (e) => {
+      if (!st) return;
+      const dy = e.touches[0].clientY - st.y;
+      if (dy < 0 && !st.on) { st = null; return; }
+      if (!st.on && dy > 8) { st.on = true; box.style.animation = "none"; }
+      if (!st.on) return;
+      st.dy = Math.max(0, dy);
+      box.style.transition = "none";
+      box.style.transform = `translateY(${st.dy}px)`;
+      $("#sheet").style.background = `rgba(30,20,30,${0.4 * Math.max(0, 1 - st.dy / 400)})`;
+    }, { passive: true });
+    box.addEventListener("touchend", () => {
+      if (!st) return;
+      const { on, dy, t } = st; st = null;
+      if (!on) return;
+      const fast = dy / Math.max(1, Date.now() - t) > 0.6;
+      box.style.transition = "transform .28s cubic-bezier(.2,.9,.3,1)";
+      if (dy > 120 || (fast && dy > 40)) {
+        box.style.transform = "translateY(110%)";
+        setTimeout(() => { const sh = $("#sheet"); sh.hidden = true; sh.style.background = ""; box.style.transform = ""; box.style.transition = ""; box.style.animation = ""; }, 260);
+      } else {
+        box.style.transform = "";
+        $("#sheet").style.background = "";
+        setTimeout(() => { box.style.transition = ""; box.style.animation = ""; }, 300);
+      }
+    });
+  })();
+  // 사진 크게 보기: 옆으로 밀면 다음 사진, 아래로 밀면 닫힘
+  (() => {
+    const lb = $("#lightbox");
+    let st = null;
+    lb.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1 || !e.target.closest(".lb-img")) return;
+      st = { x: e.touches[0].clientX, y: e.touches[0].clientY, dx: 0, dy: 0, ax: null };
+    }, { passive: true });
+    lb.addEventListener("touchmove", (e) => {
+      if (!st) return;
+      st.dx = e.touches[0].clientX - st.x; st.dy = e.touches[0].clientY - st.y;
+      if (!st.ax && Math.hypot(st.dx, st.dy) > 10) st.ax = Math.abs(st.dx) > Math.abs(st.dy) ? "x" : "y";
+      const im = lb.querySelector(".lb-img img"); if (!im) return;
+      im.style.transition = "none";
+      if (st.ax === "x") im.style.transform = `translateX(${st.dx}px)`;
+      else if (st.ax === "y" && st.dy > 0) { im.style.transform = `translateY(${st.dy}px) scale(${1 - Math.min(0.3, st.dy / 1000)})`; lb.style.background = `rgba(15,10,15,${0.94 * Math.max(0.2, 1 - st.dy / 400)})`; }
+    }, { passive: true });
+    lb.addEventListener("touchend", () => {
+      if (!st) return;
+      const { ax, dx, dy } = st; st = null;
+      const im = lb.querySelector(".lb-img img"); if (!im) return;
+      im.style.transition = "transform .25s cubic-bezier(.2,.9,.3,1), opacity .25s";
+      if (ax === "x" && Math.abs(dx) > 70) {
+        const d = dx < 0 ? 1 : -1, ni = S.lbIdx + d;
+        if (ni >= 0 && ni < S.lbList.length) {
+          im.style.transform = `translateX(${dx < 0 ? -innerWidth : innerWidth}px)`; im.style.opacity = "0";
+          setTimeout(() => { S.lbIdx = ni; drawLightbox(); const n = lb.querySelector(".lb-img img"); if (n) { n.classList.add(d > 0 ? "lb-in-r" : "lb-in-l"); } }, 180);
+          return;
+        }
+      }
+      if (ax === "y" && dy > 120) {
+        im.style.transform = `translateY(${innerHeight}px)`; lb.classList.add("lb-out");
+        setTimeout(() => { lb.hidden = true; lb.classList.remove("lb-out"); lb.style.background = ""; }, 240);
+        return;
+      }
+      im.style.transform = ""; lb.style.background = "";
+    });
+  })();
 
   // ---------- 버튼 동작 ----------
   const ACT = {

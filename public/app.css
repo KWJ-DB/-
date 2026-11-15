@@ -1209,3 +1209,47 @@ body.kb .tabbar { opacity: 0; pointer-events: none; transform: translateY(20px);
 .linkbtn { color: var(--rose); font-weight: 700; font-size: 14px; padding: 6px 10px; }
 .lb-acts { display: flex; gap: 6px; }
 @media (prefers-reduced-motion: reduce) { #qPage, #view.tab-in { animation: none !important; } }
+
+/* ===== 전체 부드럽게 ===== */
+* { -webkit-tap-highlight-color: transparent; }
+button, a, [data-act] { touch-action: manipulation; }
+:root { --ease: cubic-bezier(.2,.9,.3,1); }
+/* 탭 넘길 때 방향대로 살짝 미끄러짐 */
+#view.from-r, #chatWrap.from-r, #mapWrap.from-r { animation: fromR .28s var(--ease) both; }
+#view.from-l, #chatWrap.from-l, #mapWrap.from-l { animation: fromL .28s var(--ease) both; }
+@keyframes fromR { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+@keyframes fromL { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
+#view.tab-in { animation: none !important; }
+/* 사진은 불러온 뒤 서서히 */
+#view img, .dm-img, .lb-img img, .hero img { transition: opacity .3s ease; }
+#view img:not([data-l]), .dm-img:not([data-l]) { opacity: 0; }
+/* 탭 알약 스프링 */
+.tab-pill { transition: transform .42s cubic-bezier(.3,1.35,.5,1), width .3s var(--ease) !important; }
+.tabbar button svg.i { transition: transform .25s cubic-bezier(.3,1.6,.5,1); }
+.tabbar button.on svg.i { transform: scale(1.08); }
+.tabbar button:active svg.i { transform: scale(.88); }
+/* 토스트 */
+#toast { animation: toastIn .32s cubic-bezier(.3,1.4,.5,1) both; }
+#toast.out { animation: toastOut .2s ease forwards; }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, -14px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes toastOut { to { opacity: 0; transform: translate(-50%, -10px) scale(.97); } }
+/* 사진 크게 보기 */
+.lightbox { animation: fade .22s ease; transition: background .2s; }
+.lightbox .lb-img img { animation: lbZoom .3s var(--ease); will-change: transform; touch-action: none; }
+@keyframes lbZoom { from { transform: scale(.92); opacity: 0; } }
+.lightbox .lb-img img.lb-in-r { animation: lbR .25s var(--ease); }
+.lightbox .lb-img img.lb-in-l { animation: lbL .25s var(--ease); }
+@keyframes lbR { from { transform: translateX(60px); opacity: 0; } }
+@keyframes lbL { from { transform: translateX(-60px); opacity: 0; } }
+.lightbox.lb-out { animation: fadeOut .24s ease forwards; }
+/* 시트 끌기 */
+.sheet-box { will-change: transform; overscroll-behavior: contain; }
+.sheet-bg { transition: background .2s; }
+/* 목록·카드 누름 */
+.li:active, .card:active { transition-duration: .08s; }
+/* 지도 카드 내용 바뀔 때 */
+.mc-acts button, .chip { transition: background-color .15s, color .15s, transform .15s; }
+.mc-acts button:active, .chip:active { transform: scale(.95); }
+/* 스크롤 부드럽게 */
+#view, .dm-list, .sheet-box, .tr-tl { -webkit-overflow-scrolling: touch; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

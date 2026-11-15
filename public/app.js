@@ -2276,6 +2276,8 @@
         if (Math.abs(dx) > 12) { sw.on = true; sw.row.classList.add("swiping"); }
         else return;
       }
+      // 말풍선만 밀리고 배경·목록은 가만히
+      if (e.cancelable) e.preventDefault();
       const mine = sw.row.classList.contains("me");
       let d = mine ? Math.min(0, dx) : Math.max(0, dx);
       d = Math.sign(d) * Math.min(90, Math.abs(d) * 0.6);
@@ -2283,7 +2285,7 @@
       sw.row.style.transform = `translateX(${d}px)`;
       sw.row.style.setProperty("--sw", Math.min(1, Math.abs(d) / 50));
       if (Math.abs(d) >= 50 && !sw.buzz) { sw.buzz = true; try { navigator.vibrate && navigator.vibrate(8); } catch {} }
-    }, { passive: true });
+    }, { passive: false });
     L.addEventListener("touchend", () => {
       if (!sw) return;
       const { row, dx, on } = sw; sw = null;

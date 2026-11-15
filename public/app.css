@@ -1737,3 +1737,7 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .al-day .al-grid button span { display: none; }
 .al-day .al-grid { border-radius: 0 !important; overflow: visible; gap: 4px !important; }
 .al-day .al-grid button { border-radius: 10px !important; overflow: hidden; }
+/* 답장하려고 밀 때 배경이 같이 밀리지 않게 */
+.dm-list { overflow-x: hidden !important; overscroll-behavior-x: none; touch-action: pan-y; }
+#chatWrap { overflow: hidden; overscroll-behavior: none; }
+.dm-row { max-width: 100%; }

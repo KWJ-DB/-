@@ -173,14 +173,53 @@
     $("#mapWrap").hidden = !isMap;
     $("#chatWrap").hidden = !isChat;
     $(".topbar").hidden = isChat;
+    document.documentElement.classList.toggle("lock", isMap || isChat);
     view.hidden = isMap || isChat;
     window.scrollTo(0, 0);
     if (isMap) { ensureMap(); refreshLoc(true); flyPending(); return; }
     if (isChat) { openChat(); return; }
-    view.innerHTML = ""; view.dataset.tab = "";
+    const key = S.tab + (S.tab === "calendar" ? S.memView || "" : "");
+    view.dataset.tab = "";
+    if (viewCache[key]) { view.innerHTML = viewCache[key]; view.dataset.tab = S.tab; }
+    else view.innerHTML = "";
     view.classList.remove("tab-in"); void view.offsetWidth; view.classList.add("tab-in");
     render();
   }
+  // 화면을 통째로 갈아끼우지 않고 바뀐 곳만 고쳐서 들썩임·깜빡임 없게
+  function morphNode(o, n) {
+    if (o.nodeType !== n.nodeType || o.nodeName !== n.nodeName) { o.replaceWith(n.cloneNode(true)); return; }
+    if (o.nodeType === 3 || o.nodeType === 8) { if (o.data !== n.data) o.data = n.data; return; }
+    if (o.nodeType !== 1) return;
+    const focused = o === document.activeElement;
+    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name)) o.removeAttribute(a.name);
+    for (const a of [...n.attributes]) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
+    if (o.nodeName === "TEXTAREA" || o.nodeName === "INPUT" || o.nodeName === "SELECT") {
+      if (!focused && o.nodeName === "TEXTAREA" && o.value !== n.value) { o.value = n.value; o.textContent = n.textContent; }
+      if (!focused && o.nodeName === "INPUT" && o.type !== "file" && o.value !== n.value && !o.dataset.dirty) o.value = n.value;
+      return;
+    }
+    morphKids(o, n);
+  }
+  function morphKids(op, np) {
+    const on = [...op.childNodes], nn = [...np.childNodes];
+    nn.forEach((n, i) => { if (on[i]) morphNode(on[i], n); else op.appendChild(n.cloneNode(true)); });
+    for (let i = nn.length; i < on.length; i++) on[i].remove();
+  }
+  const viewTpl = document.createElement("template");
+  let viewHtml = "";
+  Object.defineProperty(view, "innerHTML", {
+    get() { return Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML").get.call(view); },
+    set(h) {
+      const d = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
+      const sameTab = view.dataset.tab === S.tab && view.dataset.tab;
+      if (h === viewHtml && sameTab) return;
+      viewHtml = h;
+      if (!sameTab || !view.firstChild || view.querySelector(".sk")) { d.set.call(view, h); return; }
+      viewTpl.innerHTML = h;
+      morphKids(view, viewTpl.content);
+    },
+  });
+  const viewCache = {};
   async function render(keepScroll = false) {
     const y = window.scrollY;
     try {
@@ -192,7 +231,8 @@
       if (e.status !== 401) view.innerHTML = `<div class="card empty">불러오지 못했어요<br>${esc(e.message)}</div>`;
     }
     view.dataset.tab = S.tab;
-    if (keepScroll) window.scrollTo(0, y);
+    viewCache[S.tab + (S.tab === "calendar" ? S.memView || "" : "")] = viewHtml;
+    if (keepScroll && Math.abs(window.scrollY - y) > 2) window.scrollTo(0, y);
   }
   // 불러오는 동안 화면 모양대로 회색 자리 표시 (스켈레톤)
   const skel = (tab) => {
@@ -472,45 +512,75 @@
   }
 
   // ---------- 질문 ----------
+  // 질문: 날짜별 한 장씩, 옆으로 밀어서 넘김
   async function renderQuestion() {
     spinner();
     const t = qToday();
-    S.qDays = S.qDays || 14;
     const first = S.created && S.created < QBASE ? S.created : QBASE;
-    let from = addDays(t, -S.qDays);
-    const hasMore = from > first;
-    if (from < first) from = first;
-    if (from > t) from = t;
-    const [, sk] = await Promise.all([loadAnswers(from, t), api(`streak?today=${t}`).catch(() => ({}))]);
-    S.streak = sk.streak || 0;
+    if (!S.qDate || S.qDate > t) S.qDate = t;
+    if (S.qDate < first) S.qDate = first;
+    const d = S.qDate;
+    S.qLoaded = S.qLoaded || {};
+    const from = addDays(d, -7) < first ? first : addDays(d, -7);
+    const need = !S.qLoaded[d] || d === t || addDays(d, 1) === t;
+    const jobs = [need ? loadAnswers(from, d === t ? t : addDays(d, 1) > t ? t : addDays(d, 1)) : null, S.streak == null || d === t ? api(`streak?today=${t}`).catch(() => ({})) : null];
+    const [, sk] = await Promise.all(jobs);
+    for (let x = from; x <= d; x = addDays(x, 1)) S.qLoaded[x] = true;
+    if (sk) S.streak = sk.streak || 0;
     updateBadge();
     if (S.tab !== "question") return;
-
-    const prog = (w) => `<span class="qp-chip">${av(w)}${answeredCount(t, w)}/4</span>`;
-    let arch = "";
-    for (let d = addDays(t, -1); d >= from; d = addDays(d, -1)) {
-      const open = S.openArch.has(d);
-      const dot = (w) => `<i class="${answeredCount(d, w) ? w : ""}"></i>`;
-      arch += `
-        <div class="arch2${open ? " open" : ""}">
-          <button class="li" data-act="toggleArch" data-date="${d}">
-            <span class="li-t"><b>${esc(qFor(d, daySlots(d).t).q)}</b><span>${fmtK(d)}</span></span>
-            <span class="dots">${dot(S.who)}${dot(other())}</span>${ic("right", "li-chev")}
-          </button>
-          ${open ? (() => { const ds = daySlots(d); return `<div class="arch2-in">${qCard(d, ds.t)}${ds.c.length ? `<section class="qbox">${ds.c.map((c) => choiceOne(d, c)).join("")}</section>` : ""}</div>`; })() : ""}
-        </div>`;
-    }
-    const mineN = answeredCount(t, S.who), otN = answeredCount(t, other());
+    const ds = daySlots(d), isT = d === t;
+    const mineN = answeredCount(d, S.who), otN = answeredCount(d, other()), tot = 1 + ds.c.length;
     view.innerHTML = `
-      <div class="q-top">
-        <div><h2>오늘의 질문</h2><span>${fmtK(t)}, 나 ${mineN}/5 · ${esc(nm(other()))} ${otN}/5${S.streak ? `<br>${S.streak}일 연속 함께 답했어요` : ""}</span></div>
+      <div class="q-nav">
+        <button class="icon-btn" data-act="qStep" data-d="-1" ${d <= first ? "disabled" : ""} aria-label="이전 날">${ic("left")}</button>
+        <div class="q-nav-t"><b>${isT ? "오늘의 질문" : fmtK(d)}</b><span>${isT ? fmtK(d) : `나 ${mineN}/${tot}, ${esc(nm(other()))} ${otN}/${tot}`}</span></div>
+        <button class="icon-btn" data-act="qStep" data-d="1" ${isT ? "disabled" : ""} aria-label="다음 날">${ic("right")}</button>
       </div>
-      ${qCard(t, TS)}
-      <section class="qbox"><h3 class="qbox-t">취향 맞추기 <span>한 번만 고를 수 있어요</span></h3>${CSLOTS.map((c) => choiceOne(t, c)).join("")}</section>
-      <p class="q-hint">매일 새 질문이 와요</p>
-      ${arch ? `<h3 class="q-past">지난 질문</h3><div class="list">${arch}</div>` : ""}
-      ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:10px">더 보기</button>` : ""}`;
+      <div id="qPage" data-date="${d}">
+        ${qCard(d, ds.t)}
+        ${ds.c.length ? `<section class="qbox"><h3 class="qbox-t">취향 맞추기 <span>한 번만 고를 수 있어요</span></h3>${ds.c.map((c) => choiceOne(d, c)).join("")}</section>` : ""}
+      </div>
+      <p class="q-hint">${isT ? (S.streak ? `${S.streak}일 연속 함께 답했어요. ` : "") + "옆으로 밀면 지난 질문을 볼 수 있어요" : `<button class="linkbtn" data-act="qToday">오늘 질문으로</button>`}</p>`;
+    if (S.qAnim) { const pg = $("#qPage"); pg.classList.remove("q-in-l", "q-in-r"); void pg.offsetWidth; pg.classList.add(S.qAnim); S.qAnim = null; }
   }
+  function qGo(step) {
+    const t = qToday(), first = S.created && S.created < QBASE ? S.created : QBASE;
+    const nd = addDays(S.qDate || t, step);
+    if (nd > t || nd < first) {
+      const pg = $("#qPage"); if (pg) { pg.classList.remove("q-bump"); void pg.offsetWidth; pg.classList.add("q-bump"); }
+      return;
+    }
+    S.qDate = nd; S.editing = null;
+    S.qAnim = step < 0 ? "q-in-l" : "q-in-r";
+    render(true);
+  }
+  // 질문 화면에서 좌우로 밀기
+  (() => {
+    let st = null;
+    view.addEventListener("touchstart", (e) => {
+      if (S.tab !== "question" || e.touches.length !== 1 || e.target.closest("textarea, input")) return;
+      st = { x: e.touches[0].clientX, y: e.touches[0].clientY, on: false, dx: 0 };
+    }, { passive: true });
+    view.addEventListener("touchmove", (e) => {
+      if (!st) return;
+      const dx = e.touches[0].clientX - st.x, dy = e.touches[0].clientY - st.y;
+      if (!st.on) {
+        if (Math.abs(dy) > 12) { st = null; return; }
+        if (Math.abs(dx) > 14) st.on = true; else return;
+      }
+      st.dx = dx;
+      const pg = $("#qPage");
+      if (pg) { pg.style.transition = "none"; pg.style.transform = `translateX(${dx * 0.45}px)`; pg.style.opacity = String(1 - Math.min(0.5, Math.abs(dx) / 600)); }
+    }, { passive: true });
+    view.addEventListener("touchend", () => {
+      if (!st) return;
+      const { on, dx } = st; st = null;
+      const pg = $("#qPage");
+      if (pg) { pg.style.transition = ""; pg.style.transform = ""; pg.style.opacity = ""; }
+      if (on && Math.abs(dx) > 60) qGo(dx > 0 ? -1 : 1);
+    });
+  })();
 
   function bubble(w, text) {
     return `<div class="bubble ${w}">${av(w)}<div style="flex:1;min-width:0"><div class="nm">${esc(nm(w))}</div><div class="body">${esc(text)}</div></div></div>`;
@@ -747,7 +817,7 @@
       <div class="lb-top">
         <button class="icon-btn" data-act="lbClose" aria-label="닫기">${ic("x")}</button>
         <span style="font-size:14px;font-weight:600">${S.lbIdx + 1} / ${S.lbList.length}</span>
-        ${p.chat ? '<span style="width:40px"></span>' : `<button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>`}
+        <span class="lb-acts"><button class="icon-btn" data-act="lbSave" aria-label="저장">${ic("download")}</button>${p.chat ? "" : `<button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>`}</span>
       </div>
       <div class="lb-img">
         <img src="${p.src || `/api/photo/${p.id}`}" alt="">
@@ -1490,9 +1560,13 @@
   });
   $("#dmText").addEventListener("focus", () => { document.body.classList.add("typing"); $("#dmPlusMenu").hidden = true; setTimeout(() => { const L = $("#dmList"); L.scrollTop = L.scrollHeight; }, 300); });
   $("#dmText").addEventListener("blur", () => { document.body.classList.remove("typing"); $("#chatWrap").style.height = ""; });
+  const isField = (el) => el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !["checkbox", "radio", "file", "button", "range", "color"].includes(el.type)));
+  document.addEventListener("focusin", (e) => { if (isField(e.target)) document.body.classList.add("kb"); });
+  document.addEventListener("focusout", (e) => { if (isField(e.target)) setTimeout(() => { if (!isField(document.activeElement)) document.body.classList.remove("kb"); }, 60); });
   if (window.visualViewport) {
     const fit = () => {
       if (!document.body.classList.contains("typing")) return;
+      if (window.scrollY) window.scrollTo(0, 0);
       const w = $("#chatWrap");
       w.style.height = visualViewport.height + "px";
       w.style.top = visualViewport.offsetTop + "px";
@@ -2012,6 +2086,27 @@
         if (S.chat) S.chat.sig = "";
       } catch (er) { toast(er.message); }
     },
+    async lbSave() {
+      const p = S.lbList[S.lbIdx]; if (!p) return;
+      const url = p.src || `/api/photo/${p.id}`;
+      try {
+        toast("사진 준비 중...");
+        const blob = await (await fetch(url, { credentials: "same-origin" })).blob();
+        const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
+        const file = new File([blob], `wooju-${(p.date || ymd(new Date(p.t || Date.now()))).replace(/-/g, "")}-${p.id}.${ext}`, { type: blob.type || "image/jpeg" });
+        // 아이폰: 공유 창에서 '이미지 저장'을 누르면 사진 앱에 저장
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === "AbortError") return; }
+        }
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(file); a.download = file.name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        toast("저장했어요");
+      } catch (e) { toast("저장하지 못했어요"); }
+    },
+    qStep(el) { qGo(Number(el.dataset.d)); },
+    qToday() { S.qDate = qToday(); S.qAnim = "q-in-r"; render(); window.scrollTo({ top: 0, behavior: "smooth" }); },
     rxPin(el) {
       const id = el.dataset.id; closeRx();
       api(`messages/${id}/pin`, { method: "POST", body: {} }).then((r) => { toast(r.pinned ? "위에 고정했어요" : "고정을 풀었어요"); refreshChat(); }).catch((e) => toast(e.message));

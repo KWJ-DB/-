@@ -1180,3 +1180,32 @@ mark { background: #FFE1E9; color: inherit; border-radius: 3px; padding: 0 1px; 
 .dm-bub.held { transform: scale(1.04); transition: transform .2s cubic-bezier(.3,1.6,.5,1); z-index: 61; }
 .dm-bub:active:not(.heart) { transform: scale(.97); transition: transform .12s; }
 @media (prefers-reduced-motion: reduce) { .dm-row, .dm-row * { animation: none !important; transition: none !important; } }
+
+/* ===== 들썩임 줄이기 ===== */
+html { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
+html.lock, html.lock body { overflow: hidden; height: 100%; overscroll-behavior: none; }
+html.lock body { position: fixed; inset: 0; width: 100%; }
+body.kb .tabbar { opacity: 0; pointer-events: none; transform: translateY(20px); transition: opacity .15s, transform .15s; }
+.tabbar { transition: opacity .2s, transform .25s cubic-bezier(.2,.9,.3,1); }
+#view.tab-in { animation: tabFade .18s ease-out both !important; }
+@keyframes tabFade { from { opacity: .35; } to { opacity: 1; } }
+#chatWrap, #mapWrap { contain: layout paint; }
+.dm-list { contain: content; }
+
+/* 질문: 날짜 넘기기 */
+.q-nav { display: flex; align-items: center; gap: 8px; margin: 6px 0 14px; }
+.q-nav-t { flex: 1; text-align: center; }
+.q-nav-t b { display: block; font-size: 19px; font-weight: 800; letter-spacing: -.02em; }
+.q-nav-t span { font-size: 12.5px; color: var(--sub); }
+.q-nav .icon-btn { width: 40px; height: 40px; }
+.q-nav .icon-btn[disabled] { opacity: .25; }
+#qPage { transition: transform .3s cubic-bezier(.2,.9,.3,1), opacity .3s; will-change: transform; touch-action: pan-y; }
+#qPage.q-in-l { animation: qInL .3s cubic-bezier(.2,.9,.3,1) both; }
+#qPage.q-in-r { animation: qInR .3s cubic-bezier(.2,.9,.3,1) both; }
+#qPage.q-bump { animation: qBump .3s ease; }
+@keyframes qInL { from { transform: translateX(-40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes qInR { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes qBump { 30% { transform: translateX(10px); } 60% { transform: translateX(-6px); } }
+.linkbtn { color: var(--rose); font-weight: 700; font-size: 14px; padding: 6px 10px; }
+.lb-acts { display: flex; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { #qPage, #view.tab-in { animation: none !important; } }

@@ -1781,3 +1781,6 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .dm-head .icon-btn { width: 38px; height: 38px; }
 #call.video #callLocal { display: none; }
 #call.video.has-local #callLocal { display: block; animation: callIn .3s ease; }
+/* 알림 문구가 '요'만 따로 다음 줄로 넘어가지 않게 */
+#toast { width: max-content !important; max-width: calc(100vw - 40px) !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word; text-wrap: balance; box-sizing: border-box; }
+body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: break-word; }

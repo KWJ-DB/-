@@ -857,7 +857,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const d = isDate(q("date")) ? q("date") : todayKST();
         const start = Date.parse(d + "T00:00:00+09:00"), end = start + 864e5;
         const [pts, evs] = await DB.batch([
-          DB.prepare("SELECT lat, lon, t FROM loc_hist WHERE who = ?1 AND t >= ?2 AND t < ?3 ORDER BY t").bind(w, start, end),
+          DB.prepare("SELECT lat, lon, t, acc FROM loc_hist WHERE who = ?1 AND t >= ?2 AND t < ?3 ORDER BY t").bind(w, start, end),
           DB.prepare("SELECT place, inside, t FROM place_events WHERE who = ?1 AND t >= ?2 AND t < ?3 ORDER BY t").bind(w, start, end),
         ]);
         return json({ points: pts.results || [], events: evs.results || [] });

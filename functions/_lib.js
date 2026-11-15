@@ -90,9 +90,14 @@ export async function ensureSchema(env) {
     ]) { try { await env.DB.prepare(q).run(); } catch {} }
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '5') ON CONFLICT(k) DO UPDATE SET v = '5'").run();
   }
+  if (!v || Number(v.v) < 7) {
+    try { await env.DB.prepare("ALTER TABLE loc_hist ADD COLUMN acc INTEGER").run(); } catch {}
+  }
   if (!v || Number(v.v) < 6) {
     for (const q of ["ALTER TABLE eats ADD COLUMN wa INTEGER DEFAULT 0", "ALTER TABLE eats ADD COLUMN wb INTEGER DEFAULT 0", "ALTER TABLE eats ADD COLUMN link TEXT"]) { try { await env.DB.prepare(q).run(); } catch {} }
-    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '6') ON CONFLICT(k) DO UPDATE SET v = '6'").run();
+  }
+  if (!v || Number(v.v) < 7) {
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '7') ON CONFLICT(k) DO UPDATE SET v = '7'").run();
   }
   ready = true;
 }
@@ -123,16 +128,30 @@ export async function saveLoc(DB, who, d) {
        batt = excluded.batt, src = excluded.src, t = excluded.t, vel = excluded.vel
      WHERE excluded.t >= couple_locs.t`
   ).bind(who, lat, lon, num(d.acc), num(d.batt), d.src || "web", Math.round(t), num(d.vel)).run();
-  // 이동 경로 기록: 정확한 위치만, 25m 이상 움직였거나 5분 지났을 때, 3일치만 보관
-  if (!(Number(d.acc) > 100)) {
-    const last = await DB.prepare("SELECT lat, lon, t FROM loc_hist WHERE who = ?1 ORDER BY t DESC LIMIT 1").bind(who).first();
-    const moved = !last ? Infinity : distM({ lat, lon }, last);
-    if (!last || (t > last.t && (moved > 25 || t - last.t > 5 * 60000))) {
-      await DB.batch([
-        DB.prepare("INSERT INTO loc_hist (who, lat, lon, t) VALUES (?1, ?2, ?3, ?4)").bind(who, lat, lon, Math.round(t)),
-        DB.prepare("DELETE FROM loc_hist WHERE t < ?1").bind(Date.now() - 3 * 864e5),
-      ]);
-    }
+  // 이동 경로 기록 (정확도 높은 점 위주, 튀는 점 버림, 3일치만 보관)
+  const acc = Number(d.acc);
+  const accOk = Number.isFinite(acc) ? acc : 30;
+  if (accOk > 150) return;
+  const last = await DB.prepare("SELECT id, lat, lon, t, acc FROM loc_hist WHERE who = ?1 ORDER BY t DESC LIMIT 1").bind(who).first();
+  if (last && t <= last.t) return;
+  const moved = last ? distM({ lat, lon }, last) : Infinity;
+  const dt = last ? (t - last.t) / 1000 : Infinity;
+  const lastAcc = last && last.acc != null ? last.acc : 30;
+  // 정확도가 낮은 점(50m 넘게 오차)은 10분 넘게 기록이 없을 때만 남김
+  if (accOk > 50 && last && dt < 600) return;
+  // 순간이동처럼 튀는 점 버림 (시속 200km 넘는 이동, 오차 범위로 설명 안 되는 거리)
+  if (last && moved > 300 && moved - accOk - lastAcc > 0 && moved / Math.max(dt, 1) > 55) return;
+  // 30초 안에 더 정확한 점이 오면 바로 앞 점을 고쳐 씀
+  if (last && dt < 30 && accOk < lastAcc && moved < 80) {
+    await DB.prepare("UPDATE loc_hist SET lat = ?1, lon = ?2, t = ?3, acc = ?4 WHERE id = ?5").bind(lat, lon, Math.round(t), Math.round(accOk), last.id).run();
+    return;
+  }
+  const minMove = Math.max(20, Math.min(accOk, lastAcc));
+  if (!last || moved > minMove || dt > 300) {
+    await DB.batch([
+      DB.prepare("INSERT INTO loc_hist (who, lat, lon, t, acc) VALUES (?1, ?2, ?3, ?4, ?5)").bind(who, lat, lon, Math.round(t), Math.round(accOk)),
+      DB.prepare("DELETE FROM loc_hist WHERE t < ?1").bind(Date.now() - 3 * 864e5),
+    ]);
   }
 }
 

@@ -899,7 +899,7 @@
       map.addLayer({ id: "trail", type: "line", source: "trail", layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": ["get", "c"], "line-width": 5, "line-opacity": 0.85 } });
       map.addLayer({ id: "trail-dot", type: "circle", source: "trail", filter: ["==", "$type", "Point"],
-        paint: { "circle-radius": 5, "circle-color": "#fff", "circle-stroke-width": 3, "circle-stroke-color": ["get", "c"] } });
+        paint: { "circle-radius": ["coalesce", ["get", "r"], 5], "circle-color": "#fff", "circle-stroke-width": 3, "circle-stroke-color": ["get", "c"] } });
       mapLoaded = true;
       if (S.sat) setSat(true);
       drawMap();
@@ -1347,6 +1347,66 @@
         <button data-act="locReq">${ic("bell")}<span>위치 요청</span></button>
       </div>`;
   }
+  // 경로 다듬기: 오차 큰 점·튀는 점 버리고, 한곳에 머문 구간은 한 점으로 묶고, 이동 구간은 살짝 매끄럽게
+  function cleanTrail(raw) {
+    let p = raw.filter((x) => x.acc == null || x.acc <= 80);
+    // 앞뒤는 가까운데 혼자 멀리 튄 점 제거
+    for (let pass = 0; pass < 2; pass++) {
+      p = p.filter((x, i) => {
+        const a = p[i - 1], b = p[i + 1];
+        if (!a || !b) return true;
+        const da = distM(a, x), db = distM(x, b), ab = distM(a, b);
+        return !(da > 120 && db > 120 && ab < Math.min(da, db) * 0.5);
+      });
+    }
+    // 머문 곳 찾기: 반경 60m 안에 5분 넘게 있으면 한 곳
+    const stays = [], seg = [];
+    let i = 0;
+    while (i < p.length) {
+      let j = i, cLat = p[i].lat, cLon = p[i].lon, n = 1;
+      while (j + 1 < p.length && distM({ lat: cLat, lon: cLon }, p[j + 1]) < 60) {
+        j++; n++; cLat += (p[j].lat - cLat) / n; cLon += (p[j].lon - cLon) / n;
+      }
+      if (j > i && p[j].t - p[i].t >= 5 * 60000) {
+        const st = { lat: cLat, lon: cLon, t0: p[i].t, t1: p[j].t, stay: true };
+        stays.push(st); seg.push(st); i = j + 1;
+      } else { seg.push(p[i]); i++; }
+    }
+    // 가까이 붙어 있는 머문 곳은 하나로 합침 (사이에 흔들린 점 몇 개가 끼어 있어도)
+    for (let k = 0; k < seg.length; k++) {
+      const A = seg[k];
+      if (!A.stay) continue;
+      let j = k + 1;
+      while (j < seg.length && !seg[j].stay && distM(A, seg[j]) < 120) j++;
+      const B = seg[j];
+      if (B && B.stay && distM(A, B) < 100 && B.t0 - A.t1 < 10 * 60000) {
+        const wa = A.t1 - A.t0 + 1, wb = B.t1 - B.t0 + 1;
+        A.lat = (A.lat * wa + B.lat * wb) / (wa + wb); A.lon = (A.lon * wa + B.lon * wb) / (wa + wb); A.t1 = B.t1;
+        stays.splice(stays.indexOf(B), 1);
+        seg.splice(k + 1, j - k);
+        k--;
+      }
+    }
+    // 이동 구간 매끄럽게 (머문 곳은 그대로)
+    const path = seg.map((x, k) => {
+      if (x.stay) return x;
+      const a = seg[k - 1], b = seg[k + 1];
+      if (!a || !b || a.stay || b.stay) return x;
+      return { ...x, lat: (a.lat + 2 * x.lat + b.lat) / 4, lon: (a.lon + 2 * x.lon + b.lon) / 4 };
+    });
+    let dist = 0;
+    for (let k = 1; k < path.length; k++) dist += distM(path[k - 1], path[k]);
+    return { path, stays, dist };
+  }
+  // 머문 곳 이름: 등록한 장소나 맛집 근처면 그 이름
+  function stayName(st) {
+    let best = null, bd = Infinity;
+    for (const pl of S.places || []) { const d = distM(st, pl); if (d < Math.max(80, pl.radius || 0) && d < bd) { bd = d; best = pl.name; } }
+    for (const e of E.list || []) { const d = distM(st, e); if (d < 60 && d < bd) { bd = d; best = e.name; } }
+    return best;
+  }
+  const durTxt = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}시간${m % 60 ? " " + (m % 60) + "분" : ""}` : `${m}분`; };
+
   // 이동 기록: 사람·날짜 고르면 경로 + 들르고 떠난 장소
   async function loadTrail() {
     const t = S.trail; if (!t) return;
@@ -1356,13 +1416,14 @@
       if (!S.trail || S.trail !== t) return;
       t.data = r;
       const c = t.w === "a" ? "#E5406A" : "#5C6BF0";
-      const coords = r.points.map((p) => [p.lon, p.lat]);
-      let km = 0;
-      for (let i = 1; i < r.points.length; i++) km += distM(r.points[i - 1], r.points[i]);
-      t.dist = km;
+      if (!E.list.length) { try { E.list = (await api("eats")).eats; } catch {} }
+      const cl = cleanTrail(r.points);
+      t.clean = cl; t.dist = cl.dist;
+      const coords = cl.path.map((p) => [p.lon, p.lat]);
       const feats = [];
       if (coords.length > 1) feats.push({ type: "Feature", properties: { c }, geometry: { type: "LineString", coordinates: coords } });
-      if (coords.length) { feats.push({ type: "Feature", properties: { c }, geometry: { type: "Point", coordinates: coords[0] } }); feats.push({ type: "Feature", properties: { c }, geometry: { type: "Point", coordinates: coords[coords.length - 1] } }); }
+      if (coords.length) { feats.push({ type: "Feature", properties: { c, r: 5 }, geometry: { type: "Point", coordinates: coords[0] } }); feats.push({ type: "Feature", properties: { c, r: 5 }, geometry: { type: "Point", coordinates: coords[coords.length - 1] } }); }
+      for (const st of cl.stays) feats.push({ type: "Feature", properties: { c, r: 9 }, geometry: { type: "Point", coordinates: [st.lon, st.lat] } });
       if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: feats });
       if (coords.length > 1) {
         const xs = coords.map((p) => p[0]), ys = coords.map((p) => p[1]);
@@ -1377,13 +1438,15 @@
     let body = `<div class="spin" style="margin:18px auto"></div>`;
     if (r) {
       const tl = [];
+      const cl = t.clean || { stays: [] };
       if (r.points.length) tl.push({ t: r.points[0].t, txt: "기록 시작" });
       r.events.forEach((e) => tl.push({ t: e.t, txt: `${e.place} ${e.inside ? "도착" : "떠남"}`, ev: e.inside ? "in" : "out" }));
+      cl.stays.forEach((st) => tl.push({ t: st.t0, txt: `${stayName(st) || "한곳"}에 ${durTxt(st.t1 - st.t0)} 머묾`, ev: "stay", lat: st.lat, lon: st.lon }));
       if (r.points.length > 1) tl.push({ t: r.points[r.points.length - 1].t, txt: t.day === 0 ? "마지막 위치" : "기록 끝" });
       tl.sort((x, y) => x.t - y.t);
       body = r.points.length
         ? `<div class="tr-sum"><b>${fmtDist(t.dist)}</b><span>움직인 거리</span></div>
-           <div class="tr-tl">${tl.map((x) => `<div class="tr-i ${x.ev || ""}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}</b></div>`).join("")}</div>`
+           <div class="tr-tl">${tl.map((x) => x.lat ? `<button class="tr-i ${x.ev || ""}" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}</b></button>` : `<div class="tr-i ${x.ev || ""}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}</b></div>`).join("")}</div>`
         : `<div class="empty" style="padding:18px 0">이날 기록이 없어요<br><small>사이트나 OwnTracks가 켜져 있을 때 기록돼요</small></div>`;
     }
     $("#mapCard").innerHTML = `
@@ -1406,7 +1469,7 @@
   function getPos() {
     return new Promise((res, rej) => {
       if (!navigator.geolocation) return rej(new Error("이 브라우저는 위치를 지원하지 않아요"));
-      navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
+      navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
     });
   }
   const geoMsg = (e) => ({ 1: "위치 권한을 허용해 주세요 (설정 > Safari > 위치)", 2: "위치를 찾을 수 없어요", 3: "위치 찾기 시간 초과" }[e.code] || e.message);
@@ -1415,8 +1478,9 @@
     return null;
   }
   async function sendPos(p) {
-    await api("loc", { method: "POST", body: { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, batt: await batt() } });
-    S.lastSent = { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now() };
+    const sp = p.coords.speed;
+    await api("loc", { method: "POST", body: { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, vel: sp != null && sp >= 0 ? Math.round(sp * 3.6) : null, batt: await batt() } });
+    S.lastSent = { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now(), acc: p.coords.accuracy };
     refreshLoc();
   }
   // 사이트를 열면 항상 자동으로 내 위치를 보냄 (50m 움직이거나 2분마다)
@@ -1425,14 +1489,21 @@
     S.autoLoc = "wait";
     S.watchId = navigator.geolocation.watchPosition((p) => {
       S.autoLoc = "on";
-      const now = Date.now(), cur = { lat: p.coords.latitude, lon: p.coords.longitude };
-      const due = !S.lastSent || now - S.lastSent.t > 60000 || (now - S.lastSent.t > 10000 && distM(S.lastSent, cur) > 25);
-      if (due) sendPos(p).catch(() => {});
+      const now = Date.now(), cur = { lat: p.coords.latitude, lon: p.coords.longitude }, acc = p.coords.accuracy || 999;
+      const L = S.lastSent, since = L ? now - L.t : Infinity, d = L ? distM(L, cur) : Infinity;
+      // 정확한 위치(오차 50m 이하)를 우선 보내고, 흐린 위치는 3분 넘게 못 보냈을 때만
+      const good = acc <= 50;
+      const due = !L
+        || (good && since > 8000 && d > Math.max(20, acc))
+        || (good && since > 60000)
+        || (good && L.acc > 60 && acc < L.acc / 2)
+        || since > 180000;
+      if (due) { sendPos(p).catch(() => {}); S.lastSent = { ...cur, t: now, acc }; }
       if (S.tab === "map" && !$("#pick")) renderMapCard();
     }, (e) => {
       if (e.code === 1) { S.autoLoc = "denied"; navigator.geolocation.clearWatch(S.watchId); S.watchId = null; }
       if (S.tab === "map") renderMapCard();
-    }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 30000 });
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
   }
   function stopAutoLoc() { if (S.watchId !== null) { navigator.geolocation.clearWatch(S.watchId); S.watchId = null; } }
 
@@ -2197,7 +2268,8 @@
       <div class="kv"><span class="k">UserID</span><span class="v" id="kvUser">${S.who}</span><button data-act="copy" data-t="kvUser">${ic("copy")}</button></div>
       <div class="kv"><span class="k">Password</span><span class="v">로그인 비밀번호</span></div>
       <div class="kv"><span class="k">DeviceID</span><span class="v">phone</span></div>
-      <p class="note">UserID는 한글 이름 말고 꼭 <b>${S.who}</b> (${esc(nm("a"))} = a, ${esc(nm("b"))} = b). 지도 위 모드는 <b>Move</b>, 위치 권한은 <b>항상 허용</b>으로 해두면 가장 확실해요.</p>
+      <p class="note">UserID는 한글 이름 말고 꼭 <b>${S.who}</b> (${esc(nm("a"))} = a, ${esc(nm("b"))} = b). 위치 권한은 <b>항상 허용</b>, <b>정확한 위치</b> 켬으로 해주세요.</p>
+      <p class="note"><b>이동 기록을 정확하게 하려면</b> OwnTracks 지도 화면 위쪽 모드 버튼을 눌러 <b>Move</b>로 바꿔주세요. 기본값(Significant)은 몇백 m씩 건너뛰어서 경로가 엉성해져요. 배터리는 조금 더 써요.</p>
       <div class="row2"><button class="btn gray" data-act="close">닫기</button></div>`);
   }
 
@@ -2861,6 +2933,7 @@
     fitMap,
     satToggle: () => setSat(!S.sat),
     trailOpen() { if (S.eatOn) setEatOn(false); S.trail = { w: other(), day: 0 }; renderMapCard(); loadTrail(); },
+    trailFly(el) { map.flyTo({ center: [+el.dataset.lon, +el.dataset.lat], zoom: 16.5 }); },
     trailClose() { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); fitMap(); },
     trailWho(el) { S.trail = { ...S.trail, w: el.dataset.v, data: null }; renderTrailCard(); loadTrail(); },
     trailDay(el) { S.trail = { ...S.trail, day: Number(el.dataset.v), data: null }; renderTrailCard(); loadTrail(); },

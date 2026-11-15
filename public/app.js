@@ -3502,10 +3502,16 @@
     trailClose() { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); fitMap(); },
     trailWho(el) { S.trail = { ...S.trail, w: el.dataset.v, data: null }; renderTrailCard(); loadTrail(); },
     trailDay(el) { S.trail = { ...S.trail, day: Number(el.dataset.v), data: null }; renderTrailCard(); loadTrail(); },
-    navTo() {
+    async navTo() {
       const l = S.locs[other()]; if (!l) return;
       if ((S.locNow || Date.now()) - l.t > 10 * 60000) toast(`${nm(other())}님 위치가 ${ago(l.t, S.locNow)} 거예요`);
-      naverRoute({ lat: l.lat, lon: l.lon, name: `${nm(other())} 위치` }, "public");
+      // 도착지 이름을 상세 주소로 (도로명 + 건물 번호, 건물 이름)
+      toast("주소 찾는 중...");
+      try {
+        const r = await api(`revgeo?lat=${l.lat}&lon=${l.lon}`);
+        const addr = r.addr ? (r.building ? `${r.addr} ${r.building}` : r.addr) : `${nm(other())} 위치`;
+        naverRoute({ lat: l.lat, lon: l.lon, name: addr }, "public");
+      } catch { naverRoute({ lat: l.lat, lon: l.lon, name: `${nm(other())} 위치` }, "public"); }
     },
     routeGo(el) { const d = S.route; if (d) naverRoute(d, el.dataset.m); },
     async locReq() {

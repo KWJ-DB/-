@@ -922,7 +922,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         try {
           const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=ko&zoom=18&lat=${la}&lon=${lo}`, { headers: { "User-Agent": "wooju-couple/1.0 (private couple site)" } });
           const d = await r.json(), a = d.address || {};
-          const parts = [a.city || a.county || a.state, a.borough || a.city_district, a.road ? `${a.road}${a.house_number ? " " + a.house_number : ""}` : a.quarter || a.suburb || a.neighbourhood].filter(Boolean);
+          const parts = [a.city || a.county || a.state, a.borough || a.city_district, a.quarter || a.suburb, a.road ? `${a.road}${a.house_number ? " " + a.house_number : ""}` : a.neighbourhood].filter(Boolean);
           return json({ addr: parts.join(" "), building: d.name || a.building || a.amenity || "", jibun: "" });
         } catch { return json({ addr: "", building: "" }); }
       }

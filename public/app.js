@@ -1290,6 +1290,11 @@
       <textarea id="eatMemo" rows="2" placeholder="메모 (예: 크림파스타 맛있대, 웨이팅 김)" maxlength="300" style="margin-top:12px"></textarea>
       <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="close">취소</button><button class="btn primary" data-act="eatSave">저장</button></div>`);
   }
+  // 맛집 핀은 끝이 뾰족한 모양이라 핀 끝 위치를 좌표로
+  function eatPickPoint() {
+    const pk = $("#pick").getBoundingClientRect(), mr = map.getContainer().getBoundingClientRect();
+    return map.unproject([pk.left + pk.width / 2 - mr.left, pk.top + pk.height * 0.45 + 8 - mr.top]);
+  }
   function eatPickMap() {
     closeSheet();
     if (S.tab !== "map") setTab("map");
@@ -1317,6 +1322,7 @@
       ${imgs.length ? `<button class="eat-hero" data-act="eatPhView" data-i="0"><img src="/api/eatimg/${imgs[0].id}" alt=""></button>` : ""}
       <div class="eat-d-top"><span class="eat-dot big" style="--c:${catCol(e.cat)}">${ic(catIc(e.cat))}</span>
         <div style="min-width:0;flex:1"><h2 style="margin:0">${esc(e.name)}</h2><span class="sheet-sub">${esc(e.cat || "기타")}${e.addr ? ", " + esc(e.addr) : ""}</span></div>
+        <button class="eat-edit" data-act="eatEdit" aria-label="수정">${ic("pen")}</button>
         <button class="eat-heart ${myW ? "on" : ""}" data-act="eatWant" aria-label="가고 싶어요">${ic("heart")}</button></div>
       ${e.status !== "been" ? `<div class="eat-wantline">${myW && otW ? `<b>둘 다 가고 싶어 해요</b>` : myW ? `나는 찜했어요. ${esc(nm(other()))}님은 아직이에요` : otW ? `<b>${esc(nm(other()))}님이 가고 싶어 해요</b>` : "하트를 누르면 가고 싶은 곳으로 찜돼요"}</div>` : ""}
       <div class="eat-photos">
@@ -1406,6 +1412,30 @@
       if (btn) btn.disabled = false;
     };
     step();
+  }
+  function eatEditSheet(e, draft) {
+    const d = draft || { name: e.name, cat: e.cat || "기타", addr: e.addr || "", been: e.been || "", lat: e.lat, lon: e.lon };
+    E.edit = { id: e.id, ...d };
+    const moved = distM(e, d) > 3;
+    openSheet(`
+      <h2>맛집 수정</h2>
+      <label class="fl">이름</label>
+      <input type="text" id="edName" value="${esc(d.name)}" maxlength="40">
+      <label class="fl">종류</label>
+      <div class="eat-cats" style="margin-top:0">${EAT_CATS.map((c) => `<button class="cchip${c === d.cat ? " on" : ""}" data-act="edCat" data-v="${c}" style="--c:${catCol(c)}">${ic(catIc(c))}${c}</button>`).join("")}</div>
+      <label class="fl">주소</label>
+      <input type="text" id="edAddr" value="${esc(d.addr)}" placeholder="주소 (없어도 돼요)" maxlength="120">
+      <label class="fl">위치</label>
+      <button class="ed-loc" data-act="edPick">${ic("pin")}<span><b>${moved ? "새 위치로 옮겨요" : "지도에서 위치 다시 고르기"}</b><em>${moved ? `원래 자리에서 ${fmtDist(distM(e, d))} 옮김` : "핀이 가게랑 어긋났으면 눌러주세요"}</em></span>${ic("right")}</button>
+      ${e.status === "been" ? `<label class="fl">처음 간 날</label><input type="date" id="edBeen" value="${esc(d.been)}" max="${today()}">` : ""}
+      <div class="row2" style="margin-top:16px"><button class="btn gray" data-act="edCancel">취소</button><button class="btn primary" data-act="edSave">저장</button></div>`);
+  }
+  function edCollect() {
+    const ed = E.edit;
+    if ($("#edName")) ed.name = $("#edName").value;
+    if ($("#edAddr")) ed.addr = $("#edAddr").value;
+    if ($("#edBeen")) ed.been = $("#edBeen").value;
+    return ed;
   }
   function eatPlanSheet() {
     const e = E.list.find((x) => x.id === S.eatCur);
@@ -2689,8 +2719,7 @@
     eatNaver() { const e = E.list.find((x) => x.id === S.eatCur); if (e.link) return window.open(e.link, "_blank"); window.open(`https://map.naver.com/p/search/${encodeURIComponent(e.name)}?c=${e.lon},${e.lat},17,0,0,0,dh`, "_blank"); },
     eatPickMap: () => eatPickMap(),
     eatPickOk() {
-      const dr = $(".pick-dot").getBoundingClientRect(), mr = map.getContainer().getBoundingClientRect();
-      const c = map.unproject([dr.left + dr.width / 2 - mr.left, dr.top + dr.height / 2 - mr.top]);
+      const c = eatPickPoint();
       pickClose();
       eatForm({ name: "", lat: c.lat, lon: c.lng });
       setTimeout(() => $("#eatName") && $("#eatName").focus(), 300);
@@ -2761,6 +2790,46 @@
       const id = S.eatCur; E.more = null; await loadEats(); eatDetail(E.list.find((x) => x.id === id));
     },
     eatPlan: () => eatPlanSheet(),
+    eatEdit() { const e = E.list.find((x) => x.id === S.eatCur); if (e) eatEditSheet(e); },
+    edCat(el) { E.edit.cat = el.dataset.v; $$(".eat-cats .cchip").forEach((b) => b.classList.toggle("on", b === el)); },
+    edCancel() { const e = E.list.find((x) => x.id === E.edit.id); E.edit = null; closeSheet(); setTimeout(() => eatDetail(e), 260); },
+    edPick() {
+      const ed = edCollect();
+      closeSheet();
+      if (S.tab !== "map") setTab("map");
+      map.flyTo({ center: [ed.lon, ed.lat], zoom: 17.5, offset: [0, -0.05 * innerHeight] });
+      $("#mapCard").hidden = true;
+      const box = document.createElement("div");
+      box.id = "pick";
+      box.innerHTML = `<div class="pick-dot eat-pick">${ic(catIc(ed.cat))}</div>
+        <div class="pick-panel">
+          <b>지도를 움직여서 ${esc(ed.name)} 자리에 핀을 맞추세요</b>
+          <div class="row2"><button class="btn gray" data-act="edPickCancel">취소</button><button class="btn primary" data-act="edPickOk">여기로 옮기기</button></div>
+        </div>`;
+      $("#mapWrap").appendChild(box);
+    },
+    edPickCancel() { pickClose(); const e = E.list.find((x) => x.id === E.edit.id); eatEditSheet(e, E.edit); },
+    edPickOk() {
+      const c = eatPickPoint();
+      pickClose();
+      E.edit.lat = c.lat; E.edit.lon = c.lng;
+      eatEditSheet(E.list.find((x) => x.id === E.edit.id), E.edit);
+    },
+    async edSave() {
+      const ed = edCollect(), e = E.list.find((x) => x.id === ed.id);
+      const name = ed.name.trim();
+      if (!name) return toast("이름을 적어주세요");
+      const body = { name, cat: ed.cat, addr: ed.addr.trim() };
+      if (distM(e, ed) > 3) { body.lat = ed.lat; body.lon = ed.lon; }
+      if (e.status === "been" && ed.been) body.been = ed.been;
+      try { await api(`eats/${ed.id}`, { method: "POST", body }); } catch (er) { return toast(er.message); }
+      E.edit = null;
+      toast("수정했어요");
+      closeSheet();
+      await loadEats();
+      if (body.lat) map.flyTo({ center: [body.lon, body.lat], zoom: 16.5 });
+      setTimeout(() => eatDetail(E.list.find((x) => x.id === ed.id)), 280);
+    },
     eatPlanBack() { closeSheet(); setTimeout(() => eatDetail(E.list.find((x) => x.id === S.eatCur)), 260); },
     async eatPlanSave() {
       const e = E.list.find((x) => x.id === S.eatCur), date = $("#plD").value, time = $("#plT").value;

@@ -477,6 +477,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
           if (b.name !== undefined) { const n = str(b.name, 40); if (!n) return err(400, "이름을 입력하세요"); up.name = n; }
           if (b.cat !== undefined) up.cat = CATS.includes(b.cat) ? b.cat : "기타";
           if (b.memo !== undefined) up.memo = str(b.memo, 300) || null;
+          if (b.addr !== undefined) up.addr = str(b.addr, 120) || null;
+          if (b.lat !== undefined || b.lon !== undefined) {
+            const la = Number(b.lat), lo = Number(b.lon);
+            if (!Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) return err(400, "위치가 올바르지 않아요");
+            up.lat = la; up.lon = lo;
+          }
+          if (b.been !== undefined) up.been = isDate(b.been) ? b.been : null;
           if (b.status !== undefined) { up.status = b.status === "been" ? "been" : "want"; if (up.status === "been" && !cur.been) up.been = todayKST(); }
           if (b.rate !== undefined) { const r = Math.round(Number(b.rate)); up["r" + who] = r >= 1 && r <= 5 ? r : null; if (!cur.been) { up.status = "been"; up.been = todayKST(); } }
           const keys = Object.keys(up);

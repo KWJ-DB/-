@@ -2807,9 +2807,11 @@
     };
     pc.ontrack = (e) => {
       const st = e.streams[0];
-      $("#callRemote").srcObject = st; $("#callAudio").srcObject = st;
+      $("#callRemote").srcObject = st; $("#callAudio").srcObject = st; $("#callMiniV").srcObject = st;
       $("#call").classList.toggle("has-remote", K.kind === "video");
+      watchLevel(st);
     };
+    pc.ondatachannel = (e) => bindDC(e.channel);
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") onUp();
       if (pc.connectionState === "failed") failCall();
@@ -2827,8 +2829,84 @@
   function callUI(kind, who) {
     const c = $("#call");
     c.hidden = false; c.className = kind;
+    K.who = who;
     $("#callAv").innerHTML = av(who, "xl");
+    $("#callMiniAv").innerHTML = av(who);
     $("#callName").textContent = nm(who);
+    const src = avSrc(who);
+    $("#callBg").style.backgroundImage = src ? `url('${src}')` : "";
+    $("#callFlags").innerHTML = ""; $("#callFx").innerHTML = "";
+    $("#callQ").className = "call-q";
+    showBar();
+  }
+  // 통화 중 하트·상태 주고받기 (폰끼리 바로)
+  function bindDC(dc) {
+    K.dc = dc;
+    dc.onopen = () => sendState();
+    dc.onmessage = (e) => {
+      let m; try { m = JSON.parse(e.data); } catch { return; }
+      if (m.t === "heart") floatHearts(m.n || 1, true);
+      if (m.t === "state") {
+        $("#callFlags").innerHTML = `${m.muted ? `<em>${ic("micoff")}음소거</em>` : ""}${K.kind === "video" && m.cam ? `<em>${ic("camoff")}카메라 꺼짐</em>` : ""}`;
+        $("#call").classList.toggle("peer-cam-off", !!m.cam);
+      }
+    };
+  }
+  const sendDC = (o) => { try { if (K.dc && K.dc.readyState === "open") K.dc.send(JSON.stringify(o)); } catch {} };
+  const sendState = () => sendDC({ t: "state", muted: K.muted, cam: K.camOff });
+  function floatHearts(n, fromPeer) {
+    const fx = $("#callFx");
+    for (let i = 0; i < n * 6; i++) {
+      const h = document.createElement("span");
+      h.className = "cfh" + (fromPeer ? " peer" : "");
+      h.innerHTML = HEART;
+      h.style.left = (fromPeer ? 20 + Math.random() * 30 : 50 + Math.random() * 30) + "%";
+      h.style.setProperty("--dx", (Math.random() * 80 - 40) + "px");
+      h.style.setProperty("--s", (0.6 + Math.random() * 0.8).toFixed(2));
+      h.style.animationDelay = (i * 0.07) + "s";
+      fx.appendChild(h);
+      setTimeout(() => h.remove(), 2600 + i * 70);
+    }
+    try { navigator.vibrate && navigator.vibrate(fromPeer ? [20, 40, 20] : 10); } catch {}
+  }
+  // 상대 목소리 크기에 맞춰 사진 테두리가 퍼짐
+  function watchLevel(stream) {
+    try {
+      if (!stream.getAudioTracks().length) return;
+      const ctx = K.actx = K.actx || new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
+      an.fftSize = 256; src.connect(an);
+      const buf = new Uint8Array(an.frequencyBinCount), ring = $("#callRing");
+      const loop = () => {
+        if (!K.pc) return;
+        an.getByteFrequencyData(buf);
+        let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i];
+        const lv = Math.min(1, sum / buf.length / 60);
+        ring.style.transform = `scale(${1 + lv * 0.35})`; ring.style.opacity = String(0.25 + lv * 0.6);
+        K.lvRaf = requestAnimationFrame(loop);
+      };
+      loop();
+    } catch {}
+  }
+  // 연결 상태 막대 (지연·끊김 기준)
+  function watchQuality() {
+    clearInterval(K.qT);
+    K.qT = setInterval(async () => {
+      if (!K.pc) return clearInterval(K.qT);
+      try {
+        const st = await K.pc.getStats(); let rtt = null, relay = false;
+        st.forEach((r) => {
+          if (r.type === "candidate-pair" && r.state === "succeeded" && r.nominated) { rtt = r.currentRoundTripTime; const lc = st.get(r.localCandidateId); relay = lc && lc.candidateType === "relay"; }
+        });
+        const q = rtt == null ? 2 : rtt < 0.15 ? 3 : rtt < 0.35 ? 2 : 1;
+        $("#callQ").className = `call-q q${q}${relay ? " relay" : ""}`;
+      } catch {}
+    }, 2000);
+  }
+  // 영상통화 중엔 잠시 뒤 버튼을 숨기고, 화면을 누르면 다시 보여줌
+  function showBar() {
+    const c = $("#call"); c.classList.remove("idle"); clearTimeout(K.idleT);
+    if (K.state === "on" && K.kind === "video") K.idleT = setTimeout(() => c.classList.add("idle"), 4000);
   }
   function setCall(state, extra) {
     K.state = state;
@@ -2837,7 +2915,7 @@
     clearInterval(K.timer);
     if (state === "incoming") {
       st.textContent = K.kind === "video" ? "영상통화가 왔어요" : "전화가 왔어요";
-      bar.innerHTML = btn("callDecline", "hang", "거절", "red") + btn("callAccept", K.kind === "video" ? "video" : "phone2", "받기", "green");
+      bar.innerHTML = `<div class="call-ans">${btn("callDecline", "hang", "거절", "red")}${btn("callAccept", K.kind === "video" ? "video" : "phone2", "받기", "green")}</div>`;
     } else if (state === "calling") {
       st.textContent = "거는 중...";
       bar.innerHTML = btn("callMute", K.muted ? "micoff" : "mic", "음소거", K.muted ? "on" : "") + (K.kind === "video" ? btn("callFlip", "flip", "전환") : "") + btn("callEnd", "hang", "끊기", "red");
@@ -2846,11 +2924,13 @@
       bar.innerHTML = btn("callEnd", "hang", "끊기", "red");
     } else if (state === "on") {
       if (!K.t0) K.t0 = Date.now();
-      const tick = () => { const d = Math.floor((Date.now() - K.t0) / 1000); st.textContent = `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}`; };
+      const tick = () => { const d = Math.floor((Date.now() - K.t0) / 1000), tx = `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}`; st.textContent = tx; $("#callMiniT").textContent = tx; };
       tick(); K.timer = setInterval(tick, 1000);
-      bar.innerHTML = btn("callMute", K.muted ? "micoff" : "mic", K.muted ? "음소거 중" : "음소거", K.muted ? "on" : "")
-        + (K.kind === "video" ? btn("callCam", K.camOff ? "camoff" : "video", K.camOff ? "카메라 꺼짐" : "카메라", K.camOff ? "on" : "") + btn("callFlip", "flip", "전환") : "")
-        + btn("callEnd", "hang", "끊기", "red");
+      bar.innerHTML = `<div class="call-pad">${btn("callMute", K.muted ? "micoff" : "mic", K.muted ? "음소거 중" : "음소거", K.muted ? "on" : "")
+        + (K.kind === "video" ? btn("callCam", K.camOff ? "camoff" : "video", K.camOff ? "카메라 켜기" : "카메라", K.camOff ? "on" : "") + btn("callFlip", "flip", "전환") : "")
+        + btn("callHeart", "heart", "하트", "heart")}</div>` + btn("callEnd", "hang", "끊기", "red end");
+      watchQuality(); showBar();
+      $("#call").classList.add("live");
     }
   }
   async function startCall(kind) {
@@ -2862,6 +2942,7 @@
       K.local = await getMedia(kind);
       $("#callLocal").srcObject = K.local; $("#call").classList.add("has-local");
       const pc = K.pc = newPC(await iceServers());
+      bindDC(pc.createDataChannel("fx"));
       K.local.getTracks().forEach((t) => pc.addTrack(t, K.local));
       if (kind === "voice") pc.addTransceiver("video", { direction: "inactive" });
       await pc.setLocalDescription(await pc.createOffer());
@@ -2917,7 +2998,8 @@
   }
   function endCall(tell) {
     ringTone(false);
-    clearInterval(K.poll); clearInterval(K.timer); clearTimeout(K.connT);
+    clearInterval(K.poll); clearInterval(K.timer); clearTimeout(K.connT); clearInterval(K.qT); clearTimeout(K.idleT); cancelAnimationFrame(K.lvRaf);
+    $("#callMini").hidden = true; $("#callMiniV").srcObject = null; K.dc = null;
     if (tell && K.id) api(`call/${K.id}/end`, { method: "POST", body: {} }).catch(() => {});
     if (K.pc) { try { K.pc.close(); } catch {} }
     if (K.local) K.local.getTracks().forEach((t) => t.stop());
@@ -2960,6 +3042,8 @@
     if (!S.who || document.hidden || K.pc || K.state) return;
     try { const { call } = await api("call"); if (call) incomingCall(call); } catch {}
   }, 2500);
+  $("#call").addEventListener("click", (e) => { if (!e.target.closest("button")) showBar(); });
+  $("#call").addEventListener("dblclick", (e) => { if (K.state === "on" && !e.target.closest("button,#callLocal")) ACT.callHeart(); });
   // 통화 화면의 내 영상은 끌어서 옮기기
   (() => {
     const v = $("#callLocal"); let st = null;
@@ -3535,6 +3619,9 @@
       catch (e) { toast(e.message); }
     },
     async turnOff() { await api("turnkey", { method: "POST", body: {} }); await api("relaykey", { method: "POST", body: {} }); await api("turnuser", { method: "POST", body: {} }); S.turn = false; iceCache = null; toast("껐어요"); closeSheet(); },
+    callHeart() { floatHearts(1, false); sendDC({ t: "heart", n: 1 }); showBar(); },
+    callMin() { $("#call").classList.add("minimizing"); setTimeout(() => { $("#call").hidden = true; $("#call").classList.remove("minimizing"); }, 260); const m = $("#callMini"); m.hidden = false; m.classList.toggle("video", K.kind === "video"); },
+    callMax() { $("#callMini").hidden = true; $("#call").hidden = false; showBar(); },
     callStart(el) { callMenu(el.dataset.k); },
     callVia(el) {
       const v = el.dataset.v, num = (S.phones || {})[other()];
@@ -3554,8 +3641,9 @@
     callAccept: () => acceptCall(),
     callDecline() { endCall(true); },
     callEnd() { endCall(true); },
-    callMute() { K.muted = !K.muted; if (K.local) K.local.getAudioTracks().forEach((t) => (t.enabled = !K.muted)); setCall(K.state); },
-    callCam() { K.camOff = !K.camOff; if (K.local) K.local.getVideoTracks().forEach((t) => (t.enabled = !K.camOff)); $("#call").classList.toggle("cam-off", K.camOff); setCall(K.state); },
+    callMute() { K.muted = !K.muted; if (K.local) K.local.getAudioTracks().forEach((t) => (t.enabled = !K.muted)); sendState(); setCall(K.state); },
+    callCam() { K.camOff = !K.camOff; if (K.local) K.local.getVideoTracks().forEach((t) => (t.enabled = !K.camOff)); $("#call").classList.toggle("cam-off", K.camOff); sendState(); setCall(K.state); },
+    callSwap() { $("#call").classList.toggle("swap"); },
     async callFlip() {
       if (!K.pc || K.kind !== "video") return;
       K.front = !K.front;

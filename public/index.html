@@ -178,12 +178,23 @@
 <div class="sheet-bg" id="sheet" hidden><div class="sheet-box" id="sheetBox"></div></div>
 <div class="lightbox" id="lightbox" hidden></div>
 <div id="call" hidden>
+  <div class="call-bg" id="callBg"></div>
   <video id="callRemote" autoplay playsinline></video>
   <audio id="callAudio" autoplay></audio>
+  <div class="call-top">
+    <button class="call-min" data-act="callMin" aria-label="작게 보기"><svg class="i"><use href="#i-down"/></svg></button>
+    <div class="call-q" id="callQ" title="연결 상태"><i></i><i></i><i></i></div>
+  </div>
   <video id="callLocal" autoplay playsinline muted></video>
-  <div class="call-info"><span id="callAv"></span><b id="callName"></b><span id="callState"></span></div>
+  <div class="call-info">
+    <div class="call-av"><span class="call-ring" id="callRing"></span><span class="call-ring r2"></span><span id="callAv"></span></div>
+    <b id="callName"></b><span id="callState"></span>
+    <span class="call-flags" id="callFlags"></span>
+  </div>
+  <div class="call-fx" id="callFx"></div>
   <div class="call-bar" id="callBar"></div>
 </div>
+<div id="callMini" hidden data-act="callMax"><video id="callMiniV" autoplay playsinline muted></video><span id="callMiniAv"></span><b id="callMiniT"></b></div>
 <div id="sw" hidden></div>
 <div id="fx" hidden></div>
 <div id="rx" hidden></div>

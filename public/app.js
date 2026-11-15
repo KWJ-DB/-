@@ -1293,6 +1293,7 @@
   }
   function setEatOn(on) {
     S.eatOn = on;
+    $("#mapCard").classList.remove("mc-min");
     if (!on) $("#mapWrap").classList.remove("tall-card");
     const b = $("#eatBtn"); if (b) b.classList.toggle("on", on);
     if (on) { S.trail = null; E.fitNext = true; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); loadEats(); }
@@ -2660,39 +2661,126 @@
   // 사진은 다 불러온 뒤 살며시 나타나게
   document.addEventListener("load", (e) => { const im = e.target; if (im.tagName === "IMG") im.setAttribute("data-l", "1"); }, true);
   document.addEventListener("error", (e) => { const im = e.target; if (im.tagName === "IMG") im.setAttribute("data-l", "1"); }, true);
-  // 시트: 손잡이나 맨 위에서 아래로 끌면 닫힘
+  // 시트: 손잡이(위쪽)는 언제든, 내용은 맨 위까지 올라가 있을 때 아래로 끌면 닫힘
   (() => {
-    const box = $("#sheetBox");
+    const sh = $("#sheet"), box = $("#sheetBox");
     let st = null;
+    const reset = () => { box.style.transition = ""; box.style.transform = ""; sh.style.background = ""; box.style.animation = ""; };
     box.addEventListener("touchstart", (e) => {
-      if (box.scrollTop > 0 || e.target.closest("input, textarea, select")) return;
-      st = { y: e.touches[0].clientY, dy: 0, t: Date.now() };
+      if (e.touches.length !== 1 || e.target.closest("input, textarea, select, .mini-wrap, .eat-photos, .chips")) return;
+      const y = e.touches[0].clientY, top = box.getBoundingClientRect().top;
+      const onGrab = y - top < 48;
+      if (!onGrab && box.scrollTop > 2) return;
+      st = { y, x: e.touches[0].clientX, t: Date.now(), dy: 0, on: false, grab: onGrab, lastY: y, lastT: Date.now(), v: 0 };
     }, { passive: true });
     box.addEventListener("touchmove", (e) => {
       if (!st) return;
-      const dy = e.touches[0].clientY - st.y;
-      if (dy < 0 && !st.on) { st = null; return; }
-      if (!st.on && dy > 8) { st.on = true; box.style.animation = "none"; }
-      if (!st.on) return;
-      st.dy = Math.max(0, dy);
-      box.style.transition = "none";
+      const y = e.touches[0].clientY, dy = y - st.y, dx = e.touches[0].clientX - st.x;
+      if (!st.on) {
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) { st = null; return; }
+        if (dy < -4 && !st.grab) { st = null; return; }
+        if (Math.abs(dy) < 6) return;
+        st.on = true; box.style.animation = "none"; box.style.transition = "none";
+      }
+      e.preventDefault();
+      const now = Date.now();
+      st.v = (y - st.lastY) / Math.max(1, now - st.lastT); st.lastY = y; st.lastT = now;
+      // 아래로는 손을 그대로 따라오고, 위로는 고무줄처럼 조금만
+      st.dy = dy > 0 ? dy : -Math.pow(-dy, 0.7);
       box.style.transform = `translateY(${st.dy}px)`;
-      $("#sheet").style.background = `rgba(30,20,30,${0.4 * Math.max(0, 1 - st.dy / 400)})`;
+      sh.style.background = `rgba(20,14,24,${0.4 * Math.max(0, 1 - Math.max(0, st.dy) / 420)})`;
+    }, { passive: false });
+    const end = () => {
+      if (!st) return;
+      const { on, dy, v } = st; st = null;
+      if (!on) return;
+      box.style.transition = "transform .32s cubic-bezier(.2,.9,.3,1), opacity .2s";
+      if (dy > 110 || (v > 0.55 && dy > 30)) {
+        box.style.transform = `translateY(${box.offsetHeight + 40}px)`;
+        sh.style.transition = "background .25s"; sh.style.background = "rgba(20,14,24,0)";
+        setTimeout(() => { sh.hidden = true; sh.style.transition = ""; reset(); }, 280);
+      } else {
+        box.style.transform = "translateY(0)";
+        sh.style.background = "";
+        setTimeout(reset, 330);
+      }
+    };
+    box.addEventListener("touchend", end);
+    box.addEventListener("touchcancel", end);
+  })();
+  // 지도 아래 카드: 아래로 끌면 접히고(목록이면 카드로), 위로 끌거나 누르면 펼쳐짐
+  (() => {
+    const mc = $("#mapCard");
+    let st = null;
+    mc.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1 || e.target.closest("input, textarea, .eat-cards, .chips, .tr-tl")) return;
+      const list = e.target.closest(".eat-list");
+      if (list && list.scrollTop > 2) return;
+      st = { y: e.touches[0].clientY, x: e.touches[0].clientX, dy: 0, on: false, t: Date.now() };
     }, { passive: true });
-    box.addEventListener("touchend", () => {
+    mc.addEventListener("touchmove", (e) => {
+      if (!st) return;
+      const dy = e.touches[0].clientY - st.y, dx = e.touches[0].clientX - st.x;
+      if (!st.on) {
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) { st = null; return; }
+        if (Math.abs(dy) < 8) return;
+        if (dy < 0 && !mc.classList.contains("mc-min")) { st = null; return; }
+        st.on = true; mc.style.transition = "none";
+      }
+      e.preventDefault();
+      const min = mc.classList.contains("mc-min");
+      st.dy = min ? Math.min(0, dy) : Math.max(0, dy);
+      mc.style.transform = `translateY(${st.dy * (min ? 0.6 : 1)}px)`;
+    }, { passive: false });
+    const end = () => {
       if (!st) return;
       const { on, dy, t } = st; st = null;
       if (!on) return;
-      const fast = dy / Math.max(1, Date.now() - t) > 0.6;
-      box.style.transition = "transform .28s cubic-bezier(.2,.9,.3,1)";
-      if (dy > 120 || (fast && dy > 40)) {
-        box.style.transform = "translateY(110%)";
-        setTimeout(() => { const sh = $("#sheet"); sh.hidden = true; sh.style.background = ""; box.style.transform = ""; box.style.transition = ""; box.style.animation = ""; }, 260);
-      } else {
-        box.style.transform = "";
-        $("#sheet").style.background = "";
-        setTimeout(() => { box.style.transition = ""; box.style.animation = ""; }, 300);
+      const fast = Math.abs(dy) / Math.max(1, Date.now() - t) > 0.5;
+      mc.style.transition = ""; mc.style.transform = "";
+      const min = mc.classList.contains("mc-min");
+      if (!min && (dy > 70 || (fast && dy > 25))) {
+        if (S.eatOn && E.view === "list") { E.view = "cards"; mc.innerHTML = ""; renderMapCard(); }
+        else mc.classList.add("mc-min");
+        try { navigator.vibrate && navigator.vibrate(6); } catch {}
+      } else if (min && (dy < -40 || (fast && dy < -15))) {
+        mc.classList.remove("mc-min");
       }
+    };
+    mc.addEventListener("touchend", end);
+    mc.addEventListener("touchcancel", end);
+    // 접힌 상태에서 누르면 펼치기
+    mc.addEventListener("click", (e) => { if (mc.classList.contains("mc-min") && !e.target.closest("[data-act=eatClose],[data-act=trailClose]")) { e.stopPropagation(); e.preventDefault(); mc.classList.remove("mc-min"); } }, true);
+  })();
+  // 당겨서 새로고침 (홈·질문·추억 맨 위에서 아래로 당기기)
+  (() => {
+    const ind = document.createElement("div");
+    ind.className = "ptr"; ind.innerHTML = ic("refresh");
+    document.body.appendChild(ind);
+    let st = null;
+    view.addEventListener("touchstart", (e) => {
+      if (window.scrollY > 0 || e.touches.length !== 1 || !$("#sheet").hidden || e.target.closest("textarea, input, #qPage")) return;
+      st = { y: e.touches[0].clientY, x: e.touches[0].clientX, dy: 0, on: false };
+    }, { passive: true });
+    view.addEventListener("touchmove", (e) => {
+      if (!st) return;
+      const dy = e.touches[0].clientY - st.y, dx = e.touches[0].clientX - st.x;
+      if (!st.on) { if (dy < 6 || Math.abs(dx) > dy) { if (dy < -4 || Math.abs(dx) > 10) st = null; return; } st.on = true; }
+      st.dy = Math.min(120, Math.pow(Math.max(0, dy), 0.82));
+      ind.style.transform = `translate(-50%, ${st.dy - 50}px) rotate(${st.dy * 3}deg)`;
+      ind.style.opacity = String(Math.min(1, st.dy / 60));
+      ind.classList.toggle("ready", st.dy > 70);
+    }, { passive: true });
+    view.addEventListener("touchend", async () => {
+      if (!st) return;
+      const { on, dy } = st; st = null;
+      if (!on) return;
+      if (dy > 70) {
+        ind.classList.add("spin"); ind.style.transform = "translate(-50%, 24px)";
+        try { navigator.vibrate && navigator.vibrate(8); } catch {}
+        try { await render(true); } catch {}
+        setTimeout(() => { ind.classList.remove("spin", "ready"); ind.style.transform = ""; ind.style.opacity = "0"; }, 350);
+      } else { ind.style.transform = ""; ind.style.opacity = "0"; ind.classList.remove("ready"); }
     });
   })();
   // 사진 크게 보기: 옆으로 밀면 다음 사진, 아래로 밀면 닫힘
@@ -3326,7 +3414,7 @@
     },
     fitMap,
     satToggle: () => setSat(!S.sat),
-    trailOpen() { if (S.eatOn) setEatOn(false); S.trail = { w: other(), day: 0 }; renderMapCard(); loadTrail(); },
+    trailOpen() { $("#mapCard").classList.remove("mc-min"); if (S.eatOn) setEatOn(false); S.trail = { w: other(), day: 0 }; renderMapCard(); loadTrail(); },
     trailFly(el) { map.flyTo({ center: [+el.dataset.lon, +el.dataset.lat], zoom: 16.5 }); },
     trailClose() { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); fitMap(); },
     trailWho(el) { S.trail = { ...S.trail, w: el.dataset.v, data: null }; renderTrailCard(); loadTrail(); },

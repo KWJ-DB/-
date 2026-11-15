@@ -1623,3 +1623,21 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .eat2 .chip.rl-chip svg.i { width: 14px; height: 14px; }
 .eat-chips { flex-wrap: nowrap !important; }
 .eat-d-top + .eat-wantline, .eat-d-top + .seg { margin-top: 12px; }
+
+/* ===== 손동작 ===== */
+.sheet-box { touch-action: pan-y; overscroll-behavior: contain; }
+.sheet-box::before { width: 44px; height: 5px; margin-bottom: 16px; background: #DCD9E0; }
+/* 지도 아래 카드 접기 */
+.map-card { transition: transform .38s cubic-bezier(.2,.9,.3,1); }
+.map-card::before { content: ""; display: block; width: 36px; height: 4px; border-radius: 4px; background: #DCD9E0; margin: -4px auto 8px; }
+.map-card.mc-min { transform: translateY(calc(100% - 64px)) !important; }
+.map-card.mc-min > * { pointer-events: none; }
+.map-card.mc-min::after { content: "눌러서 펼치기"; position: absolute; left: 0; right: 0; top: 18px; text-align: center; font-size: 12.5px; font-weight: 650; color: var(--sub); }
+.map-card.mc-min > * { opacity: 0; transition: opacity .2s; }
+/* 당겨서 새로고침 표시 */
+.ptr { position: fixed; left: 50%; top: calc(var(--safe-t) + 54px); width: 38px; height: 38px; border-radius: 50%; background: #fff; box-shadow: 0 4px 14px rgba(0,0,0,.12); display: grid; place-items: center; color: var(--sub); z-index: 60; opacity: 0; transform: translate(-50%, -50px); pointer-events: none; transition: opacity .2s; }
+.ptr svg.i { width: 19px; height: 19px; }
+.ptr.ready { color: var(--rose); }
+.ptr.spin { transition: transform .25s cubic-bezier(.2,.9,.3,1); }
+.ptr.spin svg { animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

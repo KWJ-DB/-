@@ -216,7 +216,7 @@
     view.innerHTML = `
       <div class="hero${cover ? " has-cover" : ""}" ${cover ? `style="background-image:linear-gradient(180deg,rgba(40,10,30,0) 25%,rgba(40,10,30,.6)),url('/api/avatar/cover?v=${cover}')"` : ""}>
         <div class="dday">${dp > 0 ? dp : dlabel(1 - dp)}${dp > 0 ? "<small>일째</small>" : ""}</div>
-        <div class="since">${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))} · ${fmtDot(S.start)}부터</div>
+        <div class="since">${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}, ${+S.start.slice(0, 4)}년 ${+S.start.slice(5, 7)}월 ${+S.start.slice(8)}일부터</div>
         <div class="hero-moods">
           <button class="hm" data-act="moodSheet">${av(S.who)}<span>${mood(S.who)}</span></button>
           ${moodOf(other()) ? `<span class="hm">${av(other())}<span>${mood(other())}</span></span>` : ""}
@@ -236,7 +236,51 @@
         ${row("tab", "pin", "우리 사이", S.together ? "함께" : dist || "-", S.together ? "같이 있어요" : "", 'data-tab="map"')}
         ${row("bucketOpen", "list", "버킷리스트", bk.length ? `${bkDone}/${bk.length}` : "", "")}
         ${row("lettersOpen", "msg", "편지", lt.unread ? `<i class="dot"></i>` : "", "정한 날에 열리는 편지")}
+      </div>
+      <div class="list" style="margin-top:12px">
+        ${row("ideaOpen", "sparkle", "데이트 뭐 하지?", "", "아이디어 뽑기")}
+        ${row("notesOpen", "star", "서로 알아두기", "", "좋아하는 것, 싫어하는 것 메모")}
       </div>`;
+  }
+
+  // ---------- 서로 알아두기 (좋아하는 것, 싫어하는 것 등 메모) ----------
+  const NOTE_CATS = ["좋아해", "싫어해", "갖고 싶어", "사이즈", "기억할 것"];
+  async function notesSheet(about) {
+    about = about || S.notesAbout || other();
+    S.notesAbout = about;
+    const { notes } = await api("notes");
+    const mine = notes.filter((n) => n.about === about);
+    const groups = NOTE_CATS.map((c) => [c, mine.filter((n) => (n.cat || "기억할 것") === c)]).filter(([, l]) => l.length);
+    openSheet(`
+      <h2>${ic("star")}서로 알아두기</h2>
+      <div class="seg" style="margin-top:8px">${["a", "b"].map((w) => `<button class="${w === about ? "on" : ""}" data-act="notesAbout" data-w="${w}">${esc(nm(w))}</button>`).join("")}</div>
+      ${groups.map(([c, l]) => `<div class="sec-t"><span>${c}</span></div>${l.map((n) => `<div class="ev"><span class="tt">${esc(n.text)}</span><button class="x" data-act="noteDel" data-id="${n.id}" aria-label="삭제">${ic("x")}</button></div>`).join("")}`).join("")
+        || `<div class="empty">${esc(nm(about))}님에 대해 기억하고 싶은 걸 적어보세요<br>예: 민트초코 싫어함, 신발 240</div>`}
+      <div class="note-add">
+        <div class="chips">${NOTE_CATS.map((c, i) => `<button class="chip-sel${i === 0 ? " on" : ""}" data-act="noteCat" data-c="${c}">${c}</button>`).join("")}</div>
+        <div class="add-row" style="margin-top:8px"><input type="text" id="noteText" maxlength="100" placeholder="예: 떡볶이는 로제"><button class="btn primary" data-act="noteAdd" aria-label="추가">${ic("plus")}</button></div>
+      </div>`);
+    S.noteCat = NOTE_CATS[0];
+  }
+
+  // ---------- 데이트 뭐 하지? (아이디어 뽑기) ----------
+  const IDEAS = [
+    "동성로에서 인생네컷 찍기", "수성못 산책하고 오리배 타기", "방탈출 카페 도전", "보드게임 카페 가기", "코인노래방에서 듀엣곡 부르기",
+    "편의점 신상 간식 털기", "한강 대신 신천 둔치 피크닉", "서로 옷 골라주기", "같은 책 사서 읽기", "카페에서 같이 공부하기",
+    "영화 보고 한 줄 평 쓰기", "떡볶이 맛집 투어", "사진관에서 커플 사진", "공원에서 배드민턴", "볼링 내기 한 판",
+    "오락실 인형뽑기 도전", "서로에게 손편지 쓰기", "같이 요리해서 도시락 싸기", "야경 보러 앞산 전망대", "이월드 놀이기구 타기",
+    "아쿠아리움 가기", "서점에서 서로 책 골라주기", "커플 키링 만들기", "자전거 타고 동네 한 바퀴", "버스 종점까지 가보기",
+    "새로 생긴 카페 가보기", "서로의 플레이리스트 바꿔 듣기", "탕후루 만들어 먹기", "전시회 구경하기", "별 보러 가기",
+    "추억의 장소 다시 가기", "우리만의 비밀 장소 찾기", "폰 없이 한 시간 데이트", "교복 입고 사진 찍기", "서로 그림 그려주기",
+    "빙수 맛집 가기", "도서관 데이트", "시장 구경하고 길거리 음식", "운동장 걷기 + 음료 내기", "다음 기념일 계획 세우기",
+  ];
+  function ideaSheet(spin) {
+    const i = Math.floor(Math.random() * IDEAS.length);
+    S.idea = IDEAS[i];
+    openSheet(`
+      <h2>${ic("sparkle")}데이트 뭐 하지?</h2>
+      <div class="idea${spin ? " spin" : ""}"><span>${ic("heart")}</span><b>${esc(S.idea)}</b></div>
+      <div class="row2"><button class="btn gray" data-act="ideaAgain">${ic("wave")}다시 뽑기</button><button class="btn primary" data-act="ideaSave">${ic("list")}버킷에 담기</button></div>`);
   }
 
   // ---------- 다음 만남 ----------
@@ -754,23 +798,12 @@
   }
   function renderMapCard() {
     const la = S.locs.a, lb = S.locs.b;
-    const person = (w) => {
-      const l = S.locs[w];
-      return `<button class="person" data-act="flyTo" data-w="${w}">${av(w)}<div class="meta"><b>${esc(nm(w))}${w === S.who ? " (나)" : ""}</b>
-        <span>${l ? `${ic("clock")}${ago(l.t, S.locNow)}${l.batt != null ? ` ${ic("batt")}${l.batt}%` : ""}` : "위치 없음"}</span></div></button>`;
-    };
-    const auto = S.autoLoc === "on" ? "이 화면을 열어두면 자동으로 공유돼요" : S.autoLoc === "denied" ? "위치 권한을 허용해야 공유돼요" : "위치 확인 중...";
+    const who = (w) => { const l = S.locs[w]; return `<button class="mc-p" data-act="flyTo" data-w="${w}">${av(w)}<span>${l ? ago(l.t, S.locNow) : "-"}</span></button>`; };
     $("#mapCard").innerHTML = `
-      <div class="dist">
-        <div class="ic">${ic("route")}</div>
-        <div>${S.together ? `<b>함께 있어요</b><span>${la && lb ? fmtDist(distM(la, lb)) + " 거리" : ""}</span>` : la && lb ? `<b>${fmtDist(distM(la, lb))}</b><span>지금 우리 사이 거리</span>` : `<b>-</b><span>둘 다 위치가 있어야 보여요</span>`}</div>
-        <button class="icon-btn fit" data-act="fitMap" aria-label="모두 보기">${ic("target")}</button>
-      </div>
-      <div class="people">${person(S.who)}${person(other())}</div>
-      <div class="auto-line"><i class="${S.autoLoc === "on" ? "on" : ""}"></i>${auto}</div>
-      <div class="map-actions two">
-        <button class="btn gray" data-act="placesSheet">${ic("pin")}장소 알림</button>
-        <button class="btn gray" data-act="otSheet">${ic("phone")}화면 꺼도 공유</button>
+      <div class="mc">
+        ${who(S.who)}
+        <button class="mc-mid" data-act="fitMap"><b>${S.together ? "함께 있어요" : la && lb ? fmtDist(distM(la, lb)) : "-"}</b><span>${S.autoLoc === "denied" ? "위치 권한 필요" : S.together ? (la && lb ? fmtDist(distM(la, lb)) : "") : "우리 사이"}</span></button>
+        ${who(other())}
       </div>`;
   }
   async function refreshLoc(redraw) {
@@ -842,9 +875,11 @@
       const before = JSON.stringify(S.chat.msgs.slice(-3)) + JSON.stringify(S.chat.read);
       S.chat.msgs = older.concat(d.messages);
       S.chat.read = d.read;
+      const wasTyping = S.chat.typingOn;
+      S.chat.typingOn = d.typing && d.now - d.typing < 6000;
       if (S.chat.first) { S.chat.more = d.messages.length >= 40; S.chat.first = false; }
       const after = JSON.stringify(S.chat.msgs.slice(-3)) + JSON.stringify(S.chat.read);
-      if (stick || before !== after || !$("#dmList .dm-row, #dmList .dm-empty")) drawChat(stick);
+      if (stick || before !== after || wasTyping !== S.chat.typingOn || !$("#dmList .dm-row, #dmList .dm-empty")) drawChat(stick);
       const last = S.chat.msgs[S.chat.msgs.length - 1];
       if (last && last.id > (S.chat.read[S.who] || 0) && S.tab === "chat" && !document.hidden) {
         S.chat.read[S.who] = last.id;
@@ -871,14 +906,20 @@
       const fresh = S.chat.seen && !S.chat.seen.has(m.id) ? " fresh" : "";
       const imgHtml = m.img || m.local
         ? `<img class="dm-img" src="${m.local || `/api/chatimg/${m.img}?thumb=1`}" style="aspect-ratio:${m.w || 4}/${m.h || 3}" data-img="${m.img || ""}" alt="">` : "";
+      let rq = "";
+      if (m.reply) {
+        const src = ms.find((x) => x.id === m.reply);
+        rq = `<span class="rq"><b>${src ? esc(nm(src.who)) : "이전 메시지"}</b>${src ? esc(src.text || "사진") : ""}</span>`;
+      }
       h += `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${rx.length ? " liked" : ""}${fresh}">
         ${mine ? "" : last ? av(m.who) : '<span class="av-sp"></span>'}
-        <div class="dm-bub${imgHtml ? " has-img" : ""}${imgHtml && !m.text ? " only-img" : ""}" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}${rxHtml}</div></div>`;
+        <div class="dm-bub${imgHtml ? " has-img" : ""}${imgHtml && !m.text ? " only-img" : ""}" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${rq}${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}${rxHtml}</div></div>`;
     });
     const lastM = ms[ms.length - 1];
     if (lastM.who === S.who && !String(lastM.id).startsWith("tmp")) {
       h += `<div class="dm-seen">${(S.chat.read[other()] || 0) >= lastM.id ? "읽음" : "전송됨"}</div>`;
     }
+    if (S.chat.typingOn) h += `<div class="dm-row ot first last typing">${av(other())}<div class="dm-bub"><i></i><i></i><i></i></div></div>`;
     L.innerHTML = h;
     S.chat.seen = new Set(ms.map((m) => m.id));
     if (stick || atBottom) {
@@ -891,9 +932,11 @@
     const text = inp.value.trim();
     if (!text) return;
     inp.value = ""; $("#dmSend").hidden = true;
-    S.chat.msgs.push({ id: "tmp" + Date.now(), who: S.who, text, reacts: {}, t: Date.now() });
+    const reply = S.replyTo ? S.replyTo.id : null;
+    S.chat.msgs.push({ id: "tmp" + Date.now(), who: S.who, text, reacts: {}, t: Date.now(), reply });
+    setReply(null);
     drawChat(true);
-    try { await api("messages", { method: "POST", body: { text } }); }
+    try { await api("messages", { method: "POST", body: { text, reply } }); }
     catch (e) { toast("전송 실패: " + e.message); inp.value = text; }
     refreshChat(true);
   }
@@ -921,6 +964,19 @@
     }
     refreshChat(true);
   }
+  function setReply(m) {
+    S.replyTo = m;
+    const box = $("#dmReply");
+    if (!m) { box.hidden = true; box.innerHTML = ""; return; }
+    box.innerHTML = `<div><b>${esc(nm(m.who))}에게 답장</b><span>${esc(m.text || "사진")}</span></div><button data-act="replyCancel" aria-label="취소">${ic("x")}</button>`;
+    box.hidden = false;
+    $("#dmText").focus();
+  }
+  let typingAt = 0;
+  $("#dmText").addEventListener("input", () => {
+    if (Date.now() - typingAt > 3000 && $("#dmText").value.trim()) { typingAt = Date.now(); api("typing", { method: "POST", body: {} }).catch(() => {}); }
+  });
+
   // 반응 고르기 창
   function openRx(bub) {
     const id = bub.dataset.mid;
@@ -933,7 +989,11 @@
       <div class="rx-bar" style="top:${Math.max(70, rect.top - 64)}px">
         ${RX.map((r) => `<button class="${mineR === r ? "on" : ""} r-${r}" data-act="rxPick" data-r="${r}" data-id="${id}">${ic(r)}</button>`).join("")}
       </div>
-      ${bub.dataset.mine === "1" ? `<button class="rx-del" style="top:${Math.min(innerHeight - 120, rect.bottom + 10)}px" data-act="rxDel" data-id="${id}">${ic("trash")}보내기 취소</button>` : ""}`;
+      <div class="rx-menu" style="top:${Math.min(innerHeight - 200, rect.bottom + 10)}px">
+        <button data-act="rxReply" data-id="${id}">${ic("send")}답장</button>
+        ${m && m.text ? `<button data-act="rxCopy" data-id="${id}">${ic("copy")}복사</button>` : ""}
+        ${bub.dataset.mine === "1" ? `<button class="del" data-act="rxDel" data-id="${id}">${ic("trash")}보내기 취소</button>` : ""}
+      </div>`;
     box.hidden = false;
     bub.classList.add("held");
     S.rxBub = bub;
@@ -1319,49 +1379,48 @@
       <p class="note">${esc(nm(other()))}님도 자기 폰에서 똑같이 하되, 3번에서 <b>${esc(nm(S.who))}님 폰의 스티커</b>를 스캔해야 해요. 비밀번호를 바꾸면 링크도 바뀌니까 단축어의 링크를 새로 넣어주세요.</p>
       <div class="row2"><button class="btn gray" data-act="close">닫기</button></div>`);
   }
+  // 설정: 목록으로 단순하게, 누르면 각 화면
   function settingsSheet() {
+    const ps = pushState();
+    const row = (act, icon, title, sub, danger) => `<button class="li${danger ? " danger" : ""}" data-act="${act}"><span class="li-ic">${ic(icon)}</span><span class="li-t"><b>${title}</b>${sub ? `<span>${sub}</span>` : ""}</span>${ic("right", "li-chev")}</button>`;
     openSheet(`
-      <h2>${ic("gear")}설정</h2>
       <div class="me-av">
         <button class="me-av-pic" data-act="avatarPick" aria-label="프로필 사진 바꾸기">${av(S.who, "xl")}<span class="cam">${ic("camera")}</span></button>
-        <div><b>${esc(nm(S.who))}</b><span>프로필 사진을 눌러서 바꿀 수 있어요</span>${avSrc(S.who) ? `<button class="link" data-act="avatarDel">사진 지우기</button>` : ""}</div>
+        <div><b>${esc(nm(S.who))}</b><span>사진을 눌러서 프로필 사진 바꾸기</span>${avSrc(S.who) ? `<button class="link" data-act="avatarDel">사진 지우기</button>` : ""}</div>
         <input type="file" id="avInput" accept="image/*" hidden>
       </div>
-      <div class="row2">
-        <button class="btn soft" data-act="coverPick">${ic("image")}홈 배경 사진 ${S.avatars && S.avatars.cover ? "바꾸기" : "넣기"}</button>
-        ${S.avatars && S.avatars.cover ? `<button class="btn gray" data-act="coverDel">배경 지우기</button>` : ""}
-      </div>
       <input type="file" id="coverInput" accept="image/*" hidden>
+      <div class="list" style="margin-top:12px">
+        ${row("coverPick", "image", "홈 배경 사진", S.avatars && S.avatars.cover ? "바꾸기" : "둘이 찍은 사진 넣기")}
+        ${row("infoSheet", "heart", "이름 · 사귄 날", `${esc(nm("a"))}, ${esc(nm("b"))} · ${fmtDot(S.start)}`)}
+        ${row(ps === "granted" ? "pushTest" : "pushOn", "bell", "알림", ps === "granted" ? "켜짐 · 눌러서 테스트" : ps === "needs-home" ? "홈 화면에 추가해야 켤 수 있어요" : ps === "denied" ? "아이폰 설정에서 허용해 주세요" : "꺼짐 · 눌러서 켜기")}
+        ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
+        ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
+        ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
+      </div>
+      <div class="list" style="margin-top:12px">
+        ${S.avatars && S.avatars.cover ? row("coverDel", "image", "배경 사진 지우기", "", true) : ""}
+        ${row("locDel", "trash", "내 위치 지우기", "", true)}
+        ${row("logout", "logout", "로그아웃", "", true)}
+      </div>`);
+  }
+  function infoSheet() {
+    openSheet(`
+      <h2>${ic("heart")}이름 · 사귄 날</h2>
       <label>${esc(nm("a"))} 이름<input id="stA" type="text" maxlength="20" value="${esc(nm("a"))}"></label>
       <label>${esc(nm("b"))} 이름<input id="stB" type="text" maxlength="20" value="${esc(nm("b"))}"></label>
       <label>사귄 날<input id="stStart" type="date" value="${S.start}"></label>
-      <div class="row2"><button class="btn primary" data-act="saveSettings">저장</button></div>
-      <hr>
+      <div class="row2"><button class="btn gray" data-act="settingsBack">뒤로</button><button class="btn primary" data-act="saveSettings">저장</button></div>`);
+  }
+  function pwSheet() {
+    openSheet(`
+      <h2>${ic("lock")}비밀번호 바꾸기</h2>
       <label>현재 비밀번호<input id="pwOld" type="password"></label>
       <label>새 비밀번호<input id="pwNew" type="password" placeholder="4자 이상"></label>
-      <div class="row2"><button class="btn soft" data-act="savePw">비밀번호 바꾸기</button></div>
-      <p class="muted" style="font-size:12px;margin-top:8px">바꾸면 상대방도 다시 로그인해야 하고, OwnTracks 앱 비밀번호도 바꿔야 해요.</p>
-      <hr>
-      <h2 style="font-size:16px;margin-top:4px">${ic("bell")}알림</h2>
-      ${(() => {
-        const st = pushState();
-        if (st === "granted") return `<p class="muted" style="font-size:13px">이 기기에서 메시지와 장소 도착/출발 알림을 받아요.</p><div class="row2"><button class="btn soft" data-act="pushTest">테스트 알림 보내기</button></div>`;
-        if (st === "needs-home") return `<p class="note">아이폰은 Safari 공유 버튼 ${ic("right", "arr")} <b>홈 화면에 추가</b>로 앱을 설치한 뒤, 그 앱에서 알림을 켜야 해요 (iOS 16.4 이상).</p>`;
-        if (st === "denied") return `<p class="note">알림이 차단돼 있어요. 아이폰 설정 ${ic("right", "arr")} 알림 ${ic("right", "arr")} 이 앱에서 허용해 주세요.</p>`;
-        if (st === "unsupported") return `<p class="muted" style="font-size:13px">이 브라우저는 알림을 지원하지 않아요.</p>`;
-        return `<div class="row2"><button class="btn primary" data-act="pushOn">${ic("bell")}알림 켜기</button></div>`;
-      })()}
-      <hr>
-      <h2 style="font-size:16px;margin-top:4px">${ic("heart")}폰 맞대기</h2>
-      <p class="muted" style="font-size:13px">두 폰 뒷면을 맞대면 같은 순간 애니메이션이 나와요. NFC 스티커와 단축어 앱으로 한 번만 설정하면 돼요.</p>
-      <div class="row2"><button class="btn primary" data-act="nfcSheet">${ic("phone")}맞대기 설정하기</button></div>
-      <hr>
-      <div class="row2">
-        <button class="btn gray" data-act="otSheet">${ic("phone")}꺼도 공유 설정</button>
-        <button class="btn danger" data-act="locDel">내 위치 지우기</button>
-      </div>
-      <div class="row2"><button class="btn gray" data-act="logout">${ic("logout")}로그아웃</button></div>`);
+      <p class="muted" style="font-size:12px;margin-top:8px">바꾸면 상대방도 다시 로그인해야 하고, OwnTracks와 맞대기 링크도 새로 넣어야 해요.</p>
+      <div class="row2"><button class="btn gray" data-act="settingsBack">뒤로</button><button class="btn primary" data-act="savePw">바꾸기</button></div>`);
   }
+
 
   function annivSheet(date) {
     openSheet(`
@@ -1377,6 +1436,22 @@
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     bucketOpen: () => bucketSheet(),
+    notesOpen: () => notesSheet(),
+    notesAbout: (el) => notesSheet(el.dataset.w),
+    noteCat(el) { S.noteCat = el.dataset.c; $$(".chip-sel").forEach((b) => b.classList.toggle("on", b === el)); },
+    async noteAdd() {
+      const text = $("#noteText").value.trim();
+      if (!text) return toast("내용을 적어주세요");
+      await api("notes", { method: "POST", body: { about: S.notesAbout, cat: S.noteCat, text } });
+      notesSheet();
+    },
+    async noteDel(el) { await api(`notes/${el.dataset.id}`, { method: "DELETE" }); notesSheet(); },
+    ideaOpen: () => ideaSheet(),
+    ideaAgain: () => ideaSheet(true),
+    async ideaSave() { await api("bucket", { method: "POST", body: { title: S.idea } }); toast("버킷리스트에 담았어요"); closeSheet(); render(true); },
+    infoSheet: () => infoSheet(),
+    pwSheet: () => pwSheet(),
+    settingsBack: () => settingsSheet(),
     meetSheet: () => meetSheet(),
     async meetSave() { const d = $("#meetDate").value; await api("meet", { method: "POST", body: { date: d } }); S.nextMeet = d; closeSheet(); render(true); },
     async meetClear() { await api("meet", { method: "POST", body: { date: "" } }); S.nextMeet = ""; closeSheet(); render(true); },
@@ -1444,6 +1519,12 @@
     dmSend: () => sendChat(),
     dmPhoto: () => $("#dmFile").click(),
     rxClose: closeRx,
+    rxReply(el) { const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id); closeRx(); if (m) setReply(m); },
+    async rxCopy(el) {
+      const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id); closeRx();
+      try { await navigator.clipboard.writeText(m.text); toast("복사했어요"); } catch { toast("복사할 수 없어요"); }
+    },
+    replyCancel: () => setReply(null),
     rxPick(el) { const bub = S.rxBub; closeRx(); reactMsg(el.dataset.id, el.dataset.r, bub); },
     async rxDel(el) {
       closeRx();
@@ -1695,6 +1776,7 @@
     if (e.key !== "Enter" || e.isComposing) return;
     if (e.target.id === "evTitle") ACT.evAdd();
     if (e.target.id === "bkTitle") ACT.bkAdd();
+    if (e.target.id === "noteText") ACT.noteAdd();
   });
   $$(".tabbar button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
   $("#btnSettings").addEventListener("click", settingsSheet);

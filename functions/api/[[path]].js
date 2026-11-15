@@ -453,7 +453,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "GET messages": {
         const before = Number(q("before")) || 0;
         const limit = Math.min(Math.max(Number(q("limit")) || 40, 1), 100);
-        const cols = "id, who, text, likes, reacts, img, w, h, t";
+        const cols = "id, who, text, likes, reacts, img, w, h, t, reply_to";
         const stmt = before
           ? DB.prepare(`SELECT ${cols} FROM messages WHERE id < ?1 ORDER BY id DESC LIMIT ?2`).bind(before, limit)
           : DB.prepare(`SELECT ${cols} FROM messages ORDER BY id DESC LIMIT ?1`).bind(limit);
@@ -462,9 +462,10 @@ export async function onRequest({ request, env, params, waitUntil }) {
           let reacts = {};
           try { reacts = m.reacts ? JSON.parse(m.reacts) : {}; } catch {}
           if (!m.reacts && m.likes) for (const w of m.likes) reacts[w] = "heart";
-          return { id: m.id, who: m.who, text: m.text, reacts, img: m.img, w: m.w, h: m.h, t: m.t };
+          return { id: m.id, who: m.who, text: m.text, reacts, img: m.img, w: m.w, h: m.h, t: m.t, reply: m.reply_to || null };
         });
-        return json({ messages: msgs, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 } });
+        const other = who === "a" ? "b" : "a";
+        return json({ messages: msgs, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, typing: Number(st["typing_" + other]) || 0, now: Date.now() });
       }
       case "POST messages": {
         const b = await body(request);
@@ -488,10 +489,11 @@ export async function onRequest({ request, env, params, waitUntil }) {
           imgId = ir.meta?.last_row_id || null;
         }
         if (!text && !imgId) return err(400, "메시지를 입력하세요");
-        const r = await DB.prepare("INSERT INTO messages (who, text, likes, reacts, img, w, h, t) VALUES (?1, ?2, '', NULL, ?3, ?4, ?5, ?6)")
-          .bind(who, text, imgId, w, h, Date.now()).run();
+        const replyTo = Number(b.reply) || null;
+        const r = await DB.prepare("INSERT INTO messages (who, text, likes, reacts, img, w, h, t, reply_to) VALUES (?1, ?2, '', NULL, ?3, ?4, ?5, ?6, ?7)")
+          .bind(who, text, imgId, w, h, Date.now(), replyTo).run();
         const newId = r.meta?.last_row_id;
-        if (newId) await setSettings(env, { ["read_" + who]: newId });
+        if (newId) await setSettings(env, { ["read_" + who]: newId, ["typing_" + who]: 0 });
         const other = who === "a" ? "b" : "a";
         const name = who === "a" ? st.a_name : st.b_name;
         const job = sendPush(env, st, setSettings, other, { title: name, body: text || "사진을 보냈어요", url: "/#chat", tag: "dm" });
@@ -538,6 +540,25 @@ export async function onRequest({ request, env, params, waitUntil }) {
         }
         return err(404, "없는 주소예요");
       }
+      case "POST typing":
+        await setSettings(env, { ["typing_" + who]: Date.now() });
+        return json(OK);
+      // ----- 서로 알아두기 -----
+      case "GET notes": {
+        const { results } = await DB.prepare("SELECT id, about, cat, text, who, t FROM notes ORDER BY id").all();
+        return json({ notes: results || [] });
+      }
+      case "POST notes": {
+        const b = await body(request);
+        const about = ["a", "b"].includes(b.about) ? b.about : null;
+        const text = str(b.text, 100), cat = str(b.cat, 20);
+        if (!about || !text) return err(400, "내용을 입력하세요");
+        await DB.prepare("INSERT INTO notes (about, cat, text, who, t) VALUES (?1, ?2, ?3, ?4, ?5)").bind(about, cat || null, text, who, Date.now()).run();
+        return json(OK);
+      }
+      case "DELETE notes":
+        await DB.prepare("DELETE FROM notes WHERE id = ?1").bind(id).run();
+        return json(OK);
       case "POST read": {
         const b = await body(request);
         const n = Number(b.id) || 0;

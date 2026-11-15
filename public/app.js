@@ -2667,6 +2667,7 @@
 
   // ---------- 시트 ----------
   function openSheet(html) {
+    S.sheetAt = Date.now();
     const sh = $("#sheet"), was = !sh.hidden && !sh.classList.contains("closing");
     sh.classList.remove("closing");
     $("#sheetBox").innerHTML = html;
@@ -2680,7 +2681,7 @@
     sh.classList.add("closing");
     setTimeout(() => { sh.hidden = true; sh.classList.remove("closing"); }, 220);
   }
-  $("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
+  $("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet" && Date.now() - (S.sheetAt || 0) > 450) closeSheet(); });
 
   function otSheet() {
     const url = `${location.origin}/api/owntracks`;
@@ -3532,7 +3533,10 @@
       closeSheet();
       if (v === "web") return startCall(S.callKind);
       if (!num) return phoneSheet(true);
-      location.href = v === "ft" ? `facetime://${num}` : v === "fta" ? `facetime-audio://${num}` : `tel:${num}`;
+      // 번호는 숫자만, 010으로 시작하면 국제 형식(+8210...)으로 (FaceTime이 바로 끊기지 않게)
+      let to = num.trim();
+      if (!to.includes("@")) { to = to.replace(/[^0-9+]/g, ""); if (/^0\d{9,10}$/.test(to) && v !== "tel") to = "+82" + to.slice(1); }
+      location.href = v === "ft" ? `facetime://${to}` : v === "fta" ? `facetime-audio://${to}` : `tel:${to}`;
     },
     phoneOpen: () => phoneSheet(false),
     async phoneSave() {

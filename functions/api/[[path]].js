@@ -54,14 +54,16 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const { results } = await DB.prepare("SELECT who, lat, lon, acc, t FROM couple_locs").all();
         const L = {}; for (const r of results || []) L[r.who] = r;
         const now = Date.now();
-        if (!L.a || !L.b || now - L.a.t > 4 * 60000 || now - L.b.t > 4 * 60000) return;
+        if (!L.a || !L.b) return;
+        const stale = now - L.a.t > 4 * 60000 || now - L.b.t > 4 * 60000;
         const R = 6371000, rad = Math.PI / 180;
         const x = Math.sin(((L.b.lat - L.a.lat) * rad) / 2) ** 2 + Math.cos(L.a.lat * rad) * Math.cos(L.b.lat * rad) * Math.sin(((L.b.lon - L.a.lon) * rad) / 2) ** 2;
         const d = 2 * R * Math.asin(Math.sqrt(x));
         const accSum = Math.min((L.a.acc || 25) + (L.b.acc || 25), 80);
         const was = st.together === "1";
-        const near = d <= Math.max(35, accSum);
-        const far = d > 150;
+        const near = !stale && d <= Math.max(35, accSum);
+        // 한쪽 위치가 오래 안 들어와도 멀어졌거나 30분 넘게 소식 없으면 "함께" 끝
+        const far = d > 150 || now - Math.min(L.a.t, L.b.t) > 30 * 60000;
         if (!was && near) {
           const upd = { together: "1", together_since: now };
           // 만남 애니메이션은 30분에 한 번만

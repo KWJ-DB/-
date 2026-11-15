@@ -958,6 +958,9 @@
       map.addLayer({ id: "trail-dot", type: "circle", source: "trail", filter: ["==", "$type", "Point"],
         paint: { "circle-radius": ["coalesce", ["get", "r"], 5], "circle-color": "#fff", "circle-stroke-width": 3, "circle-stroke-color": ["get", "c"] } });
       mapLoaded = true;
+      // 멀리서 보면 가게 이름표는 숨기고 핀만 (겹침 방지)
+      const zoomCls = () => { const w = $("#mapWrap"); if (w) w.classList.toggle("zoom-far", map.getZoom() < 14); };
+      map.on("zoom", zoomCls); zoomCls();
       if (S.sat) setSat(true);
       drawMap();
       loadPlaces();
@@ -979,9 +982,11 @@
         const el = document.createElement("div");
         el.addEventListener("click", () => map.flyTo({ center: markers[w].getLngLat(), zoom: 16 }));
         markers[w] = newMarker({ element: el, anchor: "bottom" }).setLngLat([l.lon, l.lat]).addTo(map);
+        el._base = el.className;
       }
       const el = markers[w].getElement();
-      el.className = cls;
+      const full = (cls + " " + (el._base || "")).trim();
+      if (el.className !== full) el.className = full;
       if (el._h !== html) { el.innerHTML = html; el._h = html; }
       glide(markers[w], l.lon, l.lat);
     }
@@ -1180,19 +1185,40 @@
     return l.sort(by);
   }
   function drawEatMarkers() {
-    E.markers.splice(0).forEach((m) => m.remove());
-    if (!S.eatOn || !map || !mapLoaded) return;
+    if (!S.eatOn || !map || !mapLoaded) { E.markers.splice(0).forEach((m) => m.remove()); return; }
+    // 바뀐 마커만 고치고, 그대로인 건 건드리지 않아서 새로고침해도 다시 튀어나오지 않게
+    const old = new Map(E.markers.map((m) => [m._eid, m]));
+    const next = [];
     for (const e of eatsFiltered(true)) {
-      const el = document.createElement("button");
-      el.className = "eat-mk" + (e.status === "been" ? " been" : "") + (bothWant(e) && e.status !== "been" ? " both" : "") + (E.sel === e.id ? " sel" : "");
-      el.dataset.act = "eatMk"; el.dataset.id = e.id;
-      el.style.setProperty("--c", catCol(e.cat));
+      const cls = "eat-mk" + (e.status === "been" ? " been" : "") + (bothWant(e) && e.status !== "been" ? " both" : "") + (E.sel === e.id ? " sel" : "");
       const r = avgRate(e);
-      el.innerHTML = `<span class="eat-ic">${ic(catIc(e.cat))}</span><span class="eat-nm">${esc(e.name)}${r ? `<em>${ic("star")}${r.toFixed(1)}</em>` : ""}</span>`;
-      const mk = newMarker({ element: el, anchor: "bottom", offset: [0, 7] }).setLngLat([e.lon, e.lat]).addTo(map);
-      mk._eid = e.id;
-      E.markers.push(mk);
+      const html = `<span class="eat-ic">${ic(catIc(e.cat))}</span><span class="eat-nm">${esc(e.name)}${r ? `<em>${ic("star")}${r.toFixed(1)}</em>` : ""}</span>`;
+      let mk = old.get(e.id);
+      if (mk) {
+        old.delete(e.id);
+        const el = mk.getElement();
+        el.classList.add("still");
+        el.classList.toggle("been", e.status === "been");
+        el.classList.toggle("both", bothWant(e) && e.status !== "been");
+        el.classList.toggle("sel", E.sel === e.id);
+        el.style.setProperty("--c", catCol(e.cat));
+        if (el._h !== html) { el.innerHTML = html; el._h = html; }
+        const ll = mk.getLngLat();
+        if (!ll || Math.abs(ll.lng - e.lon) > 1e-7 || Math.abs(ll.lat - e.lat) > 1e-7) mk.setLngLat([e.lon, e.lat]);
+      } else {
+        const el = document.createElement("button");
+        el.className = cls;
+        el.dataset.act = "eatMk"; el.dataset.id = e.id;
+        el.style.setProperty("--c", catCol(e.cat));
+        el.innerHTML = html; el._h = html;
+        mk = newMarker({ element: el, anchor: "bottom", offset: [0, 7] }).setLngLat([e.lon, e.lat]).addTo(map);
+        mk._eid = e.id;
+        setTimeout(() => el.classList.add("still"), 400);
+      }
+      next.push(mk);
     }
+    old.forEach((m) => m.remove());
+    E.markers = next;
   }
   function renderEatCard() {
     if (E.view === "list") return renderEatList();
@@ -1746,6 +1772,8 @@
       <p class="route-note"><span class="nv-logo sm">N</span>네이버 지도 앱이 있으면 앱에서, 없으면 웹에서 열려요</p>`);
   }
   const speedTxt = (l) => { if (!l || l.vel == null || S.locNow - l.t > 10 * 60000) return ""; const v = Number(l.vel); return v >= 4 ? `이동 중 ${v}km/h` : "멈춰 있음"; };
+  // 서버가 "함께"라고 해도 지금 위치가 멀면 함께 아님
+  function isTogether() { const la = S.locs.a, lb = S.locs.b; return !!(S.together && (!la || !lb || distM(la, lb) < 200)); }
   function renderMapCard() {
     const mc = $("#mapCard");
     if (!$("#pick") && mc.hidden) mc.hidden = false;
@@ -1755,13 +1783,17 @@
     const la = S.locs.a, lb = S.locs.b, o = other(), lo = S.locs[o];
     const who = (w) => { const l = S.locs[w]; return `<button class="mc-p" data-act="flyTo" data-w="${w}">${av(w)}<span>${l ? ago(l.t, S.locNow) : "-"}</span></button>`; };
     const sp = speedTxt(lo), bt = lo && lo.batt != null ? `배터리 ${lo.batt}%` : "";
+    const tog = isTogether();
+    let inPl = "";
+    if (lo) { let bd = Infinity; for (const pl of S.places || []) { const d = distM(lo, pl); if (d <= Math.max(60, pl.radius || 0) + Math.min(lo.acc || 0, 60) && d < bd) { bd = d; inPl = pl.name; } } }
+    const info = [inPl ? `${inPl}에 있어요` : "", sp, bt].filter(Boolean);
     $("#mapCard").innerHTML = `
       <div class="mc">
         ${who(S.who)}
-        <button class="mc-mid" data-act="fitMap"><b>${S.together ? "함께 있어요" : la && lb ? fmtDist(distM(la, lb)) : "-"}</b><span>${S.autoLoc === "denied" ? "위치 권한 필요" : S.together ? (la && lb ? fmtDist(distM(la, lb)) : "") : "우리 사이"}</span></button>
+        <button class="mc-mid" data-act="fitMap"><b>${tog ? "함께 있어요" : la && lb ? fmtDist(distM(la, lb)) : "-"}</b><span>${S.autoLoc === "denied" ? "위치 권한 필요" : tog ? (la && lb ? fmtDist(distM(la, lb)) : "") : "우리 사이"}</span></button>
         ${who(o)}
       </div>
-      ${sp || bt ? `<div class="mc-info">${esc(nm(o))} ${[sp, bt].filter(Boolean).join(", ")}</div>` : ""}
+      ${info.length ? `<div class="mc-info">${esc(nm(o))} ${esc(info.join(", "))}</div>` : ""}
       <div class="mc-acts">
         <button data-act="trailOpen">${ic("route")}<span>이동 기록</span></button>
         <button data-act="navTo" ${lo ? "" : "disabled"}>${ic("target")}<span>길찾기</span></button>
@@ -2750,7 +2782,7 @@
         ${row(ps === "granted" ? "pushTest" : "pushOn", "bell", "알림", ps === "granted" ? "켜짐 · 눌러서 테스트" : ps === "needs-home" ? "홈 화면에 추가해야 켤 수 있어요" : ps === "denied" ? "아이폰 설정에서 허용해 주세요" : "꺼짐 · 눌러서 켜기")}
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
-        ${row("placesSheet", "pin", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
+        ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}

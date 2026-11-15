@@ -1722,3 +1722,7 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .loc-card.eat-card .eat-dot { width: 40px; height: 40px; flex: none; }
 .loc-card.eat-card .eat-dot svg.i { width: 21px; height: 21px; }
 .sheet-box { background: linear-gradient(180deg, rgba(255,255,255,.985), rgba(255,255,255,.96)) !important; }
+.bk-bulk-t { display: inline-flex; align-items: center; gap: 5px; margin: -4px 0 10px; }
+.bk-bulk-t svg.i { width: 15px; height: 15px; }
+.bk-bulk { margin-bottom: 14px; }
+#bkBulkText { display: block; width: 100%; box-sizing: border-box; font-size: 14px; line-height: 1.5; }

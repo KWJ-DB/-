@@ -1035,6 +1035,20 @@ export async function onRequest({ request, env, params, waitUntil }) {
             .bind(done, done ? (isDate(b.date) ? b.date : todayKST()) : null, id).run();
           return json(OK);
         }
+        // 여러 개 한 번에 (이미 있는 건 건너뜀)
+        if (Array.isArray(b.items)) {
+          const { results } = await DB.prepare("SELECT title FROM bucket").all();
+          const have = new Set((results || []).map((r) => r.title.trim()));
+          const add = [];
+          for (const it of b.items.slice(0, 100)) {
+            const tt = str(it && it.title, 80);
+            if (!tt || have.has(tt)) continue;
+            have.add(tt);
+            add.push(DB.prepare("INSERT INTO bucket (title, who, t, done, done_date) VALUES (?1, ?2, ?3, ?4, ?5)").bind(tt, who, Date.now() + 1000 - add.length, it.done ? 1 : 0, it.done ? todayKST() : null));
+          }
+          if (add.length) await DB.batch(add);
+          return json({ ok: true, added: add.length });
+        }
         const title = str(b.title, 80);
         if (!title) return err(400, "내용을 입력하세요");
         await DB.prepare("INSERT INTO bucket (title, who, t) VALUES (?1, ?2, ?3)").bind(title, who, Date.now()).run();

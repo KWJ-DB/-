@@ -1042,12 +1042,19 @@
   }
   // ---------- 맛집 지도 ----------
   const EAT_CATS = ["한식", "일식", "중식", "양식", "아시안", "고기", "분식", "카페", "디저트", "술집", "기타"];
-  const E = { list: [], filter: "all", sort: "near", q: "", markers: [] };
+  const E = { list: [], filter: "all", sort: "near", q: "", markers: [], view: "cards", sel: null };
+  const CAT_LOOK = { 한식: ["bowl", "#F05A3C"], 일식: ["bowl", "#E8495F"], 중식: ["bowl", "#D9452B"], 양식: ["fork", "#E08A1E"], 아시안: ["bowl", "#2FA36B"], 고기: ["fork", "#C2412D"], 분식: ["bowl", "#F2763A"], 카페: ["cup", "#9A6B4F"], 디저트: ["cake", "#E3609B"], 술집: ["glass", "#6F5BD6"], 기타: ["bowl", "#7C7A85"] };
+  const catIc = (c) => (CAT_LOOK[c] || CAT_LOOK.기타)[0];
+  const catCol = (c) => (CAT_LOOK[c] || CAT_LOOK.기타)[1];
   const eatColor = (e) => (e.status === "been" ? "#E5406A" : "#8B8993");
   const avgRate = (e) => { const r = [e.ra, e.rb].filter((x) => x); return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 0; };
   const stars = (n, size) => `<span class="stars${size ? " " + size : ""}">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= Math.round(n) ? "on" : ""}">${ic("star")}</i>`).join("")}</span>`;
   async function loadEats() {
-    try { const d = await api("eats"); E.list = d.eats; drawEatMarkers(); if (S.eatOn && !S.trail && !$("#pick")) renderMapCard(); } catch (e) { toast(e.message); }
+    try {
+      const d = await api("eats"); const first = !E.loaded; E.list = d.eats; E.loaded = true;
+      drawEatMarkers(); if (S.eatOn && !S.trail && !$("#pick")) renderMapCard();
+      if (first || E.fitNext) { E.fitNext = false; fitEats(); }
+    } catch (e) { toast(e.message); }
   }
   const bothWant = (e) => e.wa && e.wb;
   function eatsFiltered(forMap) {
@@ -1067,14 +1074,100 @@
     if (!S.eatOn || !map || !mapLoaded) return;
     for (const e of eatsFiltered(true)) {
       const el = document.createElement("button");
-      el.className = "eat-mk" + (e.status === "been" ? " been" : "") + (bothWant(e) && e.status !== "been" ? " both" : "");
-      el.dataset.act = "eatOpenOne"; el.dataset.id = e.id;
+      el.className = "eat-mk" + (e.status === "been" ? " been" : "") + (bothWant(e) && e.status !== "been" ? " both" : "") + (E.sel === e.id ? " sel" : "");
+      el.dataset.act = "eatMk"; el.dataset.id = e.id;
+      el.style.setProperty("--c", catCol(e.cat));
       const r = avgRate(e);
-      el.innerHTML = `<span class="eat-ic">${ic("bowl")}</span><span class="eat-nm">${esc(e.name)}${r ? `<em>${ic("star")}${r.toFixed(1)}</em>` : ""}</span>`;
-      E.markers.push(new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([e.lon, e.lat]).addTo(map));
+      el.innerHTML = `<span class="eat-ic">${ic(catIc(e.cat))}</span><span class="eat-nm">${esc(e.name)}${r ? `<em>${ic("star")}${r.toFixed(1)}</em>` : ""}</span>`;
+      const mk = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([e.lon, e.lat]).addTo(map);
+      mk._eid = e.id;
+      E.markers.push(mk);
     }
   }
   function renderEatCard() {
+    if (E.view === "list") return renderEatList();
+    const l = eatsFiltered();
+    const chip = (v, label) => `<button class="chip${E.filter === v ? " on" : ""}" data-act="eatFilter" data-v="${v}">${label}</button>`;
+    const usedCats = EAT_CATS.filter((c) => E.list.some((e) => e.cat === c));
+    const nb = E.list.filter((e) => e.status === "been").length;
+    const card = $("#mapCard");
+    const html = `
+      <div class="eat2">
+        <div class="eat2-head">
+          <div class="eat2-t"><b>맛집 지도</b><span>${E.list.length ? `가본 곳 ${nb} · 가볼 곳 ${E.list.length - nb}` : "우리만의 맛집을 모아요"}</span></div>
+          ${E.list.length ? `<button class="eat2-ib" data-act="eatRandom" aria-label="오늘 어디 가지">${ic("sparkle")}</button><button class="eat2-ib" data-act="eatView" data-v="list" aria-label="목록으로 보기">${ic("list")}</button>` : ""}
+          <button class="eat2-add" data-act="eatAdd">${ic("plus")}추가</button>
+          <button class="eat2-ib" data-act="eatClose" aria-label="닫기">${ic("x")}</button>
+        </div>
+        ${E.list.length ? `<div class="chips eat-chips">${chip("all", "전체")}${chip("want", "가볼 곳")}${chip("been", "가본 곳")}${E.list.some(bothWant) ? chip("both", "둘 다 찜") : ""}${usedCats.map((c) => chip(c, c)).join("")}</div>` : ""}
+        <div class="eat-cards" id="eatCards">
+          ${l.map((e) => {
+            const r = avgRate(e);
+            return `<button class="ecard${E.sel === e.id ? " sel" : ""}" data-act="eatOpenOne" data-id="${e.id}">
+              <span class="ecard-img" style="--c:${catCol(e.cat)}">${e.cover ? `<img src="/api/eatimg/${e.cover}?thumb=1" alt="" loading="lazy">` : ic(catIc(e.cat))}
+                ${bothWant(e) && e.status !== "been" ? `<em class="ecard-both">${ic("heart")}둘 다 찜</em>` : e.status !== "been" ? `<em class="ecard-want">가볼 곳</em>` : ""}</span>
+              <span class="ecard-b">
+                <b>${esc(e.name)}</b>
+                <span class="ecard-m">${esc(e.cat || "기타")}${e.d ? ` · ${fmtDist(e.d)}` : ""}</span>
+                <span class="ecard-f">${r ? `<span class="ecard-r">${ic("star")}${r.toFixed(1)}</span>` : ""}${e.visitN ? `<span>${e.visitN}번 감</span>` : ""}${e.imgN ? `<span>사진 ${e.imgN}</span>` : ""}${!r && !e.visitN && !e.imgN ? `<span class="muted">${e.memo ? esc(e.memo.slice(0, 18)) : "아직 기록 없음"}</span>` : ""}</span>
+              </span>
+            </button>`;
+          }).join("")}
+          ${!l.length ? `<div class="ecard-empty">${E.list.length ? "여기에 맞는 맛집이 없어요" : `${ic("bowl")}<b>첫 맛집을 추가해보세요</b><span>가본 곳, 가보고 싶은 곳 모두 좋아요</span>`}</div>` : ""}
+        </div>
+      </div>`;
+    const keep = $("#eatCards") ? $("#eatCards").scrollLeft : 0;
+    if (card.querySelector(".eat2")) { const t = document.createElement("template"); t.innerHTML = html.trim(); morphKids(card, t.content); }
+    else { card.innerHTML = html; const c = $("#eatCards"); if (c) c.scrollLeft = keep; }
+    bindEatCards();
+  }
+  // 카드를 옆으로 넘기면 지도도 그 가게로
+  function bindEatCards() {
+    const c = $("#eatCards");
+    if (!c || c._bound) return;
+    c._bound = true;
+    let tm = null;
+    c.addEventListener("scroll", () => {
+      clearTimeout(tm);
+      tm = setTimeout(() => {
+        if (E.lock) return;
+        const mid = c.scrollLeft + c.clientWidth / 2;
+        let best = null, bd = Infinity;
+        for (const el of c.querySelectorAll(".ecard")) { const d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = el; } }
+        if (!best) return;
+        const id = Number(best.dataset.id);
+        if (id === E.sel) return;
+        selectEat(id, false);
+      }, 140);
+    }, { passive: true });
+  }
+  // 맛집들이 한눈에 보이게 지도 맞춤 (너무 멀리 있는 곳은 빼고 내 주변 위주)
+  function fitEats() {
+    if (!map || !mapLoaded) { E.fitNext = true; return; }
+    if (!E.list.length) return;
+    clearTimeout(E.fitT);
+    E.fitT = setTimeout(fitEatsNow, 500);
+  }
+  function fitEatsNow() {
+    if (!S.eatOn) return;
+    const me = S.locs[S.who];
+    let pts = E.list.map((e) => [e.lon, e.lat]);
+    if (me) { const near = E.list.filter((e) => distM(me, e) < 15000); if (near.length) pts = near.map((e) => [e.lon, e.lat]).concat([[me.lon, me.lat]]); }
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 130, bottom: 340, left: 50, right: 70 }, maxZoom: 16, duration: 600 });
+  }
+  function selectEat(id, scrollCard) {
+    E.sel = id;
+    const e = E.list.find((x) => x.id === id);
+    E.markers.forEach((m) => m.getElement().classList.toggle("sel", m._eid === id));
+    $$("#eatCards .ecard").forEach((el) => el.classList.toggle("sel", Number(el.dataset.id) === id));
+    if (e && map) map.easeTo({ center: [e.lon, e.lat], zoom: Math.max(map.getZoom(), 15.5), offset: [0, -innerHeight * 0.16], duration: 450 });
+    if (scrollCard) {
+      const el = $(`#eatCards .ecard[data-id="${id}"]`), c = $("#eatCards");
+      if (el && c) { E.lock = true; c.scrollTo({ left: el.offsetLeft - (c.clientWidth - el.offsetWidth) / 2, behavior: "smooth" }); setTimeout(() => (E.lock = false), 600); }
+    }
+  }
+  function renderEatList() {
     const l = eatsFiltered();
     const nb = E.list.filter((e) => e.status === "been").length;
     const chip = (v, label) => `<button class="chip${E.filter === v ? " on" : ""}" data-act="eatFilter" data-v="${v}">${label}</button>`;
@@ -1083,7 +1176,8 @@
     const html = `
       <div class="eat">
         <div class="eat-top">
-          <b>맛집 지도</b><span>가본 곳 ${nb}, 가볼 곳 ${E.list.length - nb}</span>
+          <button class="icon-btn" data-act="eatView" data-v="cards" aria-label="카드로 보기">${ic("left")}</button>
+          <b>전체 목록</b><span>가본 곳 ${nb}, 가볼 곳 ${E.list.length - nb}</span>
           <button class="icon-btn" data-act="eatClose" aria-label="닫기">${ic("x")}</button>
         </div>
         <div class="chips eat-chips">${chip("all", "전체")}${chip("want", "가볼 곳")}${chip("been", "가본 곳")}${E.list.some(bothWant) ? chip("both", "둘 다 찜") : ""}${usedCats.map((c) => chip(c, c)).join("")}</div>
@@ -1094,7 +1188,7 @@
         <div class="eat-list">${l.length ? l.slice(0, 60).map((e, i) => `
           <button class="eat-li" data-act="eatOpenOne" data-id="${e.id}">
             ${E.sort === "rate" && avgRate(e) && i < 3 ? `<span class="eat-rank r${i + 1}">${i + 1}</span>` : ""}
-            ${e.cover ? `<img class="eat-th" src="/api/eatimg/${e.cover}?thumb=1" alt="">` : `<span class="eat-dot ${e.status === "been" ? "been" : ""}">${ic("bowl")}</span>`}
+            ${e.cover ? `<img class="eat-th" src="/api/eatimg/${e.cover}?thumb=1" alt="">` : `<span class="eat-dot" style="--c:${catCol(e.cat)}">${ic(catIc(e.cat))}</span>`}
             <span class="eat-t"><b>${esc(e.name)}</b><span>${[esc(e.cat || "기타"), e.d ? fmtDist(e.d) : "", e.visitN ? `${e.visitN}번 감` : e.status === "been" ? "" : "가볼 곳"].filter(Boolean).join(", ")}</span></span>
             ${bothWant(e) && e.status !== "been" ? `<span class="eat-both" title="둘 다 찜">${ic("heart")}${ic("heart")}</span>` : ""}
             ${avgRate(e) ? `<span class="eat-r">${ic("star")}${avgRate(e).toFixed(1)}</span>` : ""}
@@ -1111,7 +1205,7 @@
   function setEatOn(on) {
     S.eatOn = on;
     const b = $("#eatBtn"); if (b) b.classList.toggle("on", on);
-    if (on) { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); loadEats(); }
+    if (on) { S.trail = null; E.fitNext = true; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); loadEats(); }
     drawEatMarkers(); renderMapCard();
   }
   function eatAddSheet() {
@@ -1192,7 +1286,7 @@
       <div class="seg eat-st" style="margin-top:14px">
         <button class="on" data-act="eatSt" data-v="want">가보고 싶어요</button><button data-act="eatSt" data-v="been">가봤어요</button>
       </div>
-      <div class="eat-cats">${EAT_CATS.map((c) => `<button class="chip${c === S.eatCat ? " on" : ""}" data-act="eatCat" data-v="${c}">${c}</button>`).join("")}</div>
+      <div class="eat-cats">${EAT_CATS.map((c) => `<button class="cchip${c === S.eatCat ? " on" : ""}" data-act="eatCat" data-v="${c}" style="--c:${catCol(c)}">${ic(catIc(c))}${c}</button>`).join("")}</div>
       <textarea id="eatMemo" rows="2" placeholder="메모 (예: 크림파스타 맛있대, 웨이팅 김)" maxlength="300" style="margin-top:12px"></textarea>
       <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="close">취소</button><button class="btn primary" data-act="eatSave">저장</button></div>`);
   }
@@ -1220,7 +1314,8 @@
     const mo = E.more && E.more.id === e.id ? E.more : null;
     const imgs = mo ? mo.imgs : [], visits = mo ? mo.visits : [];
     const html = `
-      <div class="eat-d-top"><span class="eat-dot big ${e.status === "been" ? "been" : ""}">${ic("bowl")}</span>
+      ${imgs.length ? `<button class="eat-hero" data-act="eatPhView" data-i="0"><img src="/api/eatimg/${imgs[0].id}" alt=""></button>` : ""}
+      <div class="eat-d-top"><span class="eat-dot big" style="--c:${catCol(e.cat)}">${ic(catIc(e.cat))}</span>
         <div style="min-width:0;flex:1"><h2 style="margin:0">${esc(e.name)}</h2><span class="sheet-sub">${esc(e.cat || "기타")}${e.addr ? ", " + esc(e.addr) : ""}</span></div>
         <button class="eat-heart ${myW ? "on" : ""}" data-act="eatWant" aria-label="가고 싶어요">${ic("heart")}</button></div>
       ${e.status !== "been" ? `<div class="eat-wantline">${myW && otW ? `<b>둘 다 가고 싶어 해요</b>` : myW ? `나는 찜했어요. ${esc(nm(other()))}님은 아직이에요` : otW ? `<b>${esc(nm(other()))}님이 가고 싶어 해요</b>` : "하트를 누르면 가고 싶은 곳으로 찜돼요"}</div>` : ""}
@@ -2601,7 +2696,7 @@
       setTimeout(() => $("#eatName") && $("#eatName").focus(), 300);
     },
     eatSt(el) { S.eatStatus = el.dataset.v; $$(".eat-st button").forEach((b) => b.classList.toggle("on", b === el)); },
-    eatCat(el) { S.eatCat = el.dataset.v; $$(".eat-cats .chip").forEach((b) => b.classList.toggle("on", b === el)); },
+    eatCat(el) { S.eatCat = el.dataset.v; $$(".eat-cats .cchip").forEach((b) => b.classList.toggle("on", b === el)); },
     async eatSave() {
       const p = S.eatNew, name = $("#eatName").value.trim();
       if (!name) return toast("가게 이름을 적어주세요");
@@ -2615,6 +2710,12 @@
         toast(`${name}을(를) 추가했어요`);
         setTimeout(() => eatDetail(E.list.find((x) => x.id === r.id)), 900);
       } catch (e) { toast(e.message); }
+    },
+    eatView(el) { E.view = el.dataset.v; $("#mapCard").innerHTML = ""; renderEatCard(); },
+    eatMk(el) {
+      const id = Number(el.dataset.id);
+      if (E.view === "cards" && E.sel !== id) { selectEat(id, true); return; }
+      eatDetail(E.list.find((x) => x.id === id));
     },
     eatOpenOne(el) { eatDetail(E.list.find((x) => String(x.id) === el.dataset.id)); },
     eatSetSt(el) { eatUpdate({ status: el.dataset.v }); },

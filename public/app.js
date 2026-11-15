@@ -234,7 +234,7 @@
     const y = window.scrollY;
     try {
       if (S.tab === "home") await renderHome();
-      else if (S.tab === "question") await renderQuestion();
+      else if (S.tab === "question") { if (![...document.querySelectorAll("#view textarea")].some((t) => t.value.trim())) await renderQuestion(); }
       else if (S.tab === "calendar") await (S.memView === "cal" ? renderCalendar() : renderAlbum());
 
     } catch (e) {
@@ -334,6 +334,7 @@
   // ---------- 서로 알아두기 (좋아하는 것, 싫어하는 것 등 메모) ----------
   const NOTE_CATS = ["좋아해", "싫어해", "갖고 싶어", "사이즈", "기억할 것"];
   async function notesSheet(about) {
+    S.pendingRefresh = () => notesSheet(about);
     about = about || S.notesAbout || other();
     S.notesAbout = about;
     const { notes } = await api("notes");
@@ -393,6 +394,7 @@
 
   // ---------- 오늘의 한 장 ----------
   async function dailySheet() {
+    S.pendingRefresh = () => dailySheet();
     const t = today();
     const { days } = await api(`daily?date=${t}`);
     const td = days.find((d) => d.date === t) || { date: t, mine: false, partner: false, open: false };
@@ -429,6 +431,7 @@
   const COUPON_PRESETS = ["소원 들어주기권", "떡볶이 쏘기권", "화 풀기권", "1시간 통화권", "사진 찍어주기권", "데이트 코스 정하기권"];
   async function couponSheet(tab) {
     tab = tab || S.couponTab || "got";
+    S.pendingRefresh = () => couponSheet(S.couponTab);
     S.couponTab = tab;
     const { coupons } = await api("coupons");
     const list = coupons.filter((c) => (tab === "got" ? c.from_who !== S.who : c.from_who === S.who));
@@ -851,6 +854,7 @@
 
   // ---------- 버킷리스트 (홈에서 여는 시트) ----------
   async function bucketSheet() {
+    S.pendingRefresh = () => bucketSheet();
     const { bucket } = await api("bucket");
     const done = bucket.filter((b) => b.done).length;
     const keep = $("#bkTitle") ? $("#bkTitle").value : "";
@@ -1040,6 +1044,7 @@
   }
   const ownerLabel = (o) => (o === "a" || o === "b" ? nm(o) : "둘 다");
   function placesSheet() {
+    S.pendingRefresh = () => placesSheet();
     const insideOf = (pid) => (S.placeState || []).filter((x) => x.place_id === pid && x.inside).map((x) => x.who);
     openSheet(`
       <h2>${ic("pin")}우리 장소</h2>
@@ -2674,18 +2679,22 @@
   }
 
   // ---------- 시트 ----------
-  function openSheet(html) {
-    S.sheetAt = Date.now();
+  function openSheet(html, refresher) {
+    const b = $("#sheetBox"), sc = b.scrollTop;
+    if (!S.silentSheet) { S.sheetAt = Date.now(); S.sheetRefresh = S.pendingRefresh || null; S.pendingRefresh = null; }
+    if (refresher) S.sheetRefresh = refresher;
     const sh = $("#sheet"), was = !sh.hidden && !sh.classList.contains("closing");
     sh.classList.remove("closing");
-    $("#sheetBox").innerHTML = html;
+    b.innerHTML = html;
     sh.hidden = false;
+    if (S.silentSheet) { b.scrollTop = sc; return; }            // 조용히 새로고침: 스크롤 유지, 애니메이션 없음
     // 이미 열려 있으면 내용만 부드럽게 바꿈
-    if (was) { const b = $("#sheetBox"); b.classList.remove("swap"); void b.offsetWidth; b.classList.add("swap"); }
+    if (was) { b.classList.remove("swap"); void b.offsetWidth; b.classList.add("swap"); }
   }
   function closeSheet() {
     const sh = $("#sheet");
     if (sh.hidden || sh.classList.contains("closing")) return;
+    S.sheetRefresh = null;
     sh.classList.add("closing");
     setTimeout(() => { sh.hidden = true; sh.classList.remove("closing"); }, 220);
   }
@@ -4165,16 +4174,25 @@
   // 둘이 동시에 수정해도 바로바로 보이게: 열려 있는 탭을 조용히 다시 불러옴
   async function liveRefresh() {
     if (document.hidden || !S.who) return;
-    if (!$("#sheet").hidden) return;                      // 창이 열려 있으면 건너뜀
-    if (document.body.classList.contains("kb")) return;   // 입력 중이면 건너뜀
     if ($("#view").style.transform) return;               // 당겨서 새로고침 중이면 건너뜀
+    // 열려 있는 창(버킷리스트·장소·쿠폰 등)도 새로고침 — 단, 입력 중인 칸은 건드리지 않음
+    if (!$("#sheet").hidden) {
+      const a = document.activeElement;
+      const typing = a && a.closest && a.closest("#sheetBox input, #sheetBox textarea");
+      if (S.sheetRefresh && !typing) {
+        try { S.silentSheet = true; await S.sheetRefresh(); } catch {} finally { S.silentSheet = false; }
+      }
+      return;
+    }
+    if (document.body.classList.contains("kb")) return;   // 입력 중이면 건너뜀
     try {
       if (S.tab === "home") await renderHome();
+      else if (S.tab === "question") await renderQuestion();
       else if (S.tab === "calendar") await (S.memView === "cal" ? renderCalendar() : renderAlbum());
       else if (S.tab === "map" && S.eatOn && !$("#pick") && !S.trail) await loadEats();
     } catch {}
   }
-  setInterval(liveRefresh, 7000);
+  setInterval(liveRefresh, 2000);
   window.addEventListener("focus", liveRefresh);
 
   // 위치 자동 새로고침

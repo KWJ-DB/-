@@ -2786,6 +2786,7 @@
       bar.innerHTML = btn("callMute", K.muted ? "micoff" : "mic", "음소거", K.muted ? "on" : "") + (K.kind === "video" ? btn("callFlip", "flip", "전환") : "") + btn("callEnd", "hang", "끊기", "red");
     } else if (state === "connecting") {
       st.textContent = "연결하는 중...";
+      bar.innerHTML = btn("callEnd", "hang", "끊기", "red");
     } else if (state === "on") {
       if (!K.t0) K.t0 = Date.now();
       const tick = () => { const d = Math.floor((Date.now() - K.t0) / 1000); st.textContent = `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}`; };
@@ -2829,14 +2830,17 @@
     }
   }
   async function acceptCall() {
-    const c = K.incoming; if (!c) return;
+    const c = K.incoming; if (!c || K.accepting) return;
+    // 받기를 두 번 누르면 두 번째가 첫 연결을 끊던 문제 방지
+    K.accepting = true; K.incoming = null;
+    clearInterval(K.poll);
     ringTone(false); setCall("connecting");
     try {
       const { call } = await api(`call/${c.id}`);
-      if (call.state !== "ringing") { toast("이미 끝난 전화예요"); return endCall(false); }
+      if (call.state !== "ringing") { toast(call.state === "missed" ? "시간이 지나서 끊긴 전화예요. 다시 걸어주세요" : "상대가 전화를 끊었어요"); return endCall(false); }
       const full = await api("call");
       const offer = full.call && full.call.id === c.id ? full.call.offer : null;
-      if (!offer) { toast("이미 끝난 전화예요"); return endCall(false); }
+      if (!offer) { toast("상대가 전화를 끊었어요"); return endCall(false); }
       K.local = await getMedia(c.kind);
       $("#callLocal").srcObject = K.local; $("#call").classList.add("has-local");
       const pc = K.pc = newPC();
@@ -2862,7 +2866,7 @@
     $("#callRemote").srcObject = null; $("#callAudio").srcObject = null; $("#callLocal").srcObject = null;
     const c = $("#call"); c.classList.add("closing");
     setTimeout(() => { c.hidden = true; c.className = ""; }, 250);
-    Object.assign(K, { pc: null, local: null, id: null, incoming: null, state: "", t0: 0 });
+    Object.assign(K, { pc: null, local: null, id: null, incoming: null, state: "", t0: 0, accepting: false });
     if (S.chat) S.chat.sig = "";
   }
   function incomingCall(c) {

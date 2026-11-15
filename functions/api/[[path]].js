@@ -930,7 +930,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "GET call": {
         const now = Date.now();
         // 40초 넘게 안 받은 전화는 부재중으로
-        await DB.prepare("UPDATE calls SET state = 'missed', t_end = ?1 WHERE state = 'ringing' AND t < ?2").bind(now, now - 40000).run();
+        await DB.prepare("UPDATE calls SET state = 'missed', t_end = ?1 WHERE state = 'ringing' AND t < ?2").bind(now, now - 60000).run();
         if (id) {
           const c = await DB.prepare("SELECT id, caller, kind, state, answer, t, t_ans FROM calls WHERE id = ?1").bind(id).first();
           return c ? json({ call: c }) : err(404, "통화가 없어요");
@@ -1006,7 +1006,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // 탭 배지 등 가벼운 상태 확인
       case "GET pulse": {
-        const ring = await DB.prepare("SELECT id, caller, kind, t FROM calls WHERE state = 'ringing' AND caller != ?1 AND t > ?2 ORDER BY id DESC LIMIT 1").bind(who, Date.now() - 40000).first();
+        const ring = await DB.prepare("SELECT id, caller, kind, t FROM calls WHERE state = 'ringing' AND caller != ?1 AND t > ?2 ORDER BY id DESC LIMIT 1").bind(who, Date.now() - 60000).first();
         const last = await DB.prepare("SELECT id, who, substr(text, 1, 60) AS text, img FROM messages ORDER BY id DESC LIMIT 1").first();
         let place = null;
         try { place = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}

@@ -8,10 +8,11 @@ import {
 import { getVapid, sendPush } from "../_push.js";
 
 const REACTS = ["heart", "sparkle", "star", "fire", "like", "hug", "laugh", "wow", "sad"];
-const CHOICE_SLOTS = ["c", "c1", "c2", "c3"];
+const CHOICE_SLOTS = ["c", "c1", "c2", "c3", "c4"];
 // 추가 질문: bc1, bc2... (둘 중 하나), bt1, bt2... (서술형) — 끝없이
-const isChoiceSlot = (sl) => CHOICE_SLOTS.includes(sl) || /^bc\d{1,4}$/.test(sl);
-const isSlot = (sl) => sl === "t" || isChoiceSlot(sl) || /^bt\d{1,4}$/.test(sl);
+// 새 질문 세트(11/15 낮부터): 서술형 "s", 취향 "k1"~"k4"
+const isChoiceSlot = (sl) => CHOICE_SLOTS.includes(sl) || /^bc\d{1,4}$/.test(sl) || /^k[1-4]$/.test(sl);
+const isSlot = (sl) => sl === "t" || sl === "s" || isChoiceSlot(sl) || /^bt\d{1,4}$/.test(sl);
 
 const OK = { ok: true };
 const unauthorized = () => new Response("unauthorized", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="couple"' } });

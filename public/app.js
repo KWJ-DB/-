@@ -101,13 +101,17 @@
 
   // ---------- 질문 ----------
   const QT = window.QUESTIONS.text, QC = window.QUESTIONS.choice;
-  const qIndex = (date) => Math.max(0, diff(S.created || date, date));
-  const CSLOTS = ["c1", "c2", "c3"];
-  const ALL_SLOTS = ["t", ...CSLOTS];
+  const qIndex = (date) => Math.max(0, diff(QBASE, date));
+  // 질문 날짜는 아침 6시에 바뀜 (새벽 1시는 아직 전날 질문)
+  const qToday = () => ymd(new Date(Date.now() - 6 * 3600e3));
+  const QBASE = "2026-11-15";
+  const TS = "s"; // 서술형 슬롯
+  const CSLOTS = ["k1", "k2", "k3", "k4"];
+  const ALL_SLOTS = [TS, ...CSLOTS];
   const qFor = (date, slot) => {
     const i = qIndex(date);
     const G = window.QGEN;
-    if (slot === "t") return { q: G ? G.text(i) : QT[i % QT.length] };
+    if (slot === "t" || slot === TS) return { q: G ? G.text(i) : QT[i % QT.length] };
     // 추가 질문: 날마다 다른 구간에서 끝없이
     const bm = /^b([ct])(\d+)$/.exec(slot);
     if (bm && G) {
@@ -115,23 +119,23 @@
       return bm[1] === "t" ? { q: G.text(4000 + i * 37 + k) } : G.choice(9000 + i * 53 + k);
     }
     const k = Math.max(0, CSLOTS.indexOf(slot));
-    return G ? G.choice(i * 3 + k) : QC[(i * 3 + k) % QC.length];
+    return G ? G.choice(i * 4 + k + 4) : QC[(i * 4 + k + 4) % QC.length];
   };
   // 예전 버전의 "c" 답은 첫 번째 객관식으로 취급
-  const getAns = (date, slot, w) => S.ans[`${date}|${slot}|${w}`] || (slot === "c1" ? S.ans[`${date}|c|${w}`] : undefined);
+  const getAns = (date, slot, w) => S.ans[`${date}|${slot}|${w}`];
   // 하루 한 질문: 짝수 날은 서술형, 홀수 날은 둘 중 하나
   const daySlot = (date) => (qIndex(date) % 2 === 0 ? "t" : "c1");
   const bonusSlot = (k) => (k % 2 ? "bc" : "bt") + k;
   const bonusAnswered = (date) => { let k = 0; while (getAns(date, bonusSlot(k + 1), S.who) || getAns(date, bonusSlot(k + 1), other())) k++; return k; };
-  const answeredCount = (date, w) => (getAns(date, daySlot(date), w) ? 1 : 0);
+  const answeredCount = (date, w) => ALL_SLOTS.filter((sl) => getAns(date, sl, w)).length;
   async function loadAnswers(from, to) {
     const { answers } = await api(`answers?from=${from}&to=${to}`);
     for (const k of Object.keys(S.ans)) { const d = k.slice(0, 10); if (d >= from && d <= to) delete S.ans[k]; }
     for (const a of answers) S.ans[`${a.qdate}|${a.slot}|${a.who}`] = a;
   }
   function updateBadge() {
-    const t = today();
-    $("#qBadge").hidden = answeredCount(t, S.who) >= 1;
+    const t = qToday();
+    $("#qBadge").hidden = answeredCount(t, S.who) >= ALL_SLOTS.length;
   }
 
   // ---------- 화면 전환 ----------
@@ -211,7 +215,7 @@
     if (!$(".hero", view)) { view.innerHTML = skel("home"); view.dataset.tab = "home"; }
     const t = today();
     const [, locR, bkR, lt, sk] = await Promise.all([
-      loadAnswers(t, t), api("loc"), api("bucket"), api(`letters?today=${t}`), api(`streak?today=${t}`),
+      loadAnswers(qToday(), qToday()), api("loc"), api("bucket"), api(`letters?today=${t}`), api(`streak?today=${qToday()}`),
     ]);
     S.locs = locR.locs; S.locNow = locR.now;
     updateBadge();
@@ -219,7 +223,7 @@
 
     const dp = dplus(t);
     const next = annivList(t, addDays(t, 800)).filter((a) => a.kind !== "start")[0];
-    const myCnt = answeredCount(t, S.who);
+    const myCnt = answeredCount(qToday(), S.who);
     const la = S.locs.a, lb = S.locs.b;
     const dist = la && lb ? fmtDist(distM(la, lb)) : null;
     const bk = bkR.bucket, bkDone = bk.filter((x) => x.done).length;
@@ -244,14 +248,13 @@
         </div>
         <div class="hero-acts">
           <button class="ha" data-act="missYou" aria-label="보고싶어">${HEART}</button>
-          <button class="ha" data-act="swOpen" aria-label="맞대기">${ic("phone")}</button>
         </div>
       </div>
       ${ps === "default" ? `<button class="notice" data-act="pushOn">${ic("bell")}알림을 켜면 앱을 꺼도 메시지가 와요<b>켜기</b></button>`
         : ps === "needs-home" ? `<div class="notice">${ic("bell")}홈 화면에 추가하면 알림을 받을 수 있어요</div>` : ""}
       ${lt.unread ? `<button class="notice letter" data-act="lettersOpen">${ic("msg")}${esc(nm(other()))}님의 편지가 도착했어요<b>열기</b></button>` : ""}
       <div class="list">
-        ${row("tab", "chat", "오늘의 질문", myCnt ? ic("check", "done") : "답하기", esc(qFor(t, daySlot(t)).q), 'data-tab="question"')}
+        ${row("tab", "chat", "오늘의 질문", myCnt >= 5 ? ic("check", "done") : `${myCnt}/5`, esc(qFor(qToday(), TS).q), 'data-tab="question"')}
         ${row("meetSheet", "cal", "다음 만남", meet ? dlabel(diff(t, meet)) : "정하기", meet ? fmtK(meet) : "")}
         ${row("annivSheet", "gift", next ? esc(next.title) : "기념일", next ? dlabel(diff(t, next.date)) : "", next ? fmtK(next.date) : "")}
         ${row("tab", "pin", "우리 사이", S.together ? "함께" : dist || "-", S.together ? "같이 있어요" : "", 'data-tab="map"')}
@@ -456,11 +459,11 @@
   // ---------- 질문 ----------
   async function renderQuestion() {
     spinner();
-    const t = today();
+    const t = qToday();
     S.qDays = S.qDays || 14;
     let from = addDays(t, -S.qDays);
-    const hasMore = !S.created || from > S.created;
-    if (S.created && from < S.created) from = S.created;
+    const hasMore = from > QBASE;
+    if (from < QBASE) from = QBASE;
     if (from > t) from = t;
     const [, sk] = await Promise.all([loadAnswers(from, t), api(`streak?today=${t}`).catch(() => ({}))]);
     S.streak = sk.streak || 0;
@@ -475,19 +478,20 @@
       arch += `
         <div class="arch2${open ? " open" : ""}">
           <button class="li" data-act="toggleArch" data-date="${d}">
-            <span class="li-t"><b>${esc(qFor(d, daySlot(d)).q)}</b><span>${fmtK(d)}</span></span>
+            <span class="li-t"><b>${esc(qFor(d, TS).q)}</b><span>${fmtK(d)}</span></span>
             <span class="dots">${dot(S.who)}${dot(other())}</span>${ic("right", "li-chev")}
           </button>
-          ${open ? `<div class="arch2-in">${daySlot(d) === "t" ? qCard(d, "t") : `<section class="qbox">${choiceOne(d, "c1")}</section>`}</div>` : ""}
+          ${open ? `<div class="arch2-in">${qCard(d, TS)}<section class="qbox">${CSLOTS.map((c) => choiceOne(d, c)).join("")}</section></div>` : ""}
         </div>`;
     }
-    const sl = daySlot(t);
+    const mineN = answeredCount(t, S.who), otN = answeredCount(t, other());
     view.innerHTML = `
       <div class="q-top">
-        <div><h2>오늘의 질문</h2><span>${fmtK(t)}${S.streak ? ` · ${S.streak}일 연속 함께 답했어요` : ""}</span></div>
+        <div><h2>오늘의 질문</h2><span>${fmtK(t)}, 나 ${mineN}/5 · ${esc(nm(other()))} ${otN}/5${S.streak ? `<br>${S.streak}일 연속 함께 답했어요` : ""}</span></div>
       </div>
-      ${sl === "t" ? qCard(t, "t") : `<section class="qbox"><h3 class="qbox-t">둘 중 하나 <span>한 번만 고를 수 있어요</span></h3>${choiceOne(t, "c1")}</section>`}
-      <p class="q-hint">하루에 하나씩, 매일 새 질문이 와요</p>
+      ${qCard(t, TS)}
+      <section class="qbox"><h3 class="qbox-t">취향 맞추기 <span>한 번만 고를 수 있어요</span></h3>${CSLOTS.map((c) => choiceOne(t, c)).join("")}</section>
+      <p class="q-hint">매일 새 질문이 와요</p>
       ${arch ? `<h3 class="q-past">지난 질문</h3><div class="list">${arch}</div>` : ""}
       ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:10px">더 보기</button>` : ""}`;
   }

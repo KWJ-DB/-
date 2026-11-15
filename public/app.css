@@ -1056,3 +1056,8 @@ img { transition: opacity .3s; }
 .sk-grid .sk { aspect-ratio: 1; border-radius: 0; }
 .st.sk { min-height: 82px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+/* DM 입력칸: 안쪽 테두리·포커스 선 제거 (바깥 둥근 칸만) */
+.dm-pill input[type=text] { border: 0 !important; background: transparent !important; border-radius: 0 !important; padding: 10px 0 !important; min-height: 0 !important; box-shadow: none !important; }
+.dm-pill input:focus, .dm-pill input:focus-visible { outline: none !important; border: 0 !important; }
+.dm-pill:focus-within { border-color: #CFCBD6; }
+.dm-list { padding-right: 14px; }

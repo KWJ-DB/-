@@ -1075,7 +1075,7 @@
   function fitMap() {
     const pts = ["a", "b"].map((w) => S.locs[w]).filter(Boolean).map((l) => [l.lon, l.lat]);
     if (!map || !pts.length) return;
-    const pad = { top: 160, bottom: 380, left: 60, right: 60 };
+    const pad = { top: 130, bottom: 330, left: 50, right: 80 };
     if (pts.length === 1) map.flyTo({ center: pts[0], zoom: 15 });
     else map.fitBounds([[Math.min(pts[0][0], pts[1][0]), Math.min(pts[0][1], pts[1][1])], [Math.max(pts[0][0], pts[1][0]), Math.max(pts[0][1], pts[1][1])]], { padding: pad, maxZoom: 16 });
   }
@@ -1351,8 +1351,8 @@
       <div class="kk-map">
         <h3>${ic("pin")}카카오맵으로 지도 보기 ${S.kakaoJs ? `<span class="ok-tag">사용 중</span>` : ""}</h3>
         <ol class="nv-steps">
-          <li>같은 카카오 앱의 <b>앱 키</b>(또는 플랫폼 키)에서 <b>JavaScript 키</b>를 복사해요 (REST API 키 말고)</li>
-          <li><b>플랫폼</b> &gt; <b>Web</b>(또는 JavaScript 키 설정의 <b>JavaScript SDK 도메인</b>)에 <b>https://wooju.pages.dev</b> 를 등록해요</li>
+          <li>같은 카카오 앱 왼쪽 메뉴 <b>앱</b> &gt; <b>플랫폼 키</b>에서 <b>JavaScript 키</b>를 복사해요 (REST API 키 말고)</li>
+          <li>그 <b>JavaScript 키</b>를 눌러 들어가서 <b>JavaScript SDK 도메인</b>에 <b>https://wooju.pages.dev</b> 를 추가하고 저장해요</li>
         </ol>
         <input type="text" id="kkJs" placeholder="JavaScript 키" value="${esc(S.kakaoJs || "")}" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:10px">
         <div class="row2" style="margin-top:10px">${S.kakaoJs ? `<button class="btn gray" data-act="kakaoJsOff">기본 지도로</button>` : ""}<button class="btn primary" data-act="kakaoJsSave">카카오맵 쓰기</button></div>

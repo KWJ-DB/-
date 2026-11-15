@@ -1037,7 +1037,7 @@
       <label class="fl">위치 <span class="fl-sub">지도를 움직여 핀을 맞춰요</span></label>
       <div class="mini-wrap"><div id="miniPl" class="mini"></div><span class="mini-pin" style="--c:#B65FE0">${ic("pin")}</span></div>
       <div class="row2" style="margin-top:16px"><button class="btn gray" data-act="placesSheet">취소</button><button class="btn primary" data-act="plEdSave">저장</button></div>`);
-    setTimeout(() => miniMap("miniPl", p.lat, p.lon, { zoom: 17, onMove: (la, lo) => { S.plEd.lat = la; S.plEd.lon = lo; } }), 320);
+    setTimeout(() => miniMap("miniPl", p.lat, p.lon, { zoom: 17, onMove: (la, lo) => { if (S.plEd) { S.plEd.lat = la; S.plEd.lon = lo; } } }), 320);
   }
   function placePick() {
     closeSheet();
@@ -1115,6 +1115,8 @@
   }
   const E = { list: [], all: [], kind: (() => { try { return localStorage.getItem("eatKind") || "food"; } catch { return "food"; } })(), filter: "all", sort: "near", q: "", markers: [], view: "cards", sel: null };
   const CAT_LOOK = { 한식: ["bowl", "#F05A3C"], 일식: ["bowl", "#E8495F"], 중식: ["bowl", "#D9452B"], 양식: ["fork", "#E08A1E"], 아시안: ["bowl", "#2FA36B"], 고기: ["fork", "#C2412D"], 분식: ["bowl", "#F2763A"], 카페: ["cup", "#9A6B4F"], 디저트: ["cake", "#E3609B"], 술집: ["glass", "#6F5BD6"], 기타: ["pin", "#7C7A85"], 공원: ["tree", "#3A9D5D"], 산책: ["route", "#4AA88A"], 전시: ["frame", "#C2547A"], 영화: ["film", "#5B5FD6"], 공연: ["ticket", "#D9534F"], 쇼핑: ["bag", "#E0892E"], 놀거리: ["sparkle", "#8E5BD6"], 야경: ["moon", "#3D4A8F"], 여행: ["route", "#2B8FD6"] };
+  const PRICE = ["", "₩", "₩₩", "₩₩₩"];
+  const PRICE_T = ["", "저렴해요", "적당해요", "비싸요"];
   const catIc = (c) => (CAT_LOOK[c] || CAT_LOOK.기타)[0];
   const catCol = (c) => (CAT_LOOK[c] || CAT_LOOK.기타)[1];
   const eatColor = (e) => (e.status === "been" ? "#E5406A" : "#8B8993");
@@ -1182,7 +1184,7 @@
                 ${bothWant(e) && e.status !== "been" ? `<em class="ecard-both">${ic("heart")}둘 다 찜</em>` : e.status !== "been" ? `<em class="ecard-want">가볼 곳</em>` : ""}</span>
               <span class="ecard-b">
                 <b>${esc(e.name)}</b>
-                <span class="ecard-m">${esc(e.cat || "기타")}${e.d ? ` · ${fmtDist(e.d)}` : ""}</span>
+                <span class="ecard-m">${esc(e.cat || "기타")}${e.price ? ` · ${PRICE[e.price]}` : ""}${e.d ? ` · ${fmtDist(e.d)}` : ""}</span>
                 <span class="ecard-f">${r ? `<span class="ecard-r">${ic("star")}${r.toFixed(1)}</span>` : ""}${e.visitN ? `<span>${e.visitN}번 감</span>` : ""}${e.imgN ? `<span>사진 ${e.imgN}</span>` : ""}${!r && !e.visitN && !e.imgN ? `<span class="muted">${e.memo ? esc(e.memo.slice(0, 18)) : "아직 기록 없음"}</span>` : ""}</span>
               </span>
             </button>`;
@@ -1255,6 +1257,7 @@
           <button class="eat2-add" data-act="eatAdd">${ic("plus")}추가</button>
           <button class="eat2-ib" data-act="eatClose" aria-label="닫기">${ic("x")}</button>
         </div>
+        ${E.list.length ? `<button class="eat-statbtn" data-act="eatStats">${ic("list")}<span><b>우리 ${TK().name} 통계</b><em>많이 간 곳, 별점 순위, 취향 차이</em></span>${ic("right")}</button>` : ""}
         <div class="eat-find">
           ${ic("search")}<input type="text" id="eatFind" value="${esc(E.q)}" placeholder="${TK().find}" maxlength="30" autocomplete="off" enterkeyhint="search">
           ${E.q ? `<button class="eat-find-x" data-act="eatFindClear" aria-label="지우기">${ic("x")}</button>` : ""}
@@ -1371,8 +1374,8 @@
       <div class="row2" style="margin-top:14px">${S.naver ? `<button class="btn gray" data-act="naverOff">연결 해제</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="naverSave">연결하기</button></div>`}`);
   }
   function eatForm(p) {
-    setTimeout(() => miniMap("miniAdd", p.lat, p.lon, { onMove: (la, lo) => { S.eatNew.lat = la; S.eatNew.lon = lo; } }), 320);
-    S.eatNew = p; S.eatCat = p.cat && EAT_CATS.includes(p.cat) ? p.cat : TK().def; S.eatStatus = "want";
+    setTimeout(() => miniMap("miniAdd", p.lat, p.lon, { onMove: (la, lo) => { if (S.eatNew) { S.eatNew.lat = la; S.eatNew.lon = lo; } } }), 320);
+    S.eatPrice = 0; S.eatNew = p; S.eatCat = p.cat && EAT_CATS.includes(p.cat) ? p.cat : TK().def; S.eatStatus = "want";
     openSheet(`
       <h2>${TK().add}</h2>
       <input type="text" id="eatName" value="${esc(p.name || "")}" placeholder="${TK().namePh}" maxlength="40" style="margin-top:10px">
@@ -1382,6 +1385,7 @@
         <button class="on" data-act="eatSt" data-v="want">가보고 싶어요</button><button data-act="eatSt" data-v="been">가봤어요</button>
       </div>
       <div class="eat-cats">${EAT_CATS.map((c) => `<button class="cchip${c === S.eatCat ? " on" : ""}" data-act="eatCat" data-v="${c}" style="--c:${catCol(c)}">${ic(catIc(c))}${c}</button>`).join("")}</div>
+      ${E.kind === "food" ? `<div class="eat-price" style="margin-top:12px">${[1, 2, 3].map((v) => `<button data-act="eatPrice" data-v="${v}">${PRICE[v]}<em>${PRICE_T[v]}</em></button>`).join("")}</div>` : ""}
       <textarea id="eatMemo" rows="2" placeholder="${TK().memoPh}" maxlength="300" style="margin-top:12px"></textarea>
       <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="close">취소</button><button class="btn primary" data-act="eatSave">저장</button></div>`);
   }
@@ -1416,7 +1420,7 @@
     const html = `
       ${imgs.length ? `<button class="eat-hero" data-act="eatPhView" data-i="0"><img src="/api/eatimg/${imgs[0].id}" alt=""></button>` : ""}
       <div class="eat-d-top"><span class="eat-dot big" style="--c:${catCol(e.cat)}">${ic(catIc(e.cat))}</span>
-        <div style="min-width:0;flex:1"><h2 style="margin:0">${esc(e.name)}</h2><span class="sheet-sub">${esc(e.cat || "기타")}${e.addr ? ", " + esc(e.addr) : ""}</span></div>
+        <div style="min-width:0;flex:1"><h2 style="margin:0">${esc(e.name)}</h2><span class="sheet-sub">${esc(e.cat || "기타")}${e.price ? ` · ${PRICE[e.price]}` : ""}${e.addr ? " · " + esc(e.addr) : ""}</span></div>
         <button class="eat-edit" data-act="eatEdit" aria-label="수정">${ic("pen")}</button>
         <button class="eat-heart ${myW ? "on" : ""}" data-act="eatWant" aria-label="가고 싶어요">${ic("heart")}</button></div>
       ${e.status !== "been" ? `<div class="eat-wantline">${myW && otW ? `<b>둘 다 가고 싶어 해요</b>` : myW ? `나는 찜했어요. ${esc(nm(other()))}님은 아직이에요` : otW ? `<b>${esc(nm(other()))}님이 가고 싶어 해요</b>` : "하트를 누르면 가고 싶은 곳으로 찜돼요"}</div>` : ""}
@@ -1541,7 +1545,7 @@
     }, 2700);
   }
   function eatEditSheet(e, draft) {
-    const d = draft || { name: e.name, cat: e.cat || "기타", addr: e.addr || "", been: e.been || "", lat: e.lat, lon: e.lon };
+    const d = draft || { name: e.name, cat: e.cat || "기타", addr: e.addr || "", been: e.been || "", lat: e.lat, lon: e.lon, price: e.price || 0 };
     E.edit = { id: e.id, ...d };
     const moved = distM(e, d) > 3;
     openSheet(`
@@ -1550,6 +1554,7 @@
       <input type="text" id="edName" value="${esc(d.name)}" maxlength="40">
       <label class="fl">종류</label>
       <div class="eat-cats" style="margin-top:0">${EAT_CATS.map((c) => `<button class="cchip${c === d.cat ? " on" : ""}" data-act="edCat" data-v="${c}" style="--c:${catCol(c)}">${ic(catIc(c))}${c}</button>`).join("")}</div>
+      ${E.kind === "food" ? `<label class="fl">가격대</label><div class="eat-price">${[1, 2, 3].map((v) => `<button class="${d.price === v ? "on" : ""}" data-act="edPrice" data-v="${v}">${PRICE[v]}<em>${PRICE_T[v]}</em></button>`).join("")}</div>` : ""}
       <label class="fl">주소</label>
       <input type="text" id="edAddr" value="${esc(d.addr)}" placeholder="주소 (없어도 돼요)" maxlength="120">
       <label class="fl">위치 <span class="fl-sub" id="edMoved">${moved ? `원래 자리에서 ${fmtDist(distM(e, d))} 옮김` : "지도를 움직여 핀을 맞춰요"}</span></label>
@@ -1560,6 +1565,7 @@
   }
   function edMini(e) {
     setTimeout(() => miniMap("miniEd", E.edit.lat, E.edit.lon, { onMove: (la, lo) => {
+      if (!E.edit) return;
       E.edit.lat = la; E.edit.lon = lo;
       const m = $("#edMoved"); if (m) { const dd = distM(e, { lat: la, lon: lo }); m.textContent = dd > 3 ? `원래 자리에서 ${fmtDist(dd)} 옮김` : "지도를 움직여 핀을 맞춰요"; }
     } }), 320);
@@ -1570,6 +1576,33 @@
     if ($("#edAddr")) ed.addr = $("#edAddr").value;
     if ($("#edBeen")) ed.been = $("#edBeen").value;
     return ed;
+  }
+  function eatStatsSheet() {
+    const L = E.list, been = L.filter((e) => e.status === "been");
+    const visits = L.reduce((a, e) => a + (e.visitN || 0), 0), photos = L.reduce((a, e) => a + (e.imgN || 0), 0);
+    const topV = [...L].filter((e) => e.visitN).sort((a, b) => b.visitN - a.visitN).slice(0, 3);
+    const topR = [...L].filter((e) => avgRate(e)).sort((a, b) => avgRate(b) - avgRate(a)).slice(0, 3);
+    const diff = L.filter((e) => e.ra && e.rb && e.ra !== e.rb).sort((a, b) => Math.abs(b.ra - b.rb) - Math.abs(a.ra - a.rb)).slice(0, 3);
+    const same = L.filter((e) => e.ra && e.rb && e.ra === e.rb).length;
+    const bothW = L.filter((e) => bothWant(e) && e.status !== "been");
+    const cats = {};
+    been.forEach((e) => { cats[e.cat || "기타"] = (cats[e.cat || "기타"] || 0) + Math.max(1, e.visitN || 0); });
+    const catArr = Object.entries(cats).sort((a, b) => b[1] - a[1]);
+    const maxC = catArr.length ? catArr[0][1] : 1;
+    const row = (e, right) => `<button class="st-row" data-act="eatOpenOne" data-id="${e.id}"><span class="eat-dot" style="--c:${catCol(e.cat)}">${ic(catIc(e.cat))}</span><b>${esc(e.name)}</b><span>${right}</span></button>`;
+    openSheet(`
+      <h2>우리 ${TK().name} 통계</h2>
+      <div class="st-nums">
+        <div><b>${been.length}</b><span>가본 곳</span></div><div><b>${L.length - been.length}</b><span>가볼 곳</span></div>
+        <div><b>${visits}</b><span>다녀온 횟수</span></div><div><b>${photos}</b><span>사진</span></div>
+      </div>
+      ${catArr.length ? `<h3 class="st-h">자주 가는 종류</h3><div class="st-bars">${catArr.slice(0, 6).map(([c, n]) => `<div class="st-bar"><span>${esc(c)}</span><i style="--w:${Math.round((n / maxC) * 100)}%;--c:${catCol(c)}"></i><em>${n}</em></div>`).join("")}</div>` : ""}
+      ${topV.length ? `<h3 class="st-h">많이 간 곳</h3>${topV.map((e) => row(e, `${e.visitN}번`)).join("")}` : ""}
+      ${topR.length ? `<h3 class="st-h">별점 높은 곳</h3>${topR.map((e) => row(e, `${ic("star")}${avgRate(e).toFixed(1)}`)).join("")}` : ""}
+      ${diff.length ? `<h3 class="st-h">취향이 갈린 곳</h3>${diff.map((e) => row(e, `${esc(nm("a"))} ${e.ra} · ${esc(nm("b"))} ${e.rb}`)).join("")}` : ""}
+      ${same ? `<p class="st-note">별점이 똑같은 곳이 ${same}곳이에요</p>` : ""}
+      ${bothW.length ? `<h3 class="st-h">둘 다 찜했는데 아직 못 간 곳</h3>${bothW.slice(0, 5).map((e) => row(e, e.d ? fmtDist(e.d) : "")).join("")}` : ""}
+      ${!been.length && !bothW.length ? `<div class="empty">아직 기록이 적어요<br><small>다녀온 기록과 별점을 남기면 통계가 채워져요</small></div>` : ""}`);
   }
   function eatPlanSheet() {
     const e = E.list.find((x) => x.id === S.eatCur);
@@ -2877,7 +2910,7 @@
       const p = S.eatNew, name = $("#eatName").value.trim();
       if (!name) return toast("이름을 적어주세요");
       try {
-        const r = await api("eats", { method: "POST", body: { name, lat: p.lat, lon: p.lon, addr: p.addr || "", cat: S.eatCat, status: S.eatStatus, memo: $("#eatMemo").value, link: p.link || "", kind: E.kind } });
+        const r = await api("eats", { method: "POST", body: { name, lat: p.lat, lon: p.lon, addr: p.addr || "", cat: S.eatCat, status: S.eatStatus, memo: $("#eatMemo").value, link: p.link || "", kind: E.kind, price: S.eatPrice || 0 } });
         closeSheet();
         if (S.tab !== "map") setTab("map");
         if (!S.eatOn) S.eatOn = true, $("#eatBtn") && $("#eatBtn").classList.add("on");
@@ -2902,7 +2935,11 @@
     },
     eatOpenOne(el) { eatDetail(E.list.find((x) => String(x.id) === el.dataset.id)); },
     eatSetSt(el) { eatUpdate({ status: el.dataset.v }); },
-    eatRate(el) { const e = E.list.find((x) => x.id === S.eatCur); const v = Number(el.dataset.v); eatUpdate({ rate: e && e["r" + S.who] === v ? 0 : v }); },
+    eatRate(el) {
+      const e = E.list.find((x) => x.id === S.eatCur), v = Number(el.dataset.v), off = e && e["r" + S.who] === v;
+      try { navigator.vibrate && navigator.vibrate(8); } catch {}
+      eatUpdate({ rate: off ? 0 : v }).then(() => toast(off ? "별점을 지웠어요" : `별점 ${v}점을 줬어요`));
+    },
     eatFly() { const e = E.list.find((x) => x.id === S.eatCur); closeSheet(); if (S.tab !== "map") setTab("map"); if (!S.eatOn) setEatOn(true); setTimeout(() => map.flyTo({ center: [e.lon, e.lat], zoom: 17 }), 300); },
     eatNav() { const e = E.list.find((x) => x.id === S.eatCur); location.href = `https://map.kakao.com/link/to/${encodeURIComponent(e.name)},${e.lat},${e.lon}`; },
     async eatDm() {
@@ -2944,6 +2981,9 @@
       const id = S.eatCur; E.more = null; await loadEats(); eatDetail(E.list.find((x) => x.id === id));
     },
     eatPlan: () => eatPlanSheet(),
+    eatStats: () => eatStatsSheet(),
+    eatPrice(el) { const v = Number(el.dataset.v); S.eatPrice = S.eatPrice === v ? 0 : v; $$(".eat-price button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === S.eatPrice)); },
+    edPrice(el) { const v = Number(el.dataset.v); E.edit.price = E.edit.price === v ? 0 : v; $$(".eat-price button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === E.edit.price)); },
     eatEdit() { const e = E.list.find((x) => x.id === S.eatCur); if (e) eatEditSheet(e); },
     edCat(el) { E.edit.cat = el.dataset.v; $$(".eat-cats .cchip").forEach((b) => b.classList.toggle("on", b === el)); },
     edReset() { const e = E.list.find((x) => x.id === E.edit.id); if (mini) mini.easeTo({ center: [e.lon, e.lat], zoom: 17.5 }); },
@@ -2974,7 +3014,7 @@
       const ed = edCollect(), e = E.list.find((x) => x.id === ed.id);
       const name = ed.name.trim();
       if (!name) return toast("이름을 적어주세요");
-      const body = { name, cat: ed.cat, addr: ed.addr.trim() };
+      const body = { name, cat: ed.cat, addr: ed.addr.trim(), price: ed.price || 0 };
       if (distM(e, ed) > 3) { body.lat = ed.lat; body.lon = ed.lon; }
       if (e.status === "been" && ed.been) body.been = ed.been;
       try { await api(`eats/${ed.id}`, { method: "POST", body }); } catch (er) { return toast(er.message); }

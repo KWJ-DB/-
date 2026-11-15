@@ -103,6 +103,10 @@ export async function ensureSchema(env) {
     try { await env.DB.prepare("ALTER TABLE eats ADD COLUMN kind TEXT DEFAULT 'food'").run(); } catch {}
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '8') ON CONFLICT(k) DO UPDATE SET v = '8'").run();
   }
+  if (!v || Number(v.v) < 9) {
+    try { await env.DB.prepare("ALTER TABLE eats ADD COLUMN price INTEGER").run(); } catch {}
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '9') ON CONFLICT(k) DO UPDATE SET v = '9'").run();
+  }
   ready = true;
 }
 

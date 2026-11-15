@@ -80,6 +80,27 @@ export async function onRequest({ request, env, params, waitUntil }) {
       } catch {}
     };
     const later = (job) => { if (waitUntil) waitUntil(job); else return job; };
+    // 가보고 싶던 맛집·갈 곳 근처(120m)에 가면 알려줌 (같은 곳은 12시간에 한 번)
+    const eatNearby = async (who, lat, lon, acc) => {
+      lat = Number(lat); lon = Number(lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || Number(acc) > 80) return;
+      const d = 0.0015;
+      const { results } = await env.DB.prepare("SELECT id, name, kind, wa, wb, lat, lon FROM eats WHERE status != 'been' AND lat BETWEEN ?1 AND ?2 AND lon BETWEEN ?3 AND ?4")
+        .bind(lat - d, lat + d, lon - d * 1.3, lon + d * 1.3).all();
+      const st2 = await getSettings(env);
+      for (const e of results || []) {
+        const m = distM({ lat, lon }, e);
+        if (m > 120) continue;
+        const key = `eatnear_${who}_${e.id}`;
+        if (Date.now() - (Number(st2[key]) || 0) < 12 * 3600e3) continue;
+        await setSettings(env, { [key]: Date.now() });
+        const both = e.wa && e.wb;
+        await sendPush(env, st2, setSettings, who, {
+          title: both ? "둘 다 찜한 곳이 바로 근처예요" : e.kind === "place" ? "가보고 싶던 곳이 근처예요" : "가보고 싶던 맛집이 근처예요",
+          body: `${e.name}이(가) ${Math.round(m / 10) * 10}m 거리에 있어요`, url: "/#map", tag: "eatnear" + e.id,
+        });
+      }
+    };
 
     // ---------- 로그인 없이 쓰는 것 ----------
     if (p0 === "state" && m === "GET") {
@@ -128,7 +149,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       if (b && b._type === "location") {
         try {
           await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, batt: b.batt, vel: b.vel, t: b.tst ? b.tst * 1000 : Date.now(), src: "app" });
-          await later(placeNotify(who, b.lat, b.lon, b.acc, b.tst ? b.tst * 1000 : Date.now()).then(togetherCheck));
+          await later(placeNotify(who, b.lat, b.lon, b.acc, b.tst ? b.tst * 1000 : Date.now()).then(togetherCheck).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
         } catch {}
       }
       const other = who === "a" ? "b" : "a";
@@ -399,7 +420,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "POST loc": {
         const b = await body(request);
         await saveLoc(DB, who, { ...b, src: "web", t: Date.now() });
-        await later(placeNotify(who, b.lat, b.lon, b.acc, Date.now()).then(togetherCheck));
+        await later(placeNotify(who, b.lat, b.lon, b.acc, Date.now()).then(togetherCheck).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
         return json(OK);
       }
       case "DELETE loc":
@@ -478,6 +499,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
           if (b.cat !== undefined) up.cat = CATS.includes(b.cat) ? b.cat : "기타";
           if (b.memo !== undefined) up.memo = str(b.memo, 300) || null;
           if (b.addr !== undefined) up.addr = str(b.addr, 120) || null;
+          if (b.price !== undefined) { const pr = Math.round(Number(b.price)); up.price = pr >= 1 && pr <= 3 ? pr : null; }
           if (b.lat !== undefined || b.lon !== undefined) {
             const la = Number(b.lat), lo = Number(b.lon);
             if (!Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) return err(400, "위치가 올바르지 않아요");
@@ -497,8 +519,9 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const status = b.status === "been" ? "been" : "want";
         const link = /^https?:\/\//.test(b.link || "") ? str(b.link, 200) : null;
         const kind = b.kind === "place" ? "place" : "food";
-        const r = await DB.prepare(`INSERT INTO eats (name, cat, lat, lon, addr, status, memo, who, t, been, link, w${who}, kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`)
-          .bind(name, CATS.includes(b.cat) ? b.cat : "기타", lat, lon, str(b.addr, 120) || null, status, str(b.memo, 300) || null, who, Date.now(), status === "been" ? todayKST() : null, link, status === "want" ? 1 : 0, kind).run();
+        const pr = Math.round(Number(b.price));
+        const r = await DB.prepare(`INSERT INTO eats (name, cat, lat, lon, addr, status, memo, who, t, been, link, w${who}, kind, price) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`)
+          .bind(name, CATS.includes(b.cat) ? b.cat : "기타", lat, lon, str(b.addr, 120) || null, status, str(b.memo, 300) || null, who, Date.now(), status === "been" ? todayKST() : null, link, status === "want" ? 1 : 0, kind, pr >= 1 && pr <= 3 ? pr : null).run();
         const nmMe = who === "a" ? st.a_name : st.b_name;
         const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: kind === "place" ? "갈 곳" : "맛집 지도", body: `${nmMe}님이 ${status === "been" ? "다녀온" : "가보고 싶은"} ${kind === "place" ? "곳" : "맛집"}을 추가했어요: ${name}`, url: "/#map", tag: "eat" });
         if (waitUntil) waitUntil(job); else await job;

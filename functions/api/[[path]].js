@@ -904,6 +904,28 @@ export async function onRequest({ request, env, params, waitUntil }) {
         ]);
         return json({ points: pts.results || [], events: evs.results || [] });
       }
+      // 좌표 → 실제 주소 (카카오 키가 있으면 카카오, 없으면 OpenStreetMap)
+      case "GET revgeo": {
+        const la = Number(q("lat")), lo = Number(q("lon"));
+        if (!Number.isFinite(la) || !Number.isFinite(lo)) return err(400, "좌표가 없어요");
+        if (st.kakao_key) {
+          try {
+            const r = await fetch(`https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${lo}&y=${la}`, { headers: { Authorization: `KakaoAK ${st.kakao_key}` } });
+            const d = await r.json();
+            const doc = (d.documents || [])[0];
+            if (doc) {
+              const road = doc.road_address, jibun = doc.address;
+              return json({ addr: road ? road.address_name : jibun ? jibun.address_name : "", building: road && road.building_name ? road.building_name : "", jibun: jibun ? jibun.address_name : "" });
+            }
+          } catch {}
+        }
+        try {
+          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=ko&zoom=18&lat=${la}&lon=${lo}`, { headers: { "User-Agent": "wooju-couple/1.0 (private couple site)" } });
+          const d = await r.json(), a = d.address || {};
+          const parts = [a.city || a.county || a.state, a.borough || a.city_district, a.road ? `${a.road}${a.house_number ? " " + a.house_number : ""}` : a.quarter || a.suburb || a.neighbourhood].filter(Boolean);
+          return json({ addr: parts.join(" "), building: d.name || a.building || a.amenity || "", jibun: "" });
+        } catch { return json({ addr: "", building: "" }); }
+      }
       case "POST locreq": {
         const name = who === "a" ? st.a_name : st.b_name;
         const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "위치 알려줘", body: `${name}님이 지금 위치를 궁금해해요. 눌러서 알려주세요`, url: "/#map", tag: "locreq" });

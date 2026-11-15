@@ -1658,13 +1658,24 @@
     setTimeout(() => { if (!document.hidden && Date.now() - t0 < 2500) location.href = webFull; }, 1400);
     closeSheet();
   }
-  function routeSheet(d) {
+  async function routeSheet(d) {
     S.route = d;
+    // 사람 위치는 실제 주소로 바꿔서 도착지로
+    if (d.lookup && !d.addr) {
+      d.addr = "…";
+      api(`revgeo?lat=${d.lat}&lon=${d.lon}`).then((r) => {
+        if (S.route !== d) return;
+        d.addr = r.addr || "";
+        if (r.addr) d.name = r.building ? `${r.building} (${r.addr})` : r.addr;
+        if (!$("#sheet").hidden && $("#routeAddr")) routeSheet(d);
+      }).catch(() => { d.addr = ""; });
+    }
     const me = S.locs[S.who];
     const old = d.t ? (S.locNow || Date.now()) - d.t : 0;
     const dist = me ? fmtDist(distM(me, d)) : "";
     openSheet(`
-      <h2>${esc(d.name)}까지 길찾기</h2>
+      <h2>${d.lookup ? `${esc(nm(d.who))}님한테 가는 길` : `${esc(d.name)}까지 길찾기`}</h2>
+      ${d.lookup ? `<div class="route-addr" id="routeAddr">${ic("pin")}<span>${d.addr === "…" ? "주소 찾는 중..." : d.addr ? esc(d.name) : "주소를 못 찾아서 지도 위치로 안내해요"}</span></div>` : ""}
       <p class="sheet-sub">${dist ? `여기서 ${dist}` : ""}${d.t ? ` · ${ago(d.t, S.locNow)} 위치` : ""}</p>
       ${d.t && old > 10 * 60000 ? `<div class="route-warn">${ic("clock")}<span>${esc(nm(d.who))}님 위치가 ${ago(d.t, S.locNow)} 거라 지금은 다른 곳일 수 있어요</span><button class="btn soft sm" data-act="locReq">위치 요청</button></div>` : ""}
       <div class="route-modes">
@@ -3472,7 +3483,7 @@
     trailDay(el) { S.trail = { ...S.trail, day: Number(el.dataset.v), data: null }; renderTrailCard(); loadTrail(); },
     navTo() {
       const l = S.locs[other()]; if (!l) return;
-      routeSheet({ lat: l.lat, lon: l.lon, name: `${nm(other())} 있는 곳`, t: l.t, acc: l.acc, who: other() });
+      routeSheet({ lat: l.lat, lon: l.lon, name: `${nm(other())} 위치`, t: l.t, acc: l.acc, who: other(), lookup: true });
     },
     routeGo(el) { const d = S.route; if (d) naverRoute(d, el.dataset.m); },
     async locReq() {

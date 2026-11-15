@@ -1717,3 +1717,5 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .route-warn > svg.i { width: 16px; height: 16px; flex: none; }
 .route-warn span { flex: 1; line-height: 1.4; }
 .route-note { display: flex; align-items: center; gap: 6px; font-size: 12px !important; color: var(--sub) !important; margin: 12px 2px 0; }
+.route-addr { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; padding: 12px; border-radius: var(--r-control); background: #F4F4F6; font-size: 14px; font-weight: 650; color: var(--ink); line-height: 1.45; }
+.route-addr svg.i { width: 18px; height: 18px; color: var(--rose); flex: none; margin-top: 1px; }

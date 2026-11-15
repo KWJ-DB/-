@@ -1634,12 +1634,13 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .map-card.mc-min > * { pointer-events: none; }
 .map-card.mc-min::after { content: "눌러서 펼치기"; position: absolute; left: 0; right: 0; top: 18px; text-align: center; font-size: 12.5px; font-weight: 650; color: var(--sub); }
 .map-card.mc-min > * { opacity: 0; transition: opacity .2s; }
-/* 당겨서 새로고침 표시 */
-.ptr { position: fixed; left: 50%; top: calc(var(--safe-t) + 54px); width: 38px; height: 38px; border-radius: 50%; background: #fff; box-shadow: 0 4px 14px rgba(0,0,0,.12); display: grid; place-items: center; color: var(--sub); z-index: 60; opacity: 0; transform: translate(-50%, -50px); pointer-events: none; transition: opacity .2s; }
-.ptr svg.i { width: 19px; height: 19px; }
-.ptr.ready { color: var(--rose); }
-.ptr.spin { transition: transform .25s cubic-bezier(.2,.9,.3,1); }
-.ptr.spin svg { animation: spin .7s linear infinite; }
+/* 당겨서 새로고침 */
+.ptr { position: fixed; left: 50%; top: calc(var(--safe-t) + 62px); width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; z-index: 15; opacity: 0; transform: translate(-50%, -18px) scale(.6); pointer-events: none; }
+.ptr svg { width: 22px; height: 22px; fill: none; stroke: #B9B6C0; stroke-width: 2.6; stroke-linecap: round; transform: rotate(-90deg); transition: stroke .2s; }
+.ptr.ready svg, .ptr.spin svg { stroke: var(--rose); }
+.ptr.spin svg { animation: ptrSpin .8s linear infinite; }
+.ptr.spin circle { stroke-dasharray: 40 100 !important; }
+@keyframes ptrSpin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* 오늘의 한 장: 사진 크기 통일 */
 .dpair > div { min-width: 0; }

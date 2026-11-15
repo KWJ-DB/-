@@ -2829,36 +2829,65 @@
     // 접힌 상태에서 누르면 펼치기
     mc.addEventListener("click", (e) => { if (mc.classList.contains("mc-min") && !e.target.closest("[data-act=eatClose],[data-act=trailClose]")) { e.stopPropagation(); e.preventDefault(); mc.classList.remove("mc-min"); } }, true);
   })();
-  // 당겨서 새로고침 (홈·질문·추억 맨 위에서 아래로 당기기)
+  // 당겨서 새로고침: 화면이 손가락 따라 내려오고, 위에 생긴 틈에서 동그라미가 돌다가 부드럽게 올라감
   (() => {
     const ind = document.createElement("div");
-    ind.className = "ptr"; ind.innerHTML = ic("refresh");
+    ind.className = "ptr"; ind.innerHTML = `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>`;
     document.body.appendChild(ind);
-    let st = null;
+    const arc = ind.querySelector("circle");
+    const C = 2 * Math.PI * 9;
+    let st = null, busy = false;
+    const TH = 72, HOLD = 58;
+    const place = (y) => {
+      view.style.transform = y ? `translateY(${y}px)` : "";
+      const k = Math.min(1, y / TH);
+      ind.style.opacity = String(Math.min(1, y / 30));
+      ind.style.transform = `translate(-50%, ${Math.min(y, HOLD) / 2 - 18}px) scale(${0.6 + 0.4 * k})`;
+      arc.style.strokeDasharray = `${C * 0.8 * k} ${C}`;
+      ind.classList.toggle("ready", y >= TH);
+    };
     view.addEventListener("touchstart", (e) => {
-      if (window.scrollY > 0 || e.touches.length !== 1 || !$("#sheet").hidden || e.target.closest("textarea, input, #qPage")) return;
-      st = { y: e.touches[0].clientY, x: e.touches[0].clientX, dy: 0, on: false };
+      if (busy || window.scrollY > 0 || e.touches.length !== 1 || !$("#sheet").hidden || e.target.closest("textarea, input, #qPage")) return;
+      st = { y: e.touches[0].clientY, x: e.touches[0].clientX, d: 0, on: false, buzz: false };
     }, { passive: true });
     view.addEventListener("touchmove", (e) => {
       if (!st) return;
       const dy = e.touches[0].clientY - st.y, dx = e.touches[0].clientX - st.x;
-      if (!st.on) { if (dy < 6 || Math.abs(dx) > dy) { if (dy < -4 || Math.abs(dx) > 10) st = null; return; } st.on = true; }
-      st.dy = Math.min(120, Math.pow(Math.max(0, dy), 0.82));
-      ind.style.transform = `translate(-50%, ${st.dy - 50}px) rotate(${st.dy * 3}deg)`;
-      ind.style.opacity = String(Math.min(1, st.dy / 60));
-      ind.classList.toggle("ready", st.dy > 70);
-    }, { passive: true });
-    view.addEventListener("touchend", async () => {
+      if (!st.on) {
+        if (dy < -4 || Math.abs(dx) > 12) { st = null; return; }
+        if (dy < 8) return;
+        if (window.scrollY > 0) { st = null; return; }
+        st.on = true; view.style.transition = "none"; ind.style.transition = "none";
+      }
+      e.preventDefault();
+      st.d = Math.min(130, (dy - 8) * 0.5);
+      if (st.d >= TH && !st.buzz) { st.buzz = true; try { navigator.vibrate && navigator.vibrate(8); } catch {} }
+      if (st.d < TH) st.buzz = false;
+      place(st.d);
+    }, { passive: false });
+    const back = () => {
+      view.style.transition = "transform .45s cubic-bezier(.2,.9,.3,1)";
+      ind.style.transition = "transform .45s cubic-bezier(.2,.9,.3,1), opacity .3s";
+      place(0);
+      setTimeout(() => { view.style.transition = ""; view.style.transform = ""; ind.classList.remove("spin"); }, 460);
+    };
+    const end = async () => {
       if (!st) return;
-      const { on, dy } = st; st = null;
+      const { on, d } = st; st = null;
       if (!on) return;
-      if (dy > 70) {
-        ind.classList.add("spin"); ind.style.transform = "translate(-50%, 24px)";
-        try { navigator.vibrate && navigator.vibrate(8); } catch {}
+      if (d >= TH) {
+        busy = true;
+        view.style.transition = "transform .3s cubic-bezier(.2,.9,.3,1)";
+        ind.style.transition = "transform .3s cubic-bezier(.2,.9,.3,1)";
+        place(HOLD); ind.classList.add("spin");
+        const t0 = Date.now();
         try { await render(true); } catch {}
-        setTimeout(() => { ind.classList.remove("spin", "ready"); ind.style.transform = ""; ind.style.opacity = "0"; }, 350);
-      } else { ind.style.transform = ""; ind.style.opacity = "0"; ind.classList.remove("ready"); }
-    });
+        await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - t0))));
+        back(); busy = false;
+      } else back();
+    };
+    view.addEventListener("touchend", end);
+    view.addEventListener("touchcancel", end);
   })();
   // 사진 크게 보기: 옆으로 밀면 다음 사진, 아래로 밀면 닫힘
   (() => {

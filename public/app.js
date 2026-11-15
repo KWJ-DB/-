@@ -2624,7 +2624,13 @@
     try {
       S.swReg = await navigator.serviceWorker.register("/sw.js");
       navigator.serviceWorker.addEventListener("message", (e) => {
-        if (e.data && e.data.type === "open") { const t = (e.data.url.split("#")[1] || "home"); setTab(t); }
+        if (!e.data) return;
+        if (e.data.type === "call") { setTab("chat"); if (window.checkIncomingNow) checkIncomingNow(); return; }
+        if (e.data.type === "open") {
+          const t = (e.data.url.split("#")[1] || "home");
+          if (t === "call") { setTab("chat"); if (window.checkIncomingNow) checkIncomingNow(); }
+          else setTab(t);
+        }
       });
       // 이미 허용했으면 구독 정보를 다시 서버에 알려줌
       if (window.Notification && Notification.permission === "granted") subscribePush(true);
@@ -3087,11 +3093,14 @@
       beep(); ringInt = setInterval(beep, 3000);
     } catch {}
   }
-  // 받을 전화가 있는지 자주 확인 (화면 켜져 있을 때)
-  setInterval(async () => {
-    if (!S.who || document.hidden || K.pc || K.state) return;
+  // 받을 전화가 있는지 확인 (알림을 눌러 열었을 때 바로 전화화면)
+  async function checkIncomingNow() {
+    if (!S.who || K.pc || K.state) return;
     try { const { call } = await api("call"); if (call) incomingCall(call); } catch {}
-  }, 2500);
+  }
+  window.checkIncomingNow = checkIncomingNow;
+  // 화면 켜져 있을 때 자주 확인
+  setInterval(() => { if (!document.hidden) checkIncomingNow(); }, 2500);
   $("#call").addEventListener("click", (e) => { if (!e.target.closest("button")) showBar(); });
   $("#call").addEventListener("dblclick", (e) => { if (K.state === "on" && !e.target.closest("button,#callLocal")) ACT.callHeart(); });
   // 통화 화면의 내 영상은 끌어서 옮기기
@@ -3216,7 +3225,7 @@
       const k = Math.min(1, y / TH);
       ind.style.opacity = String(Math.min(1, y / 30));
       ind.style.transform = `translate(-50%, ${Math.min(y, HOLD) / 2 - 18}px) scale(${0.6 + 0.4 * k})`;
-      if (!ind.classList.contains("spin")) ico.style.transform = `rotate(${y * 3.2}deg)`;
+      if (!ind.classList.contains("spin")) ico.style.transform = `rotate(${y * 2.6}deg)`;
       ind.classList.toggle("ready", y >= TH);
     };
     view.addEventListener("touchstart", (e) => {
@@ -3252,7 +3261,7 @@
         busy = true;
         view.style.transition = "transform .3s cubic-bezier(.2,.9,.3,1)";
         ind.style.transition = "transform .3s cubic-bezier(.2,.9,.3,1)";
-        place(HOLD); ind.classList.add("spin");
+        place(HOLD); ico.style.transform = ""; ind.classList.add("spin");
         const t0 = Date.now();
         try { await render(true); } catch {}
         await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - t0))));
@@ -4153,6 +4162,21 @@
   }
   setInterval(() => { if (!document.hidden) pulse(); }, 10000);
 
+  // 둘이 동시에 수정해도 바로바로 보이게: 열려 있는 탭을 조용히 다시 불러옴
+  async function liveRefresh() {
+    if (document.hidden || !S.who) return;
+    if (!$("#sheet").hidden) return;                      // 창이 열려 있으면 건너뜀
+    if (document.body.classList.contains("kb")) return;   // 입력 중이면 건너뜀
+    if ($("#view").style.transform) return;               // 당겨서 새로고침 중이면 건너뜀
+    try {
+      if (S.tab === "home") await renderHome();
+      else if (S.tab === "calendar") await (S.memView === "cal" ? renderCalendar() : renderAlbum());
+      else if (S.tab === "map" && S.eatOn && !$("#pick") && !S.trail) await loadEats();
+    } catch {}
+  }
+  setInterval(liveRefresh, 7000);
+  window.addEventListener("focus", liveRefresh);
+
   // 위치 자동 새로고침
   setInterval(() => { if (!document.hidden && S.tab === "map" && S.who) refreshLoc(); }, 15000);
   document.addEventListener("visibilitychange", () => {
@@ -4160,7 +4184,7 @@
     pulse();
     api("me").then((m) => { S.avatars = m.avatars || {}; }).catch(() => {});
     S.lastSent = null; stopAutoLoc(); startAutoLoc();
-    if (S.tab === "chat" && S.chat) refreshChat(); else if (S.tab === "map") refreshLoc(); else if (S.tab === "home" || S.tab === "question") render(true);
+    if (S.tab === "chat" && S.chat) refreshChat(); else if (S.tab === "map") { refreshLoc(); liveRefresh(); } else liveRefresh();
   });
 
   boot();

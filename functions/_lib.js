@@ -52,6 +52,9 @@ export async function ensureSchema(env) {
     `CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, about TEXT NOT NULL, cat TEXT, text TEXT NOT NULL, who TEXT, t INTEGER)`,
     `CREATE TABLE IF NOT EXISTS daily_photos (date TEXT NOT NULL, who TEXT NOT NULL, thumb TEXT, data TEXT, t INTEGER, PRIMARY KEY (date, who))`,
     `CREATE TABLE IF NOT EXISTS coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, from_who TEXT NOT NULL, title TEXT NOT NULL, used INTEGER DEFAULT 0, used_t INTEGER, t INTEGER)`,
+    `CREATE TABLE IF NOT EXISTS loc_hist (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, t INTEGER NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS loc_hist_wt ON loc_hist(who, t)`,
+    `CREATE TABLE IF NOT EXISTS place_events (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, place TEXT NOT NULL, inside INTEGER NOT NULL, t INTEGER NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS bucket (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, done INTEGER DEFAULT 0, done_date TEXT, who TEXT, t INTEGER)`,
   ];
   await env.DB.batch(sql.map((q) => env.DB.prepare(q)));
@@ -74,6 +77,16 @@ export async function ensureSchema(env) {
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '3') ON CONFLICT(k) DO UPDATE SET v = '3'").run();
   }
   if (!v || Number(v.v) < 4) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '4') ON CONFLICT(k) DO UPDATE SET v = '4'").run();
+  if (!v || Number(v.v) < 5) {
+    for (const q of [
+      "ALTER TABLE messages ADD COLUMN pinned INTEGER DEFAULT 0",
+      "ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0",
+      "ALTER TABLE messages ADD COLUMN kind TEXT",
+      "ALTER TABLE messages ADD COLUMN meta TEXT",
+      "ALTER TABLE couple_locs ADD COLUMN vel INTEGER",
+    ]) { try { await env.DB.prepare(q).run(); } catch {} }
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '5') ON CONFLICT(k) DO UPDATE SET v = '5'").run();
+  }
   ready = true;
 }
 
@@ -98,11 +111,22 @@ export async function saveLoc(DB, who, d) {
   let t = Number(d.t);
   if (!Number.isFinite(t) || t > Date.now() + 60000) t = Date.now();
   await DB.prepare(
-    `INSERT INTO couple_locs (who, lat, lon, acc, batt, src, t) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    `INSERT INTO couple_locs (who, lat, lon, acc, batt, src, t, vel) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
      ON CONFLICT(who) DO UPDATE SET lat = excluded.lat, lon = excluded.lon, acc = excluded.acc,
-       batt = excluded.batt, src = excluded.src, t = excluded.t
+       batt = excluded.batt, src = excluded.src, t = excluded.t, vel = excluded.vel
      WHERE excluded.t >= couple_locs.t`
-  ).bind(who, lat, lon, num(d.acc), num(d.batt), d.src || "web", Math.round(t)).run();
+  ).bind(who, lat, lon, num(d.acc), num(d.batt), d.src || "web", Math.round(t), num(d.vel)).run();
+  // 이동 경로 기록: 정확한 위치만, 25m 이상 움직였거나 5분 지났을 때, 3일치만 보관
+  if (!(Number(d.acc) > 100)) {
+    const last = await DB.prepare("SELECT lat, lon, t FROM loc_hist WHERE who = ?1 ORDER BY t DESC LIMIT 1").bind(who).first();
+    const moved = !last ? Infinity : distM({ lat, lon }, last);
+    if (!last || (t > last.t && (moved > 25 || t - last.t > 5 * 60000))) {
+      await DB.batch([
+        DB.prepare("INSERT INTO loc_hist (who, lat, lon, t) VALUES (?1, ?2, ?3, ?4)").bind(who, lat, lon, Math.round(t)),
+        DB.prepare("DELETE FROM loc_hist WHERE t < ?1").bind(Date.now() - 3 * 864e5),
+      ]);
+    }
+  }
 }
 
 // ---------- 암호/세션 ----------

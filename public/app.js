@@ -35,7 +35,7 @@
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   };
-  const S = {
+  const S = { sat: (() => { try { return !!localStorage.getItem("sat"); } catch { return false; } })(),
     who: null, names: { a: "", b: "" }, start: null, created: null,
     anniv: [], ans: {}, tab: "home", cal: null, calData: null,
     locs: {}, locNow: Date.now(), watchId: null, lastSent: null,
@@ -108,7 +108,17 @@
   const TS = "s"; // 서술형 슬롯
   const CSLOTS = ["k1", "k2", "k3", "k4"];
   const ALL_SLOTS = [TS, ...CSLOTS];
+  // 11월 15일 전 질문은 그때 쓰던 목록으로 다시 만들어서 보여줌
+  const isOld = (date) => date < QBASE;
+  const OLD_C = ["c1", "c2", "c3"];
+  const oldFor = (date, slot) => {
+    const O = window.QOLD; if (!O) return { q: "지난 질문", a: ["", ""] };
+    const i = Math.max(0, diff(S.created || date, date));
+    if (slot === "t" || slot === TS) return { q: O.text(i) };
+    return O.choice(i * 3 + Math.max(0, OLD_C.indexOf(slot)));
+  };
   const qFor = (date, slot) => {
+    if (isOld(date)) return oldFor(date, slot);
     const i = qIndex(date);
     const G = window.QGEN;
     if (slot === "t" || slot === TS) return { q: G ? G.text(i) : QT[i % QT.length] };
@@ -122,12 +132,17 @@
     return G ? G.choice(i * 4 + k + 4) : QC[(i * 4 + k + 4) % QC.length];
   };
   // 예전 버전의 "c" 답은 첫 번째 객관식으로 취급
-  const getAns = (date, slot, w) => S.ans[`${date}|${slot}|${w}`];
+  const getAns = (date, slot, w) => S.ans[`${date}|${slot}|${w}`] || (isOld(date) && slot === "c1" ? S.ans[`${date}|c|${w}`] : undefined);
+  const daySlots = (date) => {
+    if (!isOld(date)) return { t: TS, c: CSLOTS };
+    const c = OLD_C.filter((sl) => getAns(date, sl, "a") || getAns(date, sl, "b"));
+    return { t: "t", c };
+  };
   // 하루 한 질문: 짝수 날은 서술형, 홀수 날은 둘 중 하나
   const daySlot = (date) => (qIndex(date) % 2 === 0 ? "t" : "c1");
   const bonusSlot = (k) => (k % 2 ? "bc" : "bt") + k;
   const bonusAnswered = (date) => { let k = 0; while (getAns(date, bonusSlot(k + 1), S.who) || getAns(date, bonusSlot(k + 1), other())) k++; return k; };
-  const answeredCount = (date, w) => ALL_SLOTS.filter((sl) => getAns(date, sl, w)).length;
+  const answeredCount = (date, w) => { const d = daySlots(date); return [d.t, ...d.c].filter((sl) => getAns(date, sl, w)).length; };
   async function loadAnswers(from, to) {
     const { answers } = await api(`answers?from=${from}&to=${to}`);
     for (const k of Object.keys(S.ans)) { const d = k.slice(0, 10); if (d >= from && d <= to) delete S.ans[k]; }
@@ -160,7 +175,7 @@
     $(".topbar").hidden = isChat;
     view.hidden = isMap || isChat;
     window.scrollTo(0, 0);
-    if (isMap) { ensureMap(); refreshLoc(true); return; }
+    if (isMap) { ensureMap(); refreshLoc(true); flyPending(); return; }
     if (isChat) { openChat(); return; }
     view.innerHTML = ""; view.dataset.tab = "";
     view.classList.remove("tab-in"); void view.offsetWidth; view.classList.add("tab-in");
@@ -461,9 +476,10 @@
     spinner();
     const t = qToday();
     S.qDays = S.qDays || 14;
+    const first = S.created && S.created < QBASE ? S.created : QBASE;
     let from = addDays(t, -S.qDays);
-    const hasMore = from > QBASE;
-    if (from < QBASE) from = QBASE;
+    const hasMore = from > first;
+    if (from < first) from = first;
     if (from > t) from = t;
     const [, sk] = await Promise.all([loadAnswers(from, t), api(`streak?today=${t}`).catch(() => ({}))]);
     S.streak = sk.streak || 0;
@@ -478,10 +494,10 @@
       arch += `
         <div class="arch2${open ? " open" : ""}">
           <button class="li" data-act="toggleArch" data-date="${d}">
-            <span class="li-t"><b>${esc(qFor(d, TS).q)}</b><span>${fmtK(d)}</span></span>
+            <span class="li-t"><b>${esc(qFor(d, daySlots(d).t).q)}</b><span>${fmtK(d)}</span></span>
             <span class="dots">${dot(S.who)}${dot(other())}</span>${ic("right", "li-chev")}
           </button>
-          ${open ? `<div class="arch2-in">${qCard(d, TS)}<section class="qbox">${CSLOTS.map((c) => choiceOne(d, c)).join("")}</section></div>` : ""}
+          ${open ? (() => { const ds = daySlots(d); return `<div class="arch2-in">${qCard(d, ds.t)}${ds.c.length ? `<section class="qbox">${ds.c.map((c) => choiceOne(d, c)).join("")}</section>` : ""}</div>`; })() : ""}
         </div>`;
     }
     const mineN = answeredCount(t, S.who), otN = answeredCount(t, other());
@@ -658,6 +674,7 @@
         <div class="sec-t"><span>일정</span></div>
         ${sEv.map((e) => `
           <div class="ev"><span class="bar ${e.who}"></span><span class="tm">${e.time || "종일"}</span><span class="tt">${esc(e.title)}</span>
+          <button class="x" data-act="evShare" data-id="${e.id}" aria-label="디엠으로 보내기">${ic("send")}</button>
           <button class="x" data-act="evDel" data-id="${e.id}" aria-label="삭제">${ic("x")}</button></div>`).join("")}
         <div class="add-row">
           <input type="time" id="evTime" aria-label="시간">
@@ -770,16 +787,21 @@
     map = new maplibregl.Map({
       container: "map",
       style: "https://tiles.openfreemap.org/styles/liberty",
-      center: [128.6014, 35.8714], zoom: 11.5,
+      center: [128.6014, 35.8714], zoom: 11.5, maxZoom: 19.5,
       attributionControl: { compact: true },
       dragRotate: false, pitchWithRotate: false,
     });
     map.touchZoomRotate.disableRotation();
     map.on("load", () => {
-      // 지명을 한국어로 + 가게/정류장 그림 아이콘은 숨겨서 깔끔하게
+      // 상세 지도: 가게·정류장·건물 이름까지 한국어로 표시
+      const firstSym = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
+      map.addSource("sat", { type: "raster", tileSize: 256, maxzoom: 19, attribution: "Esri World Imagery",
+        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"] });
+      map.addLayer({ id: "sat", type: "raster", source: "sat", layout: { visibility: "none" } }, firstSym);
       for (const ly of map.getStyle().layers) {
         if (ly.type !== "symbol") continue;
-        if (/^poi|airport|road_one_way|highway-shield|road_shield/.test(ly.id)) { map.setLayoutProperty(ly.id, "visibility", "none"); continue; }
+        if (/road_one_way|highway-shield|road_shield/.test(ly.id)) { map.setLayoutProperty(ly.id, "visibility", "none"); continue; }
+        if (/^poi/.test(ly.id)) { try { map.setLayerZoomRange(ly.id, 14, 24); } catch {} }
         const tf = JSON.stringify((ly.layout && ly.layout["text-field"]) || "");
         if (tf.includes("name") && !tf.includes('"ref"')) {
           map.setLayoutProperty(ly.id, "text-field", ["coalesce", ["get", "name:ko"], ["get", "name"]]);
@@ -796,9 +818,16 @@
       map.addSource("places", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({ id: "places-fill", type: "fill", source: "places", paint: { "fill-color": "#B65FE0", "fill-opacity": 0.12 } }, "link");
       map.addLayer({ id: "places-line", type: "line", source: "places", paint: { "line-color": "#B65FE0", "line-width": 2, "line-opacity": 0.6, "line-dasharray": [2, 1.5] } }, "link");
+      map.addSource("trail", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({ id: "trail", type: "line", source: "trail", layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": ["get", "c"], "line-width": 5, "line-opacity": 0.85 } });
+      map.addLayer({ id: "trail-dot", type: "circle", source: "trail", filter: ["==", "$type", "Point"],
+        paint: { "circle-radius": 5, "circle-color": "#fff", "circle-stroke-width": 3, "circle-stroke-color": ["get", "c"] } });
       mapLoaded = true;
+      if (S.sat) setSat(true);
       drawMap();
       loadPlaces();
+      flyPending();
     });
   }
   function drawMap() {
@@ -915,14 +944,90 @@
     if (pts.length === 1) map.flyTo({ center: pts[0], zoom: 15 });
     else map.fitBounds([[Math.min(pts[0][0], pts[1][0]), Math.min(pts[0][1], pts[1][1])], [Math.max(pts[0][0], pts[1][0]), Math.max(pts[0][1], pts[1][1])]], { padding: pad, maxZoom: 16 });
   }
+  function setSat(on) {
+    S.sat = on;
+    try { localStorage.setItem("sat", on ? "1" : ""); } catch {}
+    const b = $("#satBtn"); if (b) b.classList.toggle("on", on);
+    if (!mapLoaded) return;
+    map.setLayoutProperty("sat", "visibility", on ? "visible" : "none");
+    // 위성 사진 위에서는 글씨가 잘 보이도록 흰 테두리
+    for (const ly of map.getStyle().layers) if (ly.type === "symbol") { try { map.setPaintProperty(ly.id, "text-halo-width", on ? 1.6 : 1); } catch {} }
+  }
+  let flyMk = null;
+  function flyPending() {
+    if (!S.flyTo || !mapLoaded) return;
+    const { lat, lon } = S.flyTo; S.flyTo = null;
+    if (flyMk) flyMk.remove();
+    const el = document.createElement("div"); el.className = "fly-mk"; el.innerHTML = ic("pin");
+    flyMk = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([lon, lat]).addTo(map);
+    map.flyTo({ center: [lon, lat], zoom: 17 });
+  }
+  const speedTxt = (l) => { if (!l || l.vel == null || S.locNow - l.t > 10 * 60000) return ""; const v = Number(l.vel); return v >= 4 ? `이동 중 ${v}km/h` : "멈춰 있음"; };
   function renderMapCard() {
-    const la = S.locs.a, lb = S.locs.b;
+    if (S.trail) return renderTrailCard();
+    const la = S.locs.a, lb = S.locs.b, o = other(), lo = S.locs[o];
     const who = (w) => { const l = S.locs[w]; return `<button class="mc-p" data-act="flyTo" data-w="${w}">${av(w)}<span>${l ? ago(l.t, S.locNow) : "-"}</span></button>`; };
+    const sp = speedTxt(lo), bt = lo && lo.batt != null ? `배터리 ${lo.batt}%` : "";
     $("#mapCard").innerHTML = `
       <div class="mc">
         ${who(S.who)}
         <button class="mc-mid" data-act="fitMap"><b>${S.together ? "함께 있어요" : la && lb ? fmtDist(distM(la, lb)) : "-"}</b><span>${S.autoLoc === "denied" ? "위치 권한 필요" : S.together ? (la && lb ? fmtDist(distM(la, lb)) : "") : "우리 사이"}</span></button>
-        ${who(other())}
+        ${who(o)}
+      </div>
+      ${sp || bt ? `<div class="mc-info">${esc(nm(o))} ${[sp, bt].filter(Boolean).join(", ")}</div>` : ""}
+      <div class="mc-acts">
+        <button data-act="trailOpen">${ic("route")}<span>이동 기록</span></button>
+        <button data-act="navTo" ${lo ? "" : "disabled"}>${ic("target")}<span>길찾기</span></button>
+        <button data-act="locReq">${ic("bell")}<span>위치 요청</span></button>
+      </div>`;
+  }
+  // 이동 기록: 사람·날짜 고르면 경로 + 들르고 떠난 장소
+  async function loadTrail() {
+    const t = S.trail; if (!t) return;
+    const d = t.day === 0 ? today() : addDays(today(), -t.day);
+    try {
+      const r = await api(`history?w=${t.w}&date=${d}`);
+      if (!S.trail || S.trail !== t) return;
+      t.data = r;
+      const c = t.w === "a" ? "#E5406A" : "#5C6BF0";
+      const coords = r.points.map((p) => [p.lon, p.lat]);
+      let km = 0;
+      for (let i = 1; i < r.points.length; i++) km += distM(r.points[i - 1], r.points[i]);
+      t.dist = km;
+      const feats = [];
+      if (coords.length > 1) feats.push({ type: "Feature", properties: { c }, geometry: { type: "LineString", coordinates: coords } });
+      if (coords.length) { feats.push({ type: "Feature", properties: { c }, geometry: { type: "Point", coordinates: coords[0] } }); feats.push({ type: "Feature", properties: { c }, geometry: { type: "Point", coordinates: coords[coords.length - 1] } }); }
+      if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: feats });
+      if (coords.length > 1) {
+        const xs = coords.map((p) => p[0]), ys = coords.map((p) => p[1]);
+        map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 120, bottom: 360, left: 50, right: 50 }, maxZoom: 16 });
+      } else if (coords.length) map.flyTo({ center: coords[0], zoom: 15 });
+      renderTrailCard();
+    } catch (e) { toast(e.message); }
+  }
+  function renderTrailCard() {
+    const t = S.trail, r = t.data;
+    const chip = (act, val, cur, label) => `<button class="chip${val === cur ? " on" : ""}" data-act="${act}" data-v="${val}">${label}</button>`;
+    let body = `<div class="spin" style="margin:18px auto"></div>`;
+    if (r) {
+      const tl = [];
+      if (r.points.length) tl.push({ t: r.points[0].t, txt: "기록 시작" });
+      r.events.forEach((e) => tl.push({ t: e.t, txt: `${e.place} ${e.inside ? "도착" : "떠남"}`, ev: e.inside ? "in" : "out" }));
+      if (r.points.length > 1) tl.push({ t: r.points[r.points.length - 1].t, txt: t.day === 0 ? "마지막 위치" : "기록 끝" });
+      tl.sort((x, y) => x.t - y.t);
+      body = r.points.length
+        ? `<div class="tr-sum"><b>${fmtDist(t.dist)}</b><span>움직인 거리</span></div>
+           <div class="tr-tl">${tl.map((x) => `<div class="tr-i ${x.ev || ""}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}</b></div>`).join("")}</div>`
+        : `<div class="empty" style="padding:18px 0">이날 기록이 없어요<br><small>사이트나 OwnTracks가 켜져 있을 때 기록돼요</small></div>`;
+    }
+    $("#mapCard").innerHTML = `
+      <div class="tr">
+        <div class="tr-top">
+          <div class="chips">${chip("trailWho", S.who, t.w, "나")}${chip("trailWho", other(), t.w, esc(nm(other())))}</div>
+          <div class="chips">${chip("trailDay", 0, t.day, "오늘")}${chip("trailDay", 1, t.day, "어제")}${chip("trailDay", 2, t.day, "그제")}</div>
+          <button class="icon-btn" data-act="trailClose" aria-label="닫기">${ic("x")}</button>
+        </div>
+        ${body}
       </div>`;
   }
   async function refreshLoc(redraw) {
@@ -968,107 +1073,185 @@
 
 
   // ---------- DM 채팅 ----------
+  const hm = (t) => { const d = new Date(t), h = d.getHours(); return `${h < 12 ? "오전" : "오후"} ${h % 12 || 12}:${pad(d.getMinutes())}`; };
   const fmtTime = (t) => {
-    const d = new Date(t), h = d.getHours(), mm = pad(d.getMinutes());
-    const tm = `${h < 12 ? "오전" : "오후"} ${h % 12 || 12}:${mm}`;
-    const ds = ymd(d);
-    if (ds === today()) return tm;
-    if (ds === addDays(today(), -1)) return "어제 " + tm;
-    return `${d.getMonth() + 1}월 ${d.getDate()}일 ${tm}`;
+    const d = new Date(t), ds = ymd(d);
+    if (ds === today()) return hm(t);
+    if (ds === addDays(today(), -1)) return "어제 " + hm(t);
+    return `${d.getMonth() + 1}월 ${d.getDate()}일 ${hm(t)}`;
   };
+  const dayLabel = (t) => { const d = new Date(t); return `${d.getMonth() + 1}월 ${d.getDate()}일 ${"일월화수목금토"[d.getDay()]}요일`; };
   const linkify = (h) => h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  const C = { busy: false, editing: null };
 
   async function openChat() {
     $("#dmAv").innerHTML = av(other());
     $("#dmName").textContent = nm(other());
-    const l = S.locs[other()];
-    $("#dmSub").textContent = l ? `마지막 활동 ${ago(l.t)}` : "우리 둘만의 대화";
-    if (!S.chat) { S.chat = { msgs: [], read: { a: 0, b: 0 }, more: true, first: true }; $("#dmList").innerHTML = `<div class="spin"></div>`; }
+    if (!S.chat) { S.chat = { msgs: [], read: { a: 0, b: 0 }, readT: {}, more: true, first: true }; $("#dmList").innerHTML = skelChat(); }
+    drawPresence();
     await refreshChat(true);
   }
+  const skelChat = () => `<div class="sk-chat">${[60, 40, 70, 50, 65].map((w, i) => `<i class="sk ${i % 2 ? "me" : ""}" style="width:${w}%"></i>`).join("")}</div>`;
+  function drawPresence() {
+    const c = S.chat || {}, now = Date.now() + (S.clockOff || 0) * 0;
+    let txt, on = false;
+    if (c.typingOn) { txt = "입력 중..."; on = true; }
+    else if (c.seen && Date.now() - S.clockOff - c.seen < 70000) { txt = "활동 중"; on = true; }
+    else if (c.seen) txt = `${ago(c.seen, Date.now() - S.clockOff)} 활동`;
+    else txt = "우리 둘만의 대화";
+    $("#dmSub").innerHTML = `${on ? '<i class="live-dot"></i>' : ""}${txt}`;
+  }
   async function refreshChat(stick) {
+    if (C.busy) return;
+    C.busy = true;
     try {
       const d = await api("messages?limit=40");
+      if (d.now) S.clockOff = d.now - Date.now();
       const minId = d.messages.length ? d.messages[0].id : Infinity;
-      const older = S.chat.msgs.filter((m) => m.id < minId);
-      const before = JSON.stringify(S.chat.msgs.slice(-3)) + JSON.stringify(S.chat.read);
-      S.chat.msgs = older.concat(d.messages);
-      S.chat.read = d.read;
-      const wasTyping = S.chat.typingOn;
-      S.chat.typingOn = d.typing && d.now - d.typing < 6000;
+      const older = S.chat.msgs.filter((m) => typeof m.id === "number" && m.id < minId);
+      const pending = S.chat.msgs.filter((m) => String(m.id).startsWith("tmp") && m.failed);
+      const before = S.chat.sig;
+      S.chat.msgs = older.concat(d.messages, pending);
+      S.chat.read = d.read; S.chat.readT = d.readT || {}; S.chat.seen = d.seen; S.chat.pin = d.pin;
+      S.chat.typingOn = !!(d.typing && d.now - d.typing < 6000);
       if (S.chat.first) { S.chat.more = d.messages.length >= 40; S.chat.first = false; }
-      const after = JSON.stringify(S.chat.msgs.slice(-3)) + JSON.stringify(S.chat.read);
-      if (stick || before !== after || wasTyping !== S.chat.typingOn || !$("#dmList .dm-row, #dmList .dm-empty")) drawChat(stick);
-      const last = S.chat.msgs[S.chat.msgs.length - 1];
+      S.chat.sig = JSON.stringify([d.messages.map((m) => [m.id, m.text, m.reacts, m.pinned, m.edited]), d.read, S.chat.typingOn]);
+      if (stick || before !== S.chat.sig || !$("#dmList .dm-row, #dmList .dm-empty")) drawChat(stick);
+      drawPresence(); drawPin();
+      const last = d.messages[d.messages.length - 1];
       if (last && last.id > (S.chat.read[S.who] || 0) && S.tab === "chat" && !document.hidden) {
         S.chat.read[S.who] = last.id;
         api("read", { method: "POST", body: { id: last.id } }).catch(() => {});
       }
       $("#cBadge").hidden = true;
-    } catch {}
+    } catch {} finally { C.busy = false; }
+  }
+  function drawPin() {
+    const p = S.chat && S.chat.pin, el = $("#dmPin");
+    if (!p) { el.hidden = true; return; }
+    el.innerHTML = `${ic("pinned")}<span><b>고정된 메시지</b>${esc(p.text || "사진")}</span>`;
+    el.dataset.id = p.id; el.hidden = false;
+  }
+  function bubbleInner(m, ms) {
+    if (m.kind === "heart") return `<span class="big-heart">${HEART}</span>`;
+    if (m.kind === "event" && m.meta) {
+      const e = m.meta;
+      return `<span class="ev-card" data-date="${e.date}"><span class="ev-d"><em>${Number(e.date.slice(5, 7))}월</em><b>${Number(e.date.slice(8))}</b></span><span><b>${esc(e.title)}</b><em>${fmtK(e.date)}${e.time ? " " + esc(e.time) : ""}</em></span></span>${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}`;
+    }
+    if (m.kind === "loc" && m.meta) return `<span class="loc-card" data-lat="${m.meta.lat}" data-lon="${m.meta.lon}">${ic("pin")}<span><b>${m.who === S.who ? "내 위치" : esc(nm(m.who)) + "님 위치"}</b><em>지도에서 보기</em></span></span>`;
+    let rq = "";
+    if (m.reply) {
+      const src = ms.find((x) => x.id === m.reply);
+      rq = `<span class="rq" data-goto="${m.reply}"><b>${src ? esc(nm(src.who)) : "이전 메시지"}</b>${src ? esc(src.text || "사진") : ""}</span>`;
+    }
+    const imgHtml = m.img || m.local ? `<img class="dm-img" src="${m.local || `/api/chatimg/${m.img}?thumb=1`}" style="aspect-ratio:${m.w || 4}/${m.h || 3}" data-img="${m.img || ""}" alt="">` : "";
+    return `${rq}${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}`;
   }
   function drawChat(stick) {
     const L = $("#dmList");
-    const atBottom = L.scrollHeight - L.scrollTop - L.clientHeight < 120;
-    const ms = S.chat.msgs, GAP = 30 * 60000;
+    const atBottom = L.scrollHeight - L.scrollTop - L.clientHeight < 140;
+    const ms = S.chat.msgs, GAP = 20 * 60000;
     if (!ms.length) { L.innerHTML = `<div class="dm-empty">${av(other())}<br><b>${esc(nm(other()))}</b>님에게<br>첫 메시지를 보내보세요</div>`; return; }
+    const readUpTo = S.chat.read[other()] || 0;
     let h = S.chat.more ? `<button class="dm-more" data-act="dmMore">이전 메시지 보기</button>` : "";
+    const prevCount = L.querySelectorAll(".dm-row:not(.typing)").length;
     ms.forEach((m, i) => {
       const prev = ms[i - 1], next = ms[i + 1];
-      const newBlock = !prev || m.t - prev.t > GAP;
-      if (newBlock) h += `<div class="dm-time">${fmtTime(m.t)}</div>`;
-      const first = newBlock || prev.who !== m.who;
-      const last = !next || next.who !== m.who || next.t - m.t > GAP;
+      const newDay = !prev || ymd(new Date(prev.t)) !== ymd(new Date(m.t));
+      if (newDay) h += `<div class="dm-day"><span>${dayLabel(m.t)}</span></div>`;
+      else if (m.t - prev.t > GAP) h += `<div class="dm-time">${hm(m.t)}</div>`;
+      const first = newDay || !prev || prev.who !== m.who || m.t - prev.t > GAP;
+      const last = !next || next.who !== m.who || next.t - m.t > GAP || ymd(new Date(next.t)) !== ymd(new Date(m.t));
       const mine = m.who === S.who;
       const rx = Object.entries(m.reacts || {});
       const rxHtml = rx.length ? `<span class="dm-rx">${rx.map(([w, r]) => `<i class="${w} r-${r}">${ic(r)}</i>`).join("")}</span>` : "";
-      const fresh = S.chat.seen && !S.chat.seen.has(m.id) ? " fresh" : "";
-      const imgHtml = m.img || m.local
-        ? `<img class="dm-img" src="${m.local || `/api/chatimg/${m.img}?thumb=1`}" style="aspect-ratio:${m.w || 4}/${m.h || 3}" data-img="${m.img || ""}" alt="">` : "";
-      let rq = "";
-      if (m.reply) {
-        const src = ms.find((x) => x.id === m.reply);
-        rq = `<span class="rq"><b>${src ? esc(nm(src.who)) : "이전 메시지"}</b>${src ? esc(src.text || "사진") : ""}</span>`;
-      }
-      h += `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${rx.length ? " liked" : ""}${fresh}">
+      const fresh = S.chat.shown && !S.chat.shown.has(m.id) ? " fresh" : "";
+      const tmp = String(m.id).startsWith("tmp");
+      const unread = mine && !tmp && m.id > readUpTo ? `<span class="dm-1">1</span>` : "";
+      const meta = last ? `<span class="dm-meta">${m.failed ? `<button class="dm-retry" data-act="dmRetry" data-id="${m.id}">다시 보내기</button>` : tmp ? "보내는 중" : hm(m.t)}${m.edited ? " · 수정됨" : ""}</span>` : (m.edited ? `<span class="dm-meta">수정됨</span>` : "");
+      const cls = m.kind === "heart" ? " heart" : m.kind === "loc" ? " loc" : m.kind === "event" ? " evm" : "";
+      h += `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${rx.length ? " liked" : ""}${fresh}" id="m${m.id}">
         ${mine ? "" : last ? av(m.who) : '<span class="av-sp"></span>'}
-        <div class="dm-bub${imgHtml ? " has-img" : ""}${imgHtml && !m.text ? " only-img" : ""}" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${rq}${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}${rxHtml}</div></div>`;
+        ${mine ? `<span class="dm-side">${unread}${meta}</span>` : ""}
+        <div class="dm-bub${cls}${m.img || m.local ? " has-img" : ""}${(m.img || m.local) && !m.text ? " only-img" : ""}" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${bubbleInner(m, ms)}${rxHtml}</div>
+        ${mine ? "" : `<span class="dm-side">${meta}</span>`}
+      </div>`;
     });
-    const lastM = ms[ms.length - 1];
-    if (lastM.who === S.who && !String(lastM.id).startsWith("tmp")) {
-      h += `<div class="dm-seen">${(S.chat.read[other()] || 0) >= lastM.id ? "읽음" : "전송됨"}</div>`;
+    // 내가 보낸 마지막 메시지를 상대가 읽었으면 언제 읽었는지
+    const lastMine = [...ms].reverse().find((m) => m.who === S.who && typeof m.id === "number");
+    const lastAll = ms[ms.length - 1];
+    if (lastMine && lastAll.who === S.who && readUpTo >= lastMine.id && S.chat.readT[other()]) {
+      h += `<div class="dm-seen">${fmtTime(S.chat.readT[other()])} 읽음</div>`;
     }
     if (S.chat.typingOn) h += `<div class="dm-row ot first last typing">${av(other())}<div class="dm-bub"><i></i><i></i><i></i></div></div>`;
     L.innerHTML = h;
-    S.chat.seen = new Set(ms.map((m) => m.id));
+    S.chat.shown = new Set(ms.map((m) => m.id));
+    const newCount = ms.length;
     if (stick || atBottom) {
       L.scrollTop = L.scrollHeight;
+      $("#dmJump").hidden = true;
       L.querySelectorAll("img").forEach((im) => im.addEventListener("load", () => { if (stick || atBottom) L.scrollTop = L.scrollHeight; }, { once: true }));
+    } else if (newCount > prevCount && prevCount) {
+      $("#dmJump").hidden = false;
     }
+  }
+  function updateSendBtn() {
+    const has = $("#dmText").value.trim().length > 0;
+    const b = $("#dmSend");
+    b.classList.toggle("has", has);
+    b.innerHTML = has ? ic("up") : ic("heart");
+    b.setAttribute("aria-label", has ? "보내기" : "하트 보내기");
+  }
+  function autosize() { const t = $("#dmText"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 120) + "px"; }
+  async function postMsg(body, tmp) {
+    try { await api("messages", { method: "POST", body }); tmp.done = true; }
+    catch (e) { tmp.failed = true; tmp.body = body; drawChat(); toast("전송 실패: 다시 보내기를 눌러주세요"); }
+    refreshChat();
   }
   async function sendChat() {
     const inp = $("#dmText");
     const text = inp.value.trim();
-    if (!text) return;
-    inp.value = ""; $("#dmSend").hidden = true;
+    if (C.editing) {
+      if (!text) return;
+      const id = C.editing; setEdit(null); inp.value = ""; autosize(); updateSendBtn();
+      const m = S.chat.msgs.find((x) => x.id === id); if (m) { m.text = text; m.edited = true; drawChat(); }
+      try { await api(`messages/${id}/edit`, { method: "POST", body: { text } }); } catch (e) { toast(e.message); }
+      return refreshChat();
+    }
+    if (!text) return sendHeart();
+    inp.value = ""; autosize(); updateSendBtn();
     const reply = S.replyTo ? S.replyTo.id : null;
-    S.chat.msgs.push({ id: "tmp" + Date.now(), who: S.who, text, reacts: {}, t: Date.now(), reply });
+    const tmp = { id: "tmp" + Date.now(), who: S.who, text, reacts: {}, t: Date.now(), reply };
+    S.chat.msgs.push(tmp);
     setReply(null);
     drawChat(true);
-    try { await api("messages", { method: "POST", body: { text, reply } }); }
-    catch (e) { toast("전송 실패: " + e.message); inp.value = text; }
-    refreshChat(true);
+    postMsg({ text, reply }, tmp);
+  }
+  function sendHeart() {
+    const tmp = { id: "tmp" + Date.now(), who: S.who, text: "", kind: "heart", reacts: {}, t: Date.now() };
+    S.chat.msgs.push(tmp); drawChat(true);
+    try { navigator.vibrate && navigator.vibrate(15); } catch {}
+    postMsg({ kind: "heart" }, tmp);
+  }
+  async function sendMyLoc() {
+    toast("위치 찾는 중...");
+    try {
+      const p = await getPos();
+      const body = { kind: "loc", lat: p.coords.latitude, lon: p.coords.longitude };
+      const tmp = { id: "tmp" + Date.now(), who: S.who, text: "", kind: "loc", meta: { lat: body.lat, lon: body.lon }, reacts: {}, t: Date.now() };
+      S.chat.msgs.push(tmp); drawChat(true);
+      postMsg(body, tmp);
+      sendPos(p).catch(() => {});
+    } catch (e) { toast(e.code ? geoMsg(e) : e.message); }
   }
   const RX = ["heart", "sparkle", "star", "fire", "like", "hug"];
   async function reactMsg(id, r, bub) {
     if (!id || String(id).startsWith("tmp")) return;
     if (bub) bub.insertAdjacentHTML("beforeend", `<svg class="dm-pop r-${r}"><use href="#i-${r}"/></svg>`);
     const m = S.chat.msgs.find((x) => String(x.id) === String(id));
-    try {
-      const res = await api(`messages/${id}/react`, { method: "POST", body: { r } });
-      if (m) m.reacts = res.reacts;
-      setTimeout(() => drawChat(), bub ? 650 : 0);
-    } catch (e) { toast(e.message); }
+    if (m) { m.reacts = { ...(m.reacts || {}) }; if (m.reacts[S.who] === r) delete m.reacts[S.who]; else m.reacts[S.who] = r; }
+    setTimeout(() => drawChat(), bub ? 600 : 0);
+    try { const res = await api(`messages/${id}/react`, { method: "POST", body: { r } }); if (m) m.reacts = res.reacts; } catch (e) { toast(e.message); }
   }
   async function sendChatPhotos(files) {
     for (const f of files) {
@@ -1079,38 +1262,66 @@
         const p = await prepPhoto(f, 720);
         tmp.w = p.w; tmp.h = p.h;
         await api("messages", { method: "POST", body: { img: p } });
-      } catch (e) { toast("사진 전송 실패: " + e.message); }
+      } catch (e) { tmp.failed = true; toast("사진 전송 실패: " + e.message); }
     }
     refreshChat(true);
   }
   function setReply(m) {
     S.replyTo = m;
+    if (m) C.editing = null;
     const box = $("#dmReply");
-    if (!m) { box.hidden = true; box.innerHTML = ""; return; }
-    box.innerHTML = `<div><b>${esc(nm(m.who))}에게 답장</b><span>${esc(m.text || "사진")}</span></div><button data-act="replyCancel" aria-label="취소">${ic("x")}</button>`;
+    if (!m) { if (!C.editing) { box.hidden = true; box.innerHTML = ""; } return; }
+    box.innerHTML = `<div><b>${esc(nm(m.who))}에게 답장</b><span>${esc(m.text || (m.kind === "heart" ? "하트" : "사진"))}</span></div><button data-act="replyCancel" aria-label="취소">${ic("x")}</button>`;
     box.hidden = false;
     $("#dmText").focus();
   }
+  function setEdit(m) {
+    C.editing = m ? m.id : null;
+    const box = $("#dmReply");
+    if (!m) { box.hidden = true; box.innerHTML = ""; return; }
+    S.replyTo = null;
+    box.innerHTML = `<div><b>메시지 수정</b><span>${esc(m.text)}</span></div><button data-act="editCancel" aria-label="취소">${ic("x")}</button>`;
+    box.hidden = false;
+    const t = $("#dmText"); t.value = m.text; autosize(); updateSendBtn(); t.focus();
+  }
+  function flashMsg(id) {
+    const row = $("#m" + id);
+    if (!row) return false;
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash");
+    return true;
+  }
+  async function gotoMsg(id) {
+    for (let i = 0; i < 12 && !$("#m" + id); i++) {
+      if (!S.chat.more) break;
+      await ACT.dmMore();
+    }
+    if (!flashMsg(id)) toast("메시지를 찾을 수 없어요");
+  }
   let typingAt = 0;
   $("#dmText").addEventListener("input", () => {
+    autosize(); updateSendBtn();
     if (Date.now() - typingAt > 3000 && $("#dmText").value.trim()) { typingAt = Date.now(); api("typing", { method: "POST", body: {} }).catch(() => {}); }
   });
 
-  // 반응 고르기 창
+  // 길게 누르면 반응 + 메뉴
   function openRx(bub) {
     const id = bub.dataset.mid;
     if (String(id).startsWith("tmp")) return;
     const m = S.chat.msgs.find((x) => String(x.id) === id);
     const mineR = m && m.reacts ? m.reacts[S.who] : null;
     const rect = bub.getBoundingClientRect();
+    const canEdit = m && m.who === S.who && m.text && Date.now() - m.t < 15 * 60000;
     const box = $("#rx");
     box.innerHTML = `<div class="rx-bg" data-act="rxClose"></div>
       <div class="rx-bar" style="top:${Math.max(70, rect.top - 64)}px">
         ${RX.map((r) => `<button class="${mineR === r ? "on" : ""} r-${r}" data-act="rxPick" data-r="${r}" data-id="${id}">${ic(r)}</button>`).join("")}
       </div>
-      <div class="rx-menu" style="top:${Math.min(innerHeight - 200, rect.bottom + 10)}px">
+      <div class="rx-menu" style="top:${Math.min(innerHeight - 290, rect.bottom + 10)}px">
         <button data-act="rxReply" data-id="${id}">${ic("send")}답장</button>
         ${m && m.text ? `<button data-act="rxCopy" data-id="${id}">${ic("copy")}복사</button>` : ""}
+        <button data-act="rxPin" data-id="${id}">${ic("pinned")}${m && m.pinned ? "고정 해제" : "위에 고정"}</button>
+        ${canEdit ? `<button data-act="rxEdit" data-id="${id}">${ic("pen")}수정</button>` : ""}
         ${bub.dataset.mine === "1" ? `<button class="del" data-act="rxDel" data-id="${id}">${ic("trash")}보내기 취소</button>` : ""}
       </div>`;
     box.hidden = false;
@@ -1118,11 +1329,33 @@
     S.rxBub = bub;
   }
   function closeRx() { $("#rx").hidden = true; if (S.rxBub) S.rxBub.classList.remove("held"); S.rxBub = null; }
-  // 두 번 톡 = 하트, 길게 누르기 = 반응/보내기 취소, 사진 톡 = 크게 보기
+  async function searchSheet() {
+    openSheet(`
+      <h2>메시지 검색</h2>
+      <div class="add-row" style="margin-top:10px"><input type="text" id="srchQ" placeholder="찾을 말" maxlength="40"><button class="btn primary" data-act="srchGo" aria-label="검색">${ic("search")}</button></div>
+      <div id="srchRes"></div>`);
+    setTimeout(() => $("#srchQ") && $("#srchQ").focus(), 300);
+  }
+  async function doSearch() {
+    const qv = $("#srchQ").value.trim();
+    if (!qv) return;
+    const { results } = await api(`msgsearch?q=${encodeURIComponent(qv)}`);
+    const re = new RegExp(qv.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    $("#srchRes").innerHTML = results.length ? `<div class="list" style="margin-top:12px">${results.map((r) => `
+      <button class="li" data-act="srchPick" data-id="${r.id}"><span class="li-t"><b>${esc(r.text).replace(re, (x) => `<mark>${x}</mark>`)}</b><span>${esc(nm(r.who))} · ${fmtTime(r.t)}</span></span></button>`).join("")}</div>`
+      : `<div class="empty">찾는 메시지가 없어요</div>`;
+  }
+  // 톡 두 번 = 하트, 길게 = 메뉴, 사진·위치·답장 미리보기 톡 = 이동
   (() => {
     let lastTap = { id: null, t: 0 }, pressT = null, opened = false, tapTimer = null;
     const L = $("#dmList");
     L.addEventListener("click", (e) => {
+      const rq = e.target.closest(".rq");
+      if (rq) { gotoMsg(Number(rq.dataset.goto)); return; }
+      const ec = e.target.closest(".ev-card");
+      if (ec) { const d = ec.dataset.date; S.cal = { y: +d.slice(0, 4), m: +d.slice(5, 7) - 1, sel: d }; S.memView = "cal"; setTab("calendar"); return; }
+      const lc = e.target.closest(".loc-card");
+      if (lc) { S.flyTo = { lat: +lc.dataset.lat, lon: +lc.dataset.lon }; setTab("map"); return; }
       const bub = e.target.closest(".dm-bub");
       if (!bub || e.target.closest("a") || opened) { opened = false; return; }
       const now = Date.now();
@@ -1145,16 +1378,20 @@
     L.addEventListener("touchstart", (e) => {
       const bub = e.target.closest(".dm-bub");
       if (!bub) return;
-      pressT = setTimeout(() => { pressT = null; opened = true; try { navigator.vibrate && navigator.vibrate(10); } catch {} openRx(bub); }, 450);
+      pressT = setTimeout(() => { pressT = null; opened = true; try { navigator.vibrate && navigator.vibrate(10); } catch {} openRx(bub); }, 420);
     }, { passive: true });
     const cancel = () => { if (pressT) { clearTimeout(pressT); pressT = null; } };
     L.addEventListener("touchend", cancel); L.addEventListener("touchmove", cancel, { passive: true });
     L.addEventListener("contextmenu", (e) => { const bub = e.target.closest(".dm-bub"); if (bub) { e.preventDefault(); openRx(bub); } });
+    L.addEventListener("scroll", () => { if (L.scrollHeight - L.scrollTop - L.clientHeight < 80) $("#dmJump").hidden = true; }, { passive: true });
   })();
   $("#dmFile").addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) sendChatPhotos(f); });
-  $("#dmText").addEventListener("input", (e) => { $("#dmSend").hidden = !e.target.value.trim(); });
-  $("#dmText").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); sendChat(); } });
-  $("#dmText").addEventListener("focus", () => { document.body.classList.add("typing"); setTimeout(() => { const L = $("#dmList"); L.scrollTop = L.scrollHeight; }, 300); });
+  // 보내기 버튼을 눌러도 키보드가 내려가지 않게
+  ["pointerdown", "mousedown"].forEach((ev) => $("#dmSend").addEventListener(ev, (e) => e.preventDefault()));
+  $("#dmText").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+  $("#dmText").addEventListener("focus", () => { document.body.classList.add("typing"); $("#dmPlusMenu").hidden = true; setTimeout(() => { const L = $("#dmList"); L.scrollTop = L.scrollHeight; }, 300); });
   $("#dmText").addEventListener("blur", () => { document.body.classList.remove("typing"); $("#chatWrap").style.height = ""; });
   if (window.visualViewport) {
     const fit = () => {
@@ -1667,8 +1904,52 @@
     albumMore: () => renderAlbum(true),
     openAlbum(el) { openLightbox(S.album.photos, Number(el.dataset.i)); },
     dmSend: () => sendChat(),
-    dmPhoto: () => $("#dmFile").click(),
+    dmPhoto: () => { $("#dmPlusMenu").hidden = true; $("#dmFile").click(); },
     rxClose: closeRx,
+    async evShare(el) {
+      const e = (S.calData.events || []).find((x) => String(x.id) === el.dataset.id);
+      if (!e) return;
+      try {
+        await api("messages", { method: "POST", body: { kind: "event", ev: { date: e.date, time: e.time || "", title: e.title } } });
+        toast(`${nm(other())}님에게 일정을 보냈어요`);
+        if (S.chat) S.chat.sig = "";
+      } catch (er) { toast(er.message); }
+    },
+    rxPin(el) {
+      const id = el.dataset.id; closeRx();
+      api(`messages/${id}/pin`, { method: "POST", body: {} }).then((r) => { toast(r.pinned ? "위에 고정했어요" : "고정을 풀었어요"); refreshChat(); }).catch((e) => toast(e.message));
+    },
+    rxEdit(el) { const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id); closeRx(); if (m) setEdit(m); },
+    editCancel() { setEdit(null); $("#dmText").value = ""; autosize(); updateSendBtn(); },
+    pinGo(el) { gotoMsg(Number(el.dataset.id)); },
+    dmJump() { const L = $("#dmList"); L.scrollTo({ top: L.scrollHeight, behavior: "smooth" }); $("#dmJump").hidden = true; },
+    dmSearch: () => searchSheet(),
+    srchGo: () => doSearch(),
+    srchPick(el) { closeSheet(); setTimeout(() => gotoMsg(Number(el.dataset.id)), 250); },
+    dmPlus() { const m = $("#dmPlusMenu"); m.hidden = !m.hidden; },
+    async dmEvent() {
+      $("#dmPlusMenu").hidden = true;
+      const d = await api(`calendar?from=${today()}&to=${addDays(today(), 90)}`);
+      S.evPick = d.events || [];
+      openSheet(`<h2>일정 보내기</h2><p class="sheet-sub">앞으로 90일 일정이에요</p>
+        ${S.evPick.length ? `<div class="list">${S.evPick.map((e, i) => `<button class="li" data-act="evPickSend" data-i="${i}"><span class="li-t"><b>${esc(e.title)}</b><span>${fmtK(e.date)}${e.time ? " " + e.time : ""}</span></span>${ic("send", "li-chev")}</button>`).join("")}</div>`
+          : `<div class="empty">다가오는 일정이 없어요<br><small>추억 탭 달력에서 일정을 만들 수 있어요</small></div>`}`);
+    },
+    evPickSend(el) {
+      const e = S.evPick[+el.dataset.i]; closeSheet();
+      const meta = { date: e.date, time: e.time || "", title: e.title };
+      const tmp = { id: "tmp" + Date.now(), who: S.who, text: "", kind: "event", meta, reacts: {}, t: Date.now() };
+      S.chat.msgs.push(tmp); drawChat(true);
+      postMsg({ kind: "event", ev: meta }, tmp);
+    },
+    dmLoc() { $("#dmPlusMenu").hidden = true; sendMyLoc(); },
+    dmHeart() { $("#dmPlusMenu").hidden = true; sendHeart(); },
+    dmRetry(el) {
+      const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id);
+      if (!m) return;
+      m.failed = false; drawChat();
+      postMsg(m.body || { text: m.text }, m);
+    },
     rxReply(el) { const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id); closeRx(); if (m) setReply(m); },
     async rxCopy(el) {
       const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id); closeRx();
@@ -1874,6 +2155,18 @@
       setTimeout(() => toast("OwnTracks가 안 열리면 앱을 먼저 설치하세요"), 1500);
     },
     fitMap,
+    satToggle: () => setSat(!S.sat),
+    trailOpen() { S.trail = { w: other(), day: 0 }; renderMapCard(); loadTrail(); },
+    trailClose() { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); fitMap(); },
+    trailWho(el) { S.trail = { ...S.trail, w: el.dataset.v, data: null }; renderTrailCard(); loadTrail(); },
+    trailDay(el) { S.trail = { ...S.trail, day: Number(el.dataset.v), data: null }; renderTrailCard(); loadTrail(); },
+    navTo() {
+      const l = S.locs[other()]; if (!l) return;
+      location.href = `https://map.kakao.com/link/to/${encodeURIComponent(nm(other()))},${l.lat},${l.lon}`;
+    },
+    async locReq() {
+      try { await api("locreq", { method: "POST", body: {} }); toast(`${nm(other())}님에게 위치를 물어봤어요`); } catch (e) { toast(e.message); }
+    },
     flyTo(el) {
       const l = S.locs[el.dataset.w];
       if (!l) return toast("아직 위치가 없어요");
@@ -1936,6 +2229,7 @@
     if (e.target.id === "evTitle") ACT.evAdd();
     if (e.target.id === "bkTitle") ACT.bkAdd();
     if (e.target.id === "noteText") ACT.noteAdd();
+    if (e.target.id === "srchQ") doSearch();
   });
   $$(".tabbar button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
   $("#btnSettings").addEventListener("click", settingsSheet);
@@ -2001,7 +2295,7 @@
   }
 
   // 채팅 새로고침 + 배지 확인
-  setInterval(() => { if (!document.hidden && S.tab === "chat" && S.who && S.chat) refreshChat(); }, 2500);
+  setInterval(() => { if (!document.hidden && S.tab === "chat" && S.who && S.chat) refreshChat(); }, 1200);
   async function pulse(first) {
     if (!S.who) return;
     try {

@@ -65,6 +65,11 @@
     <symbol id="i-bowl" viewBox="0 0 24 24"><path d="M3.5 11.5h17a8.5 8.5 0 0 1-17 0z"/><path d="M8 20h8"/><path d="M9 8c0-1.5 1-1.5 1-3M13 8c0-1.5 1-1.5 1-3"/></symbol>
     <symbol id="i-run" viewBox="0 0 24 24"><circle cx="14.5" cy="4.5" r="2"/><path d="M8 21l3-6 3 2v5M6.5 11.5l3-3.5 4 1.5 2.5 3.5 3 .5"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16"/><path d="M20 20.5V16h-4.5"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-pinned" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/></symbol>
     <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></symbol>
   </defs>
 </svg>
@@ -109,6 +114,7 @@
     <div id="map"></div>
     <div class="map-card" id="mapCard"></div>
     <div class="map-fabs">
+      <button class="icon-btn" id="satBtn" data-act="satToggle" aria-label="위성 지도"><svg class="i"><use href="#i-layers"/></svg></button>
       <button class="icon-btn" data-act="placesSheet" aria-label="장소 알림"><svg class="i"><use href="#i-pin"/></svg></button>
       <button class="icon-btn" data-act="fitMap" aria-label="모두 보기"><svg class="i"><use href="#i-target"/></svg></button>
     </div>
@@ -117,15 +123,24 @@
     <div class="dm-head">
       <span id="dmAv"></span>
       <div class="dm-who"><b id="dmName"></b><span id="dmSub"></span></div>
+      <button class="icon-btn" data-act="dmSearch" aria-label="메시지 검색"><svg class="i"><use href="#i-search"/></svg></button>
     </div>
+    <button class="dm-pin" id="dmPin" data-act="pinGo" hidden></button>
     <div class="dm-list" id="dmList"></div>
+    <button class="dm-jump" id="dmJump" data-act="dmJump" hidden><svg class="i"><use href="#i-down"/></svg><span>새 메시지</span></button>
     <div class="dm-input">
       <div class="dm-reply" id="dmReply" hidden></div>
+      <div class="dm-plusmenu" id="dmPlusMenu" hidden>
+        <button data-act="dmPhoto"><span><svg class="i"><use href="#i-image"/></svg></span>사진</button>
+        <button data-act="dmLoc"><span><svg class="i"><use href="#i-pin"/></svg></span>내 위치</button>
+        <button data-act="dmEvent"><span><svg class="i"><use href="#i-cal"/></svg></span>일정</button>
+        <button data-act="dmHeart"><span><svg class="i"><use href="#i-heart"/></svg></span>하트</button>
+      </div>
       <div class="dm-pill">
-        <button class="dm-cam" data-act="dmPhoto" aria-label="사진 보내기"><svg class="i"><use href="#i-camera"/></svg></button>
+        <button class="dm-plus" data-act="dmPlus" aria-label="더보기"><svg class="i"><use href="#i-plus"/></svg></button>
         <input type="file" id="dmFile" accept="image/*" multiple hidden>
-        <input id="dmText" type="text" placeholder="메시지 보내기..." maxlength="2000" autocomplete="off" enterkeyhint="send">
-        <button id="dmSend" data-act="dmSend" hidden>보내기</button>
+        <textarea id="dmText" rows="1" placeholder="메시지 보내기" maxlength="2000" enterkeyhint="send"></textarea>
+        <button class="dm-send" id="dmSend" data-act="dmSend" aria-label="보내기"><svg class="i"><use href="#i-heart"/></svg></button>
       </div>
     </div>
   </div>
@@ -150,6 +165,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="/questions.js"></script>
+<script src="/questions-old.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

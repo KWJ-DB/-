@@ -38,6 +38,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const other = who === "a" ? "b" : "a";
         const evs = changes.map((c) => ({ who, place: c.place.name, inside: c.inside, t: Date.now() }));
         await setSettings(env, { last_place_ev: JSON.stringify(evs[evs.length - 1]) });
+        await DB.batch(changes.map((c) => DB.prepare("INSERT INTO place_events (who, place, inside, t) VALUES (?1, ?2, ?3, ?4)").bind(who, c.place.name, c.inside ? 1 : 0, Date.now())));
         for (const c of changes) {
           await sendPush(env, st, setSettings, other, {
             title: c.inside ? `${name}님 도착` : `${name}님 출발`,
@@ -126,7 +127,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       try { b = await request.json(); } catch {}
       if (b && b._type === "location") {
         try {
-          await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, batt: b.batt, t: b.tst ? b.tst * 1000 : Date.now(), src: "app" });
+          await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, batt: b.batt, vel: b.vel, t: b.tst ? b.tst * 1000 : Date.now(), src: "app" });
           await later(placeNotify(who, b.lat, b.lon, b.acc, b.tst ? b.tst * 1000 : Date.now()).then(togetherCheck));
         } catch {}
       }
@@ -181,6 +182,11 @@ export async function onRequest({ request, env, params, waitUntil }) {
     if (!who) return err(401, "로그인이 필요해요");
     const id = p1 ? Number(p1) : null;
     const route = `${m} ${p0}`;
+    // 접속 중 표시: 30초마다 마지막 활동 시각 기록
+    if (Date.now() - (Number(st["seen_" + who]) || 0) > 30000) {
+      const job = setSettings(env, { ["seen_" + who]: Date.now() }).catch(() => {});
+      if (waitUntil) waitUntil(job); else await job;
+    }
 
     switch (route) {
       case "GET nfclink":
@@ -385,7 +391,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // ----- 위치 -----
       case "GET loc": {
-        const { results } = await DB.prepare("SELECT who, lat, lon, acc, batt, src, t FROM couple_locs").all();
+        const { results } = await DB.prepare("SELECT who, lat, lon, acc, batt, src, t, vel FROM couple_locs").all();
         const locs = {};
         for (const r of results || []) locs[r.who] = r;
         return json({ now: Date.now(), locs });
@@ -536,7 +542,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "GET messages": {
         const before = Number(q("before")) || 0;
         const limit = Math.min(Math.max(Number(q("limit")) || 40, 1), 100);
-        const cols = "id, who, text, likes, reacts, img, w, h, t, reply_to";
+        const cols = "id, who, text, likes, reacts, img, w, h, t, reply_to, pinned, edited, kind, meta";
         const stmt = before
           ? DB.prepare(`SELECT ${cols} FROM messages WHERE id < ?1 ORDER BY id DESC LIMIT ?2`).bind(before, limit)
           : DB.prepare(`SELECT ${cols} FROM messages ORDER BY id DESC LIMIT ?1`).bind(limit);
@@ -545,13 +551,38 @@ export async function onRequest({ request, env, params, waitUntil }) {
           let reacts = {};
           try { reacts = m.reacts ? JSON.parse(m.reacts) : {}; } catch {}
           if (!m.reacts && m.likes) for (const w of m.likes) reacts[w] = "heart";
-          return { id: m.id, who: m.who, text: m.text, reacts, img: m.img, w: m.w, h: m.h, t: m.t, reply: m.reply_to || null };
+          let meta = null;
+          try { meta = m.meta ? JSON.parse(m.meta) : null; } catch {}
+          return { id: m.id, who: m.who, text: m.text, reacts, img: m.img, w: m.w, h: m.h, t: m.t, reply: m.reply_to || null, pinned: !!m.pinned, edited: !!m.edited, kind: m.kind || "text", meta };
         });
         const other = who === "a" ? "b" : "a";
-        return json({ messages: msgs, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, typing: Number(st["typing_" + other]) || 0, now: Date.now() });
+        const pin = await DB.prepare("SELECT id, who, text, img FROM messages WHERE pinned = 1 ORDER BY id DESC LIMIT 1").first();
+        return json({
+          messages: msgs, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 },
+          readT: { a: Number(st.read_t_a) || 0, b: Number(st.read_t_b) || 0 },
+          seen: Number(st["seen_" + other]) || 0,
+          typing: Number(st["typing_" + other]) || 0, pin: pin || null, now: Date.now(),
+        });
       }
       case "POST messages": {
         const b = await body(request);
+        if (id && p2 === "pin") {
+          const r = await DB.prepare("SELECT pinned FROM messages WHERE id = ?1").bind(id).first();
+          if (!r) return err(404, "메시지가 없어요");
+          const on = r.pinned ? 0 : 1;
+          if (on) await DB.prepare("UPDATE messages SET pinned = 0 WHERE pinned = 1").run();
+          await DB.prepare("UPDATE messages SET pinned = ?1 WHERE id = ?2").bind(on, id).run();
+          return json({ ok: true, pinned: !!on });
+        }
+        if (id && p2 === "edit") {
+          const r = await DB.prepare("SELECT who, t, img FROM messages WHERE id = ?1").bind(id).first();
+          if (!r || r.who !== who) return err(403, "내 메시지만 고칠 수 있어요");
+          if (Date.now() - r.t > 15 * 60000) return err(400, "보낸 지 15분이 지나서 고칠 수 없어요");
+          const nt = str(b.text, 2000);
+          if (!nt) return err(400, "내용을 입력하세요");
+          await DB.prepare("UPDATE messages SET text = ?1, edited = 1 WHERE id = ?2").bind(nt, id).run();
+          return json(OK);
+        }
         if (id && p2 === "react") {
           const r = await DB.prepare("SELECT likes, reacts FROM messages WHERE id = ?1").bind(id).first();
           if (!r) return err(404, "메시지가 없어요");
@@ -571,15 +602,28 @@ export async function onRequest({ request, env, params, waitUntil }) {
           const ir = await DB.prepare("INSERT INTO chat_imgs (w, h, thumb, data, t) VALUES (?1, ?2, ?3, ?4, ?5)").bind(w, h, b.img.thumb, b.img.data, Date.now()).run();
           imgId = ir.meta?.last_row_id || null;
         }
-        if (!text && !imgId) return err(400, "메시지를 입력하세요");
+        const kind = ["heart", "loc", "event"].includes(b.kind) ? b.kind : "text";
+        let meta = null;
+        if (kind === "loc") {
+          const la = Number(b.lat), lo = Number(b.lon);
+          if (!Number.isFinite(la) || !Number.isFinite(lo)) return err(400, "위치가 없어요");
+          meta = JSON.stringify({ lat: la, lon: lo });
+        }
+        if (kind === "event") {
+          const e = b.ev || {};
+          if (!isDate(e.date) || !str(e.title, 100)) return err(400, "일정이 없어요");
+          meta = JSON.stringify({ date: e.date, time: isTime(e.time) ? e.time : "", title: str(e.title, 100) });
+        }
+        if (!text && !imgId && kind === "text") return err(400, "메시지를 입력하세요");
         const replyTo = Number(b.reply) || null;
-        const r = await DB.prepare("INSERT INTO messages (who, text, likes, reacts, img, w, h, t, reply_to) VALUES (?1, ?2, '', NULL, ?3, ?4, ?5, ?6, ?7)")
-          .bind(who, text, imgId, w, h, Date.now(), replyTo).run();
+        const r = await DB.prepare("INSERT INTO messages (who, text, likes, reacts, img, w, h, t, reply_to, kind, meta) VALUES (?1, ?2, '', NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
+          .bind(who, text, imgId, w, h, Date.now(), replyTo, kind, meta).run();
         const newId = r.meta?.last_row_id;
         if (newId) await setSettings(env, { ["read_" + who]: newId, ["typing_" + who]: 0 });
         const other = who === "a" ? "b" : "a";
         const name = who === "a" ? st.a_name : st.b_name;
-        const job = sendPush(env, st, setSettings, other, { title: name, body: text || "사진을 보냈어요", url: "/#chat", tag: "dm" });
+        const pushBody = kind === "heart" ? "하트를 보냈어요" : kind === "loc" ? "위치를 보냈어요" : kind === "event" ? `일정: ${JSON.parse(meta).title}` : text || "사진을 보냈어요";
+        const job = sendPush(env, st, setSettings, other, { title: name, body: pushBody, url: "/#chat", tag: "dm" });
         if (waitUntil) waitUntil(job); else await job;
         return json({ ok: true, id: newId });
       }
@@ -623,6 +667,29 @@ export async function onRequest({ request, env, params, waitUntil }) {
         }
         return err(404, "없는 주소예요");
       }
+      case "GET msgsearch": {
+        const kw = str(q("q"), 40);
+        if (!kw) return json({ results: [] });
+        const { results } = await DB.prepare("SELECT id, who, text, t FROM messages WHERE text LIKE ?1 ORDER BY id DESC LIMIT 50").bind(`%${kw.replace(/[%_]/g, "")}%`).all();
+        return json({ results: results || [] });
+      }
+      // 이동 경로 + 장소 기록 (KST 날짜)
+      case "GET history": {
+        const w = q("w") === "b" ? "b" : "a";
+        const d = isDate(q("date")) ? q("date") : todayKST();
+        const start = Date.parse(d + "T00:00:00+09:00"), end = start + 864e5;
+        const [pts, evs] = await DB.batch([
+          DB.prepare("SELECT lat, lon, t FROM loc_hist WHERE who = ?1 AND t >= ?2 AND t < ?3 ORDER BY t").bind(w, start, end),
+          DB.prepare("SELECT place, inside, t FROM place_events WHERE who = ?1 AND t >= ?2 AND t < ?3 ORDER BY t").bind(w, start, end),
+        ]);
+        return json({ points: pts.results || [], events: evs.results || [] });
+      }
+      case "POST locreq": {
+        const name = who === "a" ? st.a_name : st.b_name;
+        const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "위치 알려줘", body: `${name}님이 지금 위치를 궁금해해요. 눌러서 알려주세요`, url: "/#map", tag: "locreq" });
+        if (waitUntil) waitUntil(job); else await job;
+        return json(OK);
+      }
       case "POST typing":
         await setSettings(env, { ["typing_" + who]: Date.now() });
         return json(OK);
@@ -645,7 +712,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "POST read": {
         const b = await body(request);
         const n = Number(b.id) || 0;
-        if (n > (Number(st["read_" + who]) || 0)) await setSettings(env, { ["read_" + who]: n });
+        if (n > (Number(st["read_" + who]) || 0)) await setSettings(env, { ["read_" + who]: n, ["read_t_" + who]: Date.now() });
         return json(OK);
       }
 

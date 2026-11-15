@@ -1560,3 +1560,9 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .btn, .chip, .eat2-add, .mc-acts button span { white-space: nowrap; }
 .eat2-t .kind-tg { display: flex; width: max-content; }
 .eat2-t > span { display: block; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 지도 위 카드·버튼이 지도(핀, 캔버스) 아래로 숨지 않게 항상 위 레이어에 */
+#map { position: absolute; z-index: 0; }
+.map-card { z-index: 20 !important; transform: translateZ(0); -webkit-transform: translateZ(0); will-change: transform; }
+.map-fabs { z-index: 21 !important; transform: translateZ(0); }
+#pick { z-index: 22 !important; }
+.pick-panel { transform: translateZ(0); }

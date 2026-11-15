@@ -169,6 +169,7 @@
     if (!TABS.includes(tab)) tab = "home";
     if (document.activeElement && document.activeElement.blur && !document.activeElement.closest("#chatWrap")) document.activeElement.blur();
     document.body.classList.remove("kb");
+    if (tab !== "map" && $("#pick")) pickClose();
     const prevI = TABS.indexOf(S.tab), nextI = TABS.indexOf(tab);
     const dir = prevI < 0 || prevI === nextI ? "" : nextI > prevI ? "from-r" : "from-l";
     S.tab = tab;
@@ -1587,6 +1588,8 @@
 
   const speedTxt = (l) => { if (!l || l.vel == null || S.locNow - l.t > 10 * 60000) return ""; const v = Number(l.vel); return v >= 4 ? `이동 중 ${v}km/h` : "멈춰 있음"; };
   function renderMapCard() {
+    const mc = $("#mapCard");
+    if (!$("#pick") && mc.hidden) mc.hidden = false;
     if (S.trail) return renderTrailCard();
     if (S.eatOn) return renderEatCard();
     const la = S.locs.a, lb = S.locs.b, o = other(), lo = S.locs[o];

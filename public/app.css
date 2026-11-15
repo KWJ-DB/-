@@ -689,3 +689,49 @@ svg.i.arr { width: 13px; height: 13px; vertical-align: -2px; margin: 0 1px; stro
 .miss-fx span:nth-child(even) { color: #C86BE6; }
 .miss-fx svg { width: 100%; height: 100%; }
 @keyframes missUp { 0% { transform: translateY(0) scale(.6); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-90vh) scale(1.2); opacity: 0; } }
+
+/* =========================================================
+   단순한 홈: 사진 카드 + 목록 하나
+   ========================================================= */
+.hero { padding: 26px 22px 20px; border-radius: 28px; }
+.hero .dday { margin: 0 0 6px; font-size: 64px; }
+.hero .since { display: flex; align-items: center; gap: 5px; font-size: 14px; }
+.hero .since svg.i { width: 13px; height: 13px; fill: #fff; stroke-width: 1; }
+.hero.has-cover { min-height: 300px; padding-top: 0; }
+.hero-moods { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; position: relative; z-index: 1; max-width: calc(100% - 110px); }
+.hm { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px 4px 4px; border-radius: 999px; background: rgba(255,255,255,.22); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: #fff; font-size: 12px; font-weight: 650; max-width: 100%; }
+.hm .av { width: 24px; height: 24px; font-size: 10px; border: 1.5px solid rgba(255,255,255,.8); }
+.hm > span:last-child { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hm svg.i { width: 13px; height: 13px; }
+.hero-acts { position: absolute; right: 16px; bottom: 16px; display: flex; gap: 8px; z-index: 2; }
+.ha { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; background: rgba(255,255,255,.24); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.4); }
+.ha svg { width: 22px; height: 22px; }
+.ha:active { transform: scale(.9); }
+.ha.sent svg { animation: tapPulse .6s cubic-bezier(.3,1.6,.5,1); }
+.hero-tap, .moods, .miss-btn, .tiles, .strip.plain, .push-card { display: none !important; }
+.notice { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px; margin-bottom: 12px; border-radius: 16px; background: rgba(255,255,255,.75); font-size: 13px; color: var(--sub); text-align: left; }
+.notice svg.i { width: 18px; height: 18px; color: var(--rose); flex: none; }
+.notice b { margin-left: auto; color: var(--rose); font-size: 13px; }
+.notice.letter { background: linear-gradient(135deg, #FFF0F5, #F4EEFF); color: var(--ink); font-weight: 650; }
+.list { background: rgba(255,255,255,.82); border: 1px solid rgba(255,255,255,.9); border-radius: 24px; box-shadow: 0 4px 20px rgba(186,92,120,.06); overflow: hidden; }
+.li { display: flex; align-items: center; gap: 12px; width: 100%; padding: 15px 16px; text-align: left; border-top: 1px solid #F5EDEC; }
+.li:first-child { border-top: 0; }
+.li:active { background: #FFF6F8; }
+.li-ic { width: 34px; height: 34px; border-radius: 11px; background: var(--rose-soft); color: var(--rose); display: flex; align-items: center; justify-content: center; flex: none; }
+.li-ic svg.i { width: 18px; height: 18px; }
+.li-t { flex: 1; min-width: 0; }
+.li-t b { display: block; font-size: 15px; font-weight: 700; }
+.li-t span { display: block; font-size: 12px; color: var(--sub); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.li-v { font-size: 15px; font-weight: 800; color: var(--rose); display: flex; align-items: center; }
+.li-v svg.i.done { width: 18px; height: 18px; stroke-width: 2.6; }
+.li-v .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rose); }
+.li-chev { width: 16px; height: 16px; color: #D5C9D0; flex: none; }
+.letter { position: relative; padding: 14px 16px; border-radius: 18px; background: #FFF8F4; border: 1px solid #F6E7DE; margin-top: 10px; }
+.letter.mine { background: #F8F6FF; border-color: #ECE7FB; }
+.letter .lh { display: flex; justify-content: space-between; font-size: 13px; font-weight: 750; color: var(--ink); margin-bottom: 8px; padding-right: 26px; }
+.letter .lh span { font-weight: 600; color: var(--sub); font-size: 12px; }
+.letter .lb { font-size: 15px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: #4A3F4C; }
+.letter .lb.lock { display: flex; align-items: center; gap: 6px; color: var(--sub); font-size: 13px; }
+.letter .lb.lock svg.i { width: 16px; height: 16px; }
+.letter .x { position: absolute; top: 12px; right: 12px; color: #C9BEC6; }
+.letter .x svg.i { width: 16px; height: 16px; }

@@ -187,8 +187,55 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "" });
       }
+      case "POST meet": {
+        const b = await body(request);
+        await setSettings(env, { next_meet: isDate(b.date) ? b.date : "" });
+        return json(OK);
+      }
+      // 둘 다 답한 날이 며칠 연속인지 (오늘 아직 안 했으면 어제부터 셈)
+      case "GET streak": {
+        const { results } = await DB.prepare("SELECT qdate, COUNT(DISTINCT who) AS n FROM answers GROUP BY qdate ORDER BY qdate DESC LIMIT 400").all();
+        const both = new Set((results || []).filter((r) => r.n >= 2).map((r) => r.qdate));
+        const day = (d, k) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + k); return x.toISOString().slice(0, 10); };
+        let d = q("today") && isDate(q("today")) ? q("today") : todayKST();
+        if (!both.has(d)) d = day(d, -1);
+        let n = 0;
+        while (both.has(d)) { n++; d = day(d, -1); }
+        return json({ streak: n });
+      }
+      // ----- 편지 (정한 날짜에 열림) -----
+      case "GET letters": {
+        const t = isDate(q("today")) ? q("today") : todayKST();
+        const { results } = await DB.prepare("SELECT id, from_who, body, open_date, read, t FROM letters ORDER BY open_date DESC, id DESC LIMIT 100").all();
+        const letters = (results || []).map((l) => {
+          const mine = l.from_who === who;
+          const open = l.open_date <= t;
+          return { id: l.id, from: l.from_who, open_date: l.open_date, read: !!l.read, t: l.t, mine, open, body: mine || open ? l.body : null };
+        });
+        return json({ letters, unread: letters.filter((l) => !l.mine && l.open && !l.read).length });
+      }
+      case "POST letters": {
+        const b = await body(request);
+        if (id && p2 === "read") {
+          await DB.prepare("UPDATE letters SET read = 1 WHERE id = ?1 AND from_who != ?2").bind(id, who).run();
+          return json(OK);
+        }
+        const text = str(b.body, 3000);
+        if (!text) return err(400, "편지 내용을 적어주세요");
+        const od = isDate(b.open_date) ? b.open_date : todayKST();
+        await DB.prepare("INSERT INTO letters (from_who, body, open_date, read, t) VALUES (?1, ?2, ?3, 0, ?4)").bind(who, text, od, Date.now()).run();
+        if (od <= todayKST()) {
+          const name = who === "a" ? st.a_name : st.b_name;
+          const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "편지가 도착했어요", body: `${name}님이 편지를 보냈어요`, url: "/#home", tag: "letter" });
+          if (waitUntil) waitUntil(job); else await job;
+        }
+        return json(OK);
+      }
+      case "DELETE letters":
+        await DB.prepare("DELETE FROM letters WHERE id = ?1 AND from_who = ?2").bind(id, who).run();
+        return json(OK);
       case "POST mood": {
         const b = await body(request);
         const MOODS = ["happy", "flutter", "tired", "busy", "study", "gloomy", "hungry", "miss", "exercise"];

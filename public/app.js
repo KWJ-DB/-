@@ -187,61 +187,89 @@
 
   // ---------- 홈 ----------
   async function renderHome() {
-    view.innerHTML = `<div class="spin"></div>`;
+    if (!view.innerHTML.trim() || !$(".hero", view)) view.innerHTML = `<div class="spin"></div>`;
     const t = today();
-    const [, locR, phR, bkR] = await Promise.all([
-      loadAnswers(t, t), api("loc"), api("photos?recent=12"), api("bucket"),
+    const [, locR, bkR, lt, sk] = await Promise.all([
+      loadAnswers(t, t), api("loc"), api("bucket"), api(`letters?today=${t}`), api(`streak?today=${t}`),
     ]);
     S.locs = locR.locs; S.locNow = locR.now;
     updateBadge();
     if (S.tab !== "home") return;
 
     const dp = dplus(t);
-    const up = annivList(t, addDays(t, 800)).filter((a) => a.kind !== "start").slice(0, 3);
-    const next = up[0];
+    const next = annivList(t, addDays(t, 800)).filter((a) => a.kind !== "start")[0];
     const myCnt = answeredCount(t, S.who);
-    const otCnt = answeredCount(t, other());
     const la = S.locs.a, lb = S.locs.b;
     const dist = la && lb ? fmtDist(distM(la, lb)) : null;
-    const bk = bkR.bucket, bkDone = bk.filter((b) => b.done).length;
-    S.homePhotos = phR.photos;
+    const bk = bkR.bucket, bkDone = bk.filter((x) => x.done).length;
+    const meet = S.nextMeet && S.nextMeet >= t ? S.nextMeet : "";
+    const cover = S.avatars && S.avatars.cover;
+    const mood = (w) => { const m = moodOf(w); return m ? `${ic(m.ic)}${esc(m.text || m.label)}` : w === S.who ? "기분 남기기" : ""; };
+    const row = (act, icon, title, value, sub, extra = "") => `
+      <button class="li" data-act="${act}" ${extra}>
+        <span class="li-ic">${ic(icon)}</span>
+        <span class="li-t"><b>${title}</b>${sub ? `<span>${sub}</span>` : ""}</span>
+        <span class="li-v">${value}</span>${ic("right", "li-chev")}
+      </button>`;
+    const ps = pushState();
 
-    const nextDays = next ? diff(t, next.date) : null;
     view.innerHTML = `
-      <div class="hero${S.avatars && S.avatars.cover ? " has-cover" : ""}" ${S.avatars && S.avatars.cover ? `style="background-image:linear-gradient(180deg,rgba(40,10,30,.05) 20%,rgba(40,10,30,.55)),url('/api/avatar/cover?v=${S.avatars.cover}')"` : ""}>
-        <div class="pair"><span class="pair-av">${av("a")}${av("b")}</span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</div>
+      <div class="hero${cover ? " has-cover" : ""}" ${cover ? `style="background-image:linear-gradient(180deg,rgba(40,10,30,0) 25%,rgba(40,10,30,.6)),url('/api/avatar/cover?v=${cover}')"` : ""}>
         <div class="dday">${dp > 0 ? dp : dlabel(1 - dp)}${dp > 0 ? "<small>일째</small>" : ""}</div>
-        <div class="since">${fmtDot(S.start)}부터 함께</div>
-        <button class="hero-tap" data-act="swOpen" aria-label="폰 맞대기">${HEART}<span>맞대기</span></button>
+        <div class="since">${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))} · ${fmtDot(S.start)}부터</div>
+        <div class="hero-moods">
+          <button class="hm" data-act="moodSheet">${av(S.who)}<span>${mood(S.who)}</span></button>
+          ${moodOf(other()) ? `<span class="hm">${av(other())}<span>${mood(other())}</span></span>` : ""}
+        </div>
+        <div class="hero-acts">
+          <button class="ha" data-act="missYou" aria-label="보고싶어">${HEART}</button>
+          <button class="ha" data-act="swOpen" aria-label="맞대기">${ic("phone")}</button>
+        </div>
       </div>
-      <div class="moods">${moodChip(S.who)}${moodChip(other())}</div>
-      <button class="miss-btn" data-act="missYou">${HEART}<span>${esc(nm(other()))}에게 보고싶어 보내기</span></button>
-      ${(() => {
-        const ps = pushState();
-        if (ps === "granted" || ps === "unsupported") return "";
-        if (ps === "needs-home") return `<div class="card push-card">${ic("bell")}<div><b>앱을 꺼도 알림 받기</b><span>공유 버튼 ${ic("right", "arr")} 홈 화면에 추가 후, 그 아이콘으로 열어서 알림을 켜주세요</span></div></div>`;
-        if (ps === "denied") return `<div class="card push-card">${ic("bell")}<div><b>알림이 꺼져 있어요</b><span>아이폰 설정 ${ic("right", "arr")} 알림에서 허용해 주세요</span></div></div>`;
-        return `<button class="card push-card" data-act="pushOn">${ic("bell")}<div><b>알림 켜기</b><span>앱을 꺼도 메시지와 장소 알림이 와요</span></div></button>`;
-      })()}
-      <div class="tiles">
-        <button class="tile" data-act="tab" data-tab="question">
-          <span class="ti">${ic("chat")}</span><span class="tl">오늘의 질문</span>
-          <b>${myCnt}<small>/4</small></b><span class="th">${myCnt < 4 ? "답하러 가기" : `${esc(nm(other()))} ${otCnt}/4`}</span>
-        </button>
-        <button class="tile" data-act="tab" data-tab="map">
-          <span class="ti">${ic("pin")}</span><span class="tl">우리 사이</span>
-          <b>${S.together ? "함께" : dist || "-"}</b><span class="th">${S.together ? "같이 있어요" : dist ? "거리" : "위치 없음"}</span>
-        </button>
-        <button class="tile" data-act="annivSheet">
-          <span class="ti">${ic("gift")}</span><span class="tl">${next ? esc(next.title) : "기념일"}</span>
-          <b>${next ? dlabel(nextDays) : "-"}</b><span class="th">${next ? fmtK(next.date).replace(/ \(.\)/, "") : "추가하기"}</span>
-        </button>
-        <button class="tile" data-act="bucketOpen">
-          <span class="ti">${ic("list")}</span><span class="tl">버킷리스트</span>
-          <b>${bkDone}<small>/${bk.length}</small></b><span class="th">${bk.length ? "이룬 것" : "적어보기"}</span>
-        </button>
-      </div>
-      ${S.homePhotos.length ? `<div class="strip plain">${S.homePhotos.slice(0, 8).map((p, i) => `<button data-act="openHomePhoto" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""></button>`).join("")}</div>` : ""}`;
+      ${ps === "default" ? `<button class="notice" data-act="pushOn">${ic("bell")}알림을 켜면 앱을 꺼도 메시지가 와요<b>켜기</b></button>`
+        : ps === "needs-home" ? `<div class="notice">${ic("bell")}홈 화면에 추가하면 알림을 받을 수 있어요</div>` : ""}
+      ${lt.unread ? `<button class="notice letter" data-act="lettersOpen">${ic("msg")}${esc(nm(other()))}님의 편지가 도착했어요<b>열기</b></button>` : ""}
+      <div class="list">
+        ${row("tab", "chat", "오늘의 질문", myCnt >= 4 ? ic("check", "done") : `${myCnt}/4`, sk.streak ? `${sk.streak}일 연속 함께 답했어요` : "둘이 같이 답해봐요", 'data-tab="question"')}
+        ${row("meetSheet", "cal", "다음 만남", meet ? dlabel(diff(t, meet)) : "정하기", meet ? fmtK(meet) : "")}
+        ${row("annivSheet", "gift", next ? esc(next.title) : "기념일", next ? dlabel(diff(t, next.date)) : "", next ? fmtK(next.date) : "")}
+        ${row("tab", "pin", "우리 사이", S.together ? "함께" : dist || "-", S.together ? "같이 있어요" : "", 'data-tab="map"')}
+        ${row("bucketOpen", "list", "버킷리스트", bk.length ? `${bkDone}/${bk.length}` : "", "")}
+        ${row("lettersOpen", "msg", "편지", lt.unread ? `<i class="dot"></i>` : "", "정한 날에 열리는 편지")}
+      </div>`;
+  }
+
+  // ---------- 다음 만남 ----------
+  function meetSheet() {
+    openSheet(`
+      <h2>${ic("cal")}다음 만남</h2>
+      <p>다음에 만나는 날을 정해두면 홈에 D-day가 떠요.</p>
+      <label>날짜<input type="date" id="meetDate" value="${S.nextMeet || today()}"></label>
+      <div class="row2"><button class="btn gray" data-act="meetClear">지우기</button><button class="btn primary" data-act="meetSave">저장</button></div>`);
+  }
+
+  // ---------- 편지 ----------
+  async function lettersSheet() {
+    const t = today();
+    const { letters } = await api(`letters?today=${t}`);
+    openSheet(`
+      <h2>${ic("msg")}편지</h2>
+      <p>날짜를 정해서 보내면 그날 열려요. 오늘 날짜로 보내면 바로 도착해요.</p>
+      <div class="row2" style="margin:10px 0 6px"><button class="btn primary" data-act="letterWrite">${ic("pen")}편지 쓰기</button></div>
+      ${letters.map((l) => `
+        <div class="letter ${l.mine ? "mine" : ""} ${l.open ? "" : "lt-wait"}">
+          <div class="lh">${l.mine ? `내가 보낸 편지` : `${esc(nm(l.from))}님의 편지`}<span>${l.open ? fmtK(l.open_date) : `${fmtK(l.open_date)}에 열려요`}</span></div>
+          ${l.body !== null ? `<div class="lb">${esc(l.body)}</div>` : `<div class="lb lock">${ic("lock")}아직 열 수 없어요 · ${dlabel(diff(t, l.open_date))}</div>`}
+          ${l.mine ? `<button class="x" data-act="letterDel" data-id="${l.id}" aria-label="삭제">${ic("trash")}</button>` : ""}
+        </div>`).join("") || `<div class="empty">아직 편지가 없어요</div>`}`);
+    for (const l of letters) if (!l.mine && l.open && !l.read) api(`letters/${l.id}/read`, { method: "POST", body: {} }).catch(() => {});
+  }
+  function letterWrite() {
+    openSheet(`
+      <h2>${ic("pen")}${esc(nm(other()))}에게 편지</h2>
+      <textarea id="letterBody" maxlength="3000" placeholder="하고 싶은 말을 적어보세요" style="width:100%;min-height:200px;margin-top:10px"></textarea>
+      <label>열리는 날<input type="date" id="letterDate" value="${today()}"></label>
+      <div class="row2"><button class="btn gray" data-act="lettersOpen">취소</button><button class="btn primary" data-act="letterSend">보내기</button></div>`);
   }
 
   function annivSheetList() {
@@ -1349,6 +1377,20 @@
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     bucketOpen: () => bucketSheet(),
+    meetSheet: () => meetSheet(),
+    async meetSave() { const d = $("#meetDate").value; await api("meet", { method: "POST", body: { date: d } }); S.nextMeet = d; closeSheet(); render(true); },
+    async meetClear() { await api("meet", { method: "POST", body: { date: "" } }); S.nextMeet = ""; closeSheet(); render(true); },
+    lettersOpen: () => lettersSheet(),
+    letterWrite: () => letterWrite(),
+    async letterSend() {
+      const body = $("#letterBody").value.trim();
+      if (!body) return toast("편지 내용을 적어주세요");
+      const d = $("#letterDate").value || today();
+      await api("letters", { method: "POST", body: { body, open_date: d } });
+      toast(d <= today() ? "편지를 보냈어요" : `${fmtK(d)}에 열리는 편지를 보냈어요`);
+      lettersSheet(); render(true);
+    },
+    async letterDel(el) { if (!confirm("이 편지를 지울까요?")) return; await api(`letters/${el.dataset.id}`, { method: "DELETE" }); lettersSheet(); },
     moodSheet: () => moodSheet(),
     moodPick(el) { S.moodPick = el.dataset.m; $$(".mood-grid button").forEach((b) => b.classList.toggle("on", b === el)); },
     async moodSave() {
@@ -1704,7 +1746,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {};
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || "";
       setBrand();
       await loadAnniv();
       showOnly("app");

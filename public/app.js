@@ -1644,6 +1644,36 @@
     eatDetail(E.list.find((x) => x.id === id));
   }
 
+  // 네이버 지도로 길찾기: 앱이 있으면 앱, 없으면 네이버 지도 웹
+  function naverRoute(d, mode) {
+    const name = encodeURIComponent(d.name);
+    const app = `nmap://route/${mode}?dlat=${d.lat}&dlng=${d.lon}&dname=${name}&appname=wooju.pages.dev`;
+    const pt = { public: 0, car: 1, walk: 2 }[mode] || 0;
+    const web = `https://m.map.naver.com/route.nhn?menu=route&ename=${name}&ex=${d.lon}&ey=${d.lat}&pathType=${pt}&showMap=true`;
+    const me = S.locs[S.who];
+    const webFull = me ? `${web}&sname=${encodeURIComponent("내 위치")}&sx=${me.lon}&sy=${me.lat}` : web;
+    const t0 = Date.now();
+    location.href = app;
+    // 앱으로 넘어가지 않았으면(설치 안 됨) 웹으로
+    setTimeout(() => { if (!document.hidden && Date.now() - t0 < 2500) location.href = webFull; }, 1400);
+    closeSheet();
+  }
+  function routeSheet(d) {
+    S.route = d;
+    const me = S.locs[S.who];
+    const old = d.t ? (S.locNow || Date.now()) - d.t : 0;
+    const dist = me ? fmtDist(distM(me, d)) : "";
+    openSheet(`
+      <h2>${esc(d.name)}까지 길찾기</h2>
+      <p class="sheet-sub">${dist ? `여기서 ${dist}` : ""}${d.t ? ` · ${ago(d.t, S.locNow)} 위치` : ""}</p>
+      ${d.t && old > 10 * 60000 ? `<div class="route-warn">${ic("clock")}<span>${esc(nm(d.who))}님 위치가 ${ago(d.t, S.locNow)} 거라 지금은 다른 곳일 수 있어요</span><button class="btn soft sm" data-act="locReq">위치 요청</button></div>` : ""}
+      <div class="route-modes">
+        <button data-act="routeGo" data-m="public"><span>${ic("route")}</span>대중교통</button>
+        <button data-act="routeGo" data-m="walk"><span>${ic("run")}</span>걸어서</button>
+        <button data-act="routeGo" data-m="car"><span>${ic("target")}</span>자동차</button>
+      </div>
+      <p class="route-note"><span class="nv-logo sm">N</span>네이버 지도 앱이 있으면 앱에서, 없으면 웹에서 열려요</p>`);
+  }
   const speedTxt = (l) => { if (!l || l.vel == null || S.locNow - l.t > 10 * 60000) return ""; const v = Number(l.vel); return v >= 4 ? `이동 중 ${v}km/h` : "멈춰 있음"; };
   function renderMapCard() {
     const mc = $("#mapCard");
@@ -3055,7 +3085,7 @@
       eatUpdate({ rate: off ? 0 : v }).then(() => toast(off ? "별점을 지웠어요" : `별점 ${v}점을 줬어요`));
     },
     eatFly() { const e = E.list.find((x) => x.id === S.eatCur); closeSheet(); if (S.tab !== "map") setTab("map"); if (!S.eatOn) setEatOn(true); setTimeout(() => map.flyTo({ center: [e.lon, e.lat], zoom: 17 }), 300); },
-    eatNav() { const e = E.list.find((x) => x.id === S.eatCur); location.href = `https://map.kakao.com/link/to/${encodeURIComponent(e.name)},${e.lat},${e.lon}`; },
+    eatNav() { const e = E.list.find((x) => x.id === S.eatCur); routeSheet({ lat: e.lat, lon: e.lon, name: e.name }); },
     async eatDm() {
       const e = E.list.find((x) => x.id === S.eatCur);
       try { await api("messages", { method: "POST", body: { kind: "loc", lat: e.lat, lon: e.lon, name: e.name, text: "" } }); toast(`${nm(other())}님에게 보냈어요`); if (S.chat) S.chat.sig = ""; } catch (er) { toast(er.message); }
@@ -3432,8 +3462,9 @@
     trailDay(el) { S.trail = { ...S.trail, day: Number(el.dataset.v), data: null }; renderTrailCard(); loadTrail(); },
     navTo() {
       const l = S.locs[other()]; if (!l) return;
-      location.href = `https://map.kakao.com/link/to/${encodeURIComponent(nm(other()))},${l.lat},${l.lon}`;
+      routeSheet({ lat: l.lat, lon: l.lon, name: `${nm(other())} 있는 곳`, t: l.t, acc: l.acc, who: other() });
     },
+    routeGo(el) { const d = S.route; if (d) naverRoute(d, el.dataset.m); },
     async locReq() {
       try { await api("locreq", { method: "POST", body: {} }); toast(`${nm(other())}님에게 위치를 물어봤어요`); } catch (e) { toast(e.message); }
     },

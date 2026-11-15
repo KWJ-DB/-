@@ -981,3 +981,78 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .idea2 b.land { animation: ideaIn .35s cubic-bezier(.3,1.5,.5,1); }
 .idea-tags { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
 .idea-tags span { font-size: 12px; font-weight: 650; color: var(--sub); background: #fff; padding: 4px 10px; border-radius: 999px; }
+
+.q-hint { text-align: center; font-size: 12px; color: var(--sub); margin: 4px 0 0; }
+.more-q { display: none; }
+
+/* ---------- 함께 하기 ---------- */
+.home-h { margin: 22px 4px 10px; font-size: 15px; font-weight: 800; }
+.grid6 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.grid6 button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 6px 14px; border-radius: var(--r-surface); background: var(--card); font-size: 13px; font-weight: 650; color: var(--ink); }
+.grid6 button span { width: 40px; height: 40px; border-radius: 13px; background: #F2F1F5; color: #5E5B66; display: flex; align-items: center; justify-content: center; }
+.grid6 button svg.i { width: 21px; height: 21px; }
+.dpair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px; }
+.dpair > * { display: flex; flex-direction: column; gap: 6px; text-align: center; }
+.dpair b { font-size: 13px; color: var(--sub); font-weight: 650; }
+.df { aspect-ratio: 3 / 4; border-radius: 18px; overflow: hidden; background: #F2F1F5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--sub); font-size: 13px; font-weight: 650; }
+.df img { width: 100%; height: 100%; object-fit: cover; }
+.df svg.i { width: 26px; height: 26px; }
+.df.lockd { background: #EAE8EE; }
+.dpair.sm { margin: 6px 0 0; }
+.dpair.sm .df { aspect-ratio: 1; border-radius: 12px; font-size: 11px; }
+.dpast { margin-top: 12px; } .dpast > span { font-size: 12px; color: var(--sub); font-weight: 650; }
+.coupon { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 16px; border-radius: 18px; background: #FFF6F8; border: 1.5px dashed #F2B7C7; position: relative; }
+.coupon .cp-l { flex: 1; min-width: 0; }
+.coupon b { display: block; font-size: 16px; font-weight: 800; }
+.coupon span { font-size: 12px; color: var(--sub); }
+.coupon.used { background: #F4F4F6; border-color: #DDDAE2; opacity: .7; }
+.coupon.used b { text-decoration: line-through; text-decoration-color: #C7C3CC; }
+.coupon .x { color: #C9BEC6; display: flex; } .coupon .x svg.i { width: 18px; height: 18px; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.st { padding: 18px 16px; border-radius: 18px; background: #F4F4F6; min-height: 82px; }
+.st b { display: block; font-size: 24px; font-weight: 850; letter-spacing: -0.03em; }
+.st span { font-size: 13px; color: var(--sub); }
+
+/* =========================================================
+   부드러운 움직임 + 스켈레톤
+   ========================================================= */
+:root { --ease: cubic-bezier(.22,.9,.3,1); --spring: cubic-bezier(.3,1.35,.4,1); }
+/* 탭 바꿀 때 한 번만 살짝 */
+#view.tab-in { animation: tabIn .32s var(--ease) both !important; }
+@keyframes tabIn { from { opacity: 0; transform: translateY(8px); } }
+/* 누를 때 눌리는 느낌 */
+.li, .grid6 button, .btn, .opt, .icon-btn, .ha, .hm, .choice, .tabbar button, .al-grid button, .day { transition: transform .18s var(--ease), background-color .18s, opacity .18s; }
+.li:active, .grid6 button:active, .opt:active:not(:disabled), .al-grid button:active { transform: scale(.97); }
+.btn:active { transform: scale(.96); }
+.tabbar button:active { transform: scale(.9); }
+/* 시트: 스프링으로 올라오고 부드럽게 내려감 */
+.sheet-bg { animation: fade .25s ease both; }
+.sheet-box { animation: sheetUp .42s var(--spring) both; }
+@keyframes sheetUp { from { transform: translateY(100%); } }
+.sheet-bg.closing { animation: fadeOut .22s ease forwards; }
+.sheet-bg.closing .sheet-box { animation: sheetDown .22s var(--ease) forwards; }
+@keyframes fadeOut { to { opacity: 0; } }
+@keyframes sheetDown { to { transform: translateY(100%); } }
+.sheet-box.swap > * { animation: tabIn .25s var(--ease) both; }
+.lightbox { animation: fade .2s ease; }
+.lightbox img { animation: zoomIn .3s var(--ease); }
+@keyframes zoomIn { from { transform: scale(.94); opacity: 0; } }
+.tab-pill { transition: transform .5s var(--spring), width .5s var(--spring); }
+img { transition: opacity .3s; }
+/* 스켈레톤 */
+.sk { display: block; border-radius: 12px; background: linear-gradient(90deg, #ECEBF0 0%, #F6F5F8 40%, #ECEBF0 80%); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.sk-hero { height: 240px; border-radius: 26px; margin-bottom: 14px; }
+.sk-list { background: var(--card); border-radius: var(--r-surface); padding: 6px 0; margin-bottom: 12px; }
+.sk-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.sk-row > div { flex: 1; }
+.sk-ic { width: 32px; height: 32px; border-radius: 9px; }
+.sk-l1 { height: 13px; width: 55%; margin-bottom: 7px; }
+.sk-l2 { height: 10px; width: 35%; }
+.sk-title { height: 28px; width: 45%; margin: 8px 4px 16px; border-radius: 8px; }
+.sk-card { height: 190px; border-radius: var(--r-surface); margin-bottom: 12px; }
+.sk-seg { height: 40px; border-radius: 14px; margin: 4px 0 18px; }
+.sk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; border-radius: 14px; overflow: hidden; }
+.sk-grid .sk { aspect-ratio: 1; border-radius: 0; }
+.st.sk { min-height: 82px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

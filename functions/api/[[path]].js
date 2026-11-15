@@ -9,6 +9,9 @@ import { getVapid, sendPush } from "../_push.js";
 
 const REACTS = ["heart", "sparkle", "star", "fire", "like", "hug", "laugh", "wow", "sad"];
 const CHOICE_SLOTS = ["c", "c1", "c2", "c3"];
+// 추가 질문: bc1, bc2... (둘 중 하나), bt1, bt2... (서술형) — 끝없이
+const isChoiceSlot = (sl) => CHOICE_SLOTS.includes(sl) || /^bc\d{1,4}$/.test(sl);
+const isSlot = (sl) => sl === "t" || isChoiceSlot(sl) || /^bt\d{1,4}$/.test(sl);
 
 const OK = { ok: true };
 const unauthorized = () => new Response("unauthorized", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="couple"' } });
@@ -236,6 +239,85 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "DELETE letters":
         await DB.prepare("DELETE FROM letters WHERE id = ?1 AND from_who = ?2").bind(id, who).run();
         return json(OK);
+      // ----- 오늘의 한 장 (둘 다 올려야 서로 보임) -----
+      case "GET daily": {
+        const d = isDate(q("date")) ? q("date") : todayKST();
+        const { results } = await DB.prepare("SELECT date, who, t FROM daily_photos WHERE date <= ?1 ORDER BY date DESC LIMIT 30").bind(d).all();
+        const byDate = {};
+        for (const r of results || []) (byDate[r.date] ||= {})[r.who] = r.t;
+        const days = Object.keys(byDate).sort().reverse().slice(0, 14).map((date) => {
+          const x = byDate[date], me = x[who], ot = x[who === "a" ? "b" : "a"];
+          return { date, mine: !!me, partner: !!ot, open: !!(me && ot) };
+        });
+        return json({ days });
+      }
+      case "POST daily": {
+        const b = await body(request);
+        const d = todayKST();
+        if (typeof b.data !== "string" || typeof b.thumb !== "string" || b.data.length > 1500000) return err(400, "사진이 올바르지 않아요");
+        await DB.prepare("INSERT INTO daily_photos (date, who, thumb, data, t) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(date, who) DO UPDATE SET thumb = excluded.thumb, data = excluded.data, t = excluded.t")
+          .bind(isDate(b.date) && b.date <= d ? b.date : d, who, b.thumb, b.data, Date.now()).run();
+        const name = who === "a" ? st.a_name : st.b_name;
+        const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "오늘의 한 장", body: `${name}님이 오늘의 사진을 올렸어요`, url: "/#home", tag: "daily" });
+        if (waitUntil) waitUntil(job); else await job;
+        return json(OK);
+      }
+      case "GET dailyimg": {
+        const d = q("date"), w = q("w") === "b" ? "b" : "a";
+        if (!isDate(d)) return err(400, "날짜 오류");
+        if (w !== who) {
+          const mine = await DB.prepare("SELECT 1 FROM daily_photos WHERE date = ?1 AND who = ?2").bind(d, who).first();
+          if (!mine) return err(403, "내 사진을 먼저 올려야 볼 수 있어요");
+        }
+        const r = await DB.prepare(`SELECT ${q("thumb") ? "thumb" : "data"} AS img FROM daily_photos WHERE date = ?1 AND who = ?2`).bind(d, w).first();
+        if (!r || !r.img) return err(404, "사진 없음");
+        return new Response(fromB64(r.img), { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=86400" } });
+      }
+
+      // ----- 사랑 쿠폰 -----
+      case "GET coupons": {
+        const { results } = await DB.prepare("SELECT id, from_who, title, used, used_t, t FROM coupons ORDER BY used, id DESC LIMIT 100").all();
+        return json({ coupons: results || [] });
+      }
+      case "POST coupons": {
+        const b = await body(request);
+        if (id && p2 === "use") {
+          const c = await DB.prepare("SELECT from_who, title, used FROM coupons WHERE id = ?1").bind(id).first();
+          if (!c || c.from_who === who) return err(400, "받은 쿠폰만 쓸 수 있어요");
+          if (c.used) return err(409, "이미 쓴 쿠폰이에요");
+          await DB.prepare("UPDATE coupons SET used = 1, used_t = ?1 WHERE id = ?2").bind(Date.now(), id).run();
+          const name = who === "a" ? st.a_name : st.b_name;
+          const job = sendPush(env, st, setSettings, c.from_who, { title: "쿠폰을 썼어요", body: `${name}님이 "${c.title}"을 썼어요`, url: "/#home", tag: "coupon" });
+          if (waitUntil) waitUntil(job); else await job;
+          return json(OK);
+        }
+        const title = str(b.title, 30);
+        if (!title) return err(400, "쿠폰 이름을 적어주세요");
+        await DB.prepare("INSERT INTO coupons (from_who, title, used, t) VALUES (?1, ?2, 0, ?3)").bind(who, title, Date.now()).run();
+        const name = who === "a" ? st.a_name : st.b_name;
+        const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "쿠폰이 왔어요", body: `${name}님이 "${title}"을 줬어요`, url: "/#home", tag: "coupon" });
+        if (waitUntil) waitUntil(job); else await job;
+        return json(OK);
+      }
+      case "DELETE coupons":
+        await DB.prepare("DELETE FROM coupons WHERE id = ?1 AND from_who = ?2").bind(id, who).run();
+        return json(OK);
+
+      // ----- 우리 기록 -----
+      case "GET stats": {
+        const one = async (sql) => ((await DB.prepare(sql).first()) || {}).n || 0;
+        const [msgs, photos, chatImgs, bothDays, bucketDone, letters, coupons, daily] = await Promise.all([
+          one("SELECT COUNT(*) AS n FROM messages"),
+          one("SELECT COUNT(*) AS n FROM photos"),
+          one("SELECT COUNT(*) AS n FROM chat_imgs"),
+          one("SELECT COUNT(*) AS n FROM (SELECT qdate FROM answers GROUP BY qdate HAVING COUNT(DISTINCT who) >= 2)"),
+          one("SELECT COUNT(*) AS n FROM bucket WHERE done = 1"),
+          one("SELECT COUNT(*) AS n FROM letters"),
+          one("SELECT COUNT(*) AS n FROM coupons WHERE used = 1"),
+          one("SELECT COUNT(*) AS n FROM (SELECT date FROM daily_photos GROUP BY date HAVING COUNT(*) >= 2)"),
+        ]);
+        return json({ msgs, photos: photos + chatImgs, bothDays, bucketDone, letters, coupons, daily });
+      }
       case "POST mood": {
         const b = await body(request);
         const MOODS = ["happy", "flutter", "tired", "busy", "study", "gloomy", "hungry", "miss", "exercise"];
@@ -358,10 +440,10 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "POST answers": {
         const b = await body(request);
         if (!isDate(b.qdate) || b.qdate > todayKST()) return err(400, "날짜가 올바르지 않아요");
-        if (b.slot !== "t" && !CHOICE_SLOTS.includes(b.slot)) return err(400, "질문 종류가 올바르지 않아요");
+        if (!isSlot(b.slot)) return err(400, "질문 종류가 올바르지 않아요");
         const answer = str(b.answer, 1000);
         if (!answer) return err(400, "답을 입력하세요");
-        if (CHOICE_SLOTS.includes(b.slot)) {
+        if (isChoiceSlot(b.slot)) {
           if (!["0", "1"].includes(answer)) return err(400, "선택지가 올바르지 않아요");
           const had = await DB.prepare("SELECT 1 FROM answers WHERE qdate = ?1 AND slot = ?2 AND who = ?3").bind(b.qdate, b.slot, who).first();
           if (had) return err(409, "이미 골랐어요. 한 번만 고를 수 있어요");

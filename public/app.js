@@ -108,12 +108,22 @@
     const i = qIndex(date);
     const G = window.QGEN;
     if (slot === "t") return { q: G ? G.text(i) : QT[i % QT.length] };
+    // 추가 질문: 날마다 다른 구간에서 끝없이
+    const bm = /^b([ct])(\d+)$/.exec(slot);
+    if (bm && G) {
+      const k = Number(bm[2]);
+      return bm[1] === "t" ? { q: G.text(4000 + i * 37 + k) } : G.choice(9000 + i * 53 + k);
+    }
     const k = Math.max(0, CSLOTS.indexOf(slot));
     return G ? G.choice(i * 3 + k) : QC[(i * 3 + k) % QC.length];
   };
   // 예전 버전의 "c" 답은 첫 번째 객관식으로 취급
   const getAns = (date, slot, w) => S.ans[`${date}|${slot}|${w}`] || (slot === "c1" ? S.ans[`${date}|c|${w}`] : undefined);
-  const answeredCount = (date, w) => ALL_SLOTS.filter((sl) => getAns(date, sl, w)).length;
+  // 하루 한 질문: 짝수 날은 서술형, 홀수 날은 둘 중 하나
+  const daySlot = (date) => (qIndex(date) % 2 === 0 ? "t" : "c1");
+  const bonusSlot = (k) => (k % 2 ? "bc" : "bt") + k;
+  const bonusAnswered = (date) => { let k = 0; while (getAns(date, bonusSlot(k + 1), S.who) || getAns(date, bonusSlot(k + 1), other())) k++; return k; };
+  const answeredCount = (date, w) => (getAns(date, daySlot(date), w) ? 1 : 0);
   async function loadAnswers(from, to) {
     const { answers } = await api(`answers?from=${from}&to=${to}`);
     for (const k of Object.keys(S.ans)) { const d = k.slice(0, 10); if (d >= from && d <= to) delete S.ans[k]; }
@@ -121,7 +131,7 @@
   }
   function updateBadge() {
     const t = today();
-    $("#qBadge").hidden = answeredCount(t, S.who) >= ALL_SLOTS.length;
+    $("#qBadge").hidden = answeredCount(t, S.who) >= 1;
   }
 
   // ---------- 화면 전환 ----------
@@ -148,6 +158,8 @@
     window.scrollTo(0, 0);
     if (isMap) { ensureMap(); refreshLoc(true); return; }
     if (isChat) { openChat(); return; }
+    view.innerHTML = ""; view.dataset.tab = "";
+    view.classList.remove("tab-in"); void view.offsetWidth; view.classList.add("tab-in");
     render();
   }
   async function render(keepScroll = false) {
@@ -160,9 +172,18 @@
     } catch (e) {
       if (e.status !== 401) view.innerHTML = `<div class="card empty">불러오지 못했어요<br>${esc(e.message)}</div>`;
     }
+    view.dataset.tab = S.tab;
     if (keepScroll) window.scrollTo(0, y);
   }
-  const spinner = () => { if (!view.innerHTML.trim()) view.innerHTML = `<div class="spin"></div>`; };
+  // 불러오는 동안 화면 모양대로 회색 자리 표시 (스켈레톤)
+  const skel = (tab) => {
+    const row = `<div class="sk-row"><i class="sk sk-ic"></i><div><i class="sk sk-l1"></i><i class="sk sk-l2"></i></div></div>`;
+    if (tab === "home") return `<div class="sk sk-hero"></div><div class="sk-list">${row.repeat(5)}</div>`;
+    if (tab === "question") return `<i class="sk sk-title"></i><div class="sk sk-card"></div><div class="sk-list">${row.repeat(3)}</div>`;
+    if (tab === "calendar") return `<div class="sk sk-seg"></div><div class="sk-grid">${'<i class="sk"></i>'.repeat(9)}</div>`;
+    return `<div class="sk sk-card"></div><div class="sk-list">${row.repeat(3)}</div>`;
+  };
+  const spinner = () => { if (!view.innerHTML.trim() || view.dataset.tab !== S.tab) { view.innerHTML = skel(S.tab); view.dataset.tab = S.tab; } };
 
   // ---------- 오늘 기분 ----------
   const MOODS = [
@@ -187,7 +208,7 @@
 
   // ---------- 홈 ----------
   async function renderHome() {
-    if (!view.innerHTML.trim() || !$(".hero", view)) view.innerHTML = `<div class="spin"></div>`;
+    if (!$(".hero", view)) { view.innerHTML = skel("home"); view.dataset.tab = "home"; }
     const t = today();
     const [, locR, bkR, lt, sk] = await Promise.all([
       loadAnswers(t, t), api("loc"), api("bucket"), api(`letters?today=${t}`), api(`streak?today=${t}`),
@@ -230,16 +251,18 @@
         : ps === "needs-home" ? `<div class="notice">${ic("bell")}홈 화면에 추가하면 알림을 받을 수 있어요</div>` : ""}
       ${lt.unread ? `<button class="notice letter" data-act="lettersOpen">${ic("msg")}${esc(nm(other()))}님의 편지가 도착했어요<b>열기</b></button>` : ""}
       <div class="list">
-        ${row("tab", "chat", "오늘의 질문", myCnt >= 4 ? ic("check", "done") : `${myCnt}/4`, sk.streak ? `${sk.streak}일 연속 함께 답했어요` : "둘이 같이 답해봐요", 'data-tab="question"')}
+        ${row("tab", "chat", "오늘의 질문", myCnt ? ic("check", "done") : "답하기", esc(qFor(t, daySlot(t)).q), 'data-tab="question"')}
         ${row("meetSheet", "cal", "다음 만남", meet ? dlabel(diff(t, meet)) : "정하기", meet ? fmtK(meet) : "")}
         ${row("annivSheet", "gift", next ? esc(next.title) : "기념일", next ? dlabel(diff(t, next.date)) : "", next ? fmtK(next.date) : "")}
         ${row("tab", "pin", "우리 사이", S.together ? "함께" : dist || "-", S.together ? "같이 있어요" : "", 'data-tab="map"')}
         ${row("bucketOpen", "list", "버킷리스트", bk.length ? `${bkDone}/${bk.length}` : "", "")}
         ${row("lettersOpen", "msg", "편지", lt.unread ? `<i class="dot"></i>` : "", "정한 날에 열리는 편지")}
       </div>
-      <div class="list" style="margin-top:12px">
-        ${row("ideaOpen", "sparkle", "데이트 뭐 하지?", "", "아이디어 뽑기")}
-        ${row("notesOpen", "star", "서로 알아두기", "", "좋아하는 것, 싫어하는 것 메모")}
+      <h3 class="home-h">함께 하기</h3>
+      <div class="grid6">
+        ${[["dailyOpen", "camera", "오늘의 한 장"], ["couponOpen", "gift", "사랑 쿠폰"], ["ideaOpen", "sparkle", "데이트 뭐 하지"],
+           ["foodOpen", "bowl", "뭐 먹지"], ["notesOpen", "star", "서로 알아두기"], ["statsOpen", "list", "우리 기록"]]
+          .map(([a, i, l]) => `<button data-act="${a}"><span>${ic(i)}</span>${l}</button>`).join("")}
       </div>`;
   }
 
@@ -303,6 +326,85 @@
   }
 
 
+  // ---------- 오늘의 한 장 ----------
+  async function dailySheet() {
+    const t = today();
+    const { days } = await api(`daily?date=${t}`);
+    const td = days.find((d) => d.date === t) || { date: t, mine: false, partner: false, open: false };
+    const frame = (d, w) => {
+      const has = w === S.who ? d.mine : d.partner;
+      if (!has) return `<div class="df empty">${w === S.who ? `${ic("camera")}<span>내 사진 올리기</span>` : `<span>${esc(nm(w))}님 아직</span>`}</div>`;
+      if (w !== S.who && !d.mine) return `<div class="df lockd">${ic("lock")}<span>내 사진을 올리면 보여요</span></div>`;
+      return `<div class="df"><img src="/api/dailyimg?date=${d.date}&w=${w}&thumb=1&v=${Date.now() % 100000}" alt=""></div>`;
+    };
+    const past = days.filter((d) => d.date !== t && d.open);
+    openSheet(`
+      <h2>오늘의 한 장</h2>
+      <p>하루에 한 장씩 지금 모습을 올려요. 둘 다 올리면 서로 보여요.</p>
+      <div class="dpair">
+        <button data-act="dailyUp">${frame(td, S.who)}<b>${esc(nm(S.who))}</b></button>
+        <div>${frame(td, other())}<b>${esc(nm(other()))}</b></div>
+      </div>
+      <input type="file" id="dailyInput" accept="image/*" capture="environment" hidden>
+      <div class="row2"><button class="btn primary" data-act="dailyUp">${ic("camera")}${td.mine ? "다시 찍기" : "지금 찍어 올리기"}</button></div>
+      ${past.length ? `<div class="sec-t"><span>지난 날</span></div>${past.map((d) => `<div class="dpast"><span>${fmtK(d.date)}</span><div class="dpair sm">${frame(d, S.who)}${frame(d, other())}</div></div>`).join("")}` : ""}`);
+  }
+
+  // ---------- 사랑 쿠폰 ----------
+  const COUPON_PRESETS = ["소원 들어주기권", "떡볶이 쏘기권", "화 풀기권", "1시간 통화권", "사진 찍어주기권", "데이트 코스 정하기권"];
+  async function couponSheet(tab) {
+    tab = tab || S.couponTab || "got";
+    S.couponTab = tab;
+    const { coupons } = await api("coupons");
+    const list = coupons.filter((c) => (tab === "got" ? c.from_who !== S.who : c.from_who === S.who));
+    openSheet(`
+      <h2>사랑 쿠폰</h2>
+      <div class="seg" style="margin-top:8px"><button class="${tab === "got" ? "on" : ""}" data-act="couponTab" data-t="got">받은 쿠폰</button><button class="${tab === "gave" ? "on" : ""}" data-act="couponTab" data-t="gave">준 쿠폰</button></div>
+      ${list.map((c) => `
+        <div class="coupon ${c.used ? "used" : ""}">
+          <div class="cp-l"><b>${esc(c.title)}</b><span>${c.used ? `${new Date(c.used_t).getMonth() + 1}월 ${new Date(c.used_t).getDate()}일에 씀` : tab === "got" ? `${esc(nm(c.from_who))}님이 줬어요` : "아직 안 썼어요"}</span></div>
+          ${tab === "got" && !c.used ? `<button class="btn primary sm" data-act="couponUse" data-id="${c.id}">쓰기</button>` : ""}
+          ${tab === "gave" && !c.used ? `<button class="x" data-act="couponDel" data-id="${c.id}" aria-label="삭제">${ic("x")}</button>` : ""}
+        </div>`).join("") || `<div class="empty">${tab === "got" ? "아직 받은 쿠폰이 없어요" : "쿠폰을 만들어서 선물해 보세요"}</div>`}
+      <div class="note-add">
+        <div class="chips">${COUPON_PRESETS.map((c) => `<button class="chip-sel" data-act="couponPreset" data-c="${c}">${c}</button>`).join("")}</div>
+        <div class="add-row" style="margin-top:8px"><input type="text" id="couponTitle" maxlength="30" placeholder="쿠폰 이름"><button class="btn primary" data-act="couponGive">주기</button></div>
+      </div>`);
+  }
+
+  // ---------- 뭐 먹지? ----------
+  const FOODS = ["떡볶이", "마라탕", "치킨", "피자", "햄버거", "돈까스", "초밥", "라면", "김밥", "짜장면", "쌀국수", "파스타", "닭갈비", "샌드위치", "분식 세트", "탕후루"];
+  function foodSheet(spin) {
+    const pick = FOODS[Math.floor(Math.random() * FOODS.length)];
+    openSheet(`
+      <h2>뭐 먹지?</h2>
+      <div class="idea2"><b id="foodText">${spin ? "" : "뭐 먹을지 모르겠으면 눌러봐요"}</b></div>
+      <div class="row2"><button class="btn primary" data-act="foodSpin">${ic("refresh")}${spin ? "다시 고르기" : "골라줘"}</button></div>`);
+    if (spin) {
+      const el = $("#foodText");
+      let n = 0, delay = 40;
+      const tick = () => {
+        el.textContent = FOODS[Math.floor(Math.random() * FOODS.length)];
+        n++; delay *= 1.18;
+        if (n < 14) setTimeout(tick, delay); else { el.textContent = pick; el.classList.add("land"); }
+      };
+      tick();
+    }
+  }
+
+  // ---------- 우리 기록 ----------
+  async function statsSheet() {
+    openSheet(`<h2>우리 기록</h2><div class="stats">${Array.from({ length: 6 }, () => `<div class="st sk"></div>`).join("")}</div>`);
+    const s2 = await api("stats");
+    const t = today();
+    const items = [
+      ["함께한 날", `${dplus(t)}일`], ["주고받은 메시지", `${s2.msgs}개`], ["같이 답한 질문", `${s2.bothDays}일`],
+      ["모은 사진", `${s2.photos}장`], ["이룬 버킷리스트", `${s2.bucketDone}개`], ["쓴 편지", `${s2.letters}통`],
+    ];
+    const box = $("#sheetBox .stats");
+    if (box) box.innerHTML = items.map(([k, v]) => `<div class="st"><b>${v}</b><span>${k}</span></div>`).join("");
+  }
+
   // ---------- 다음 만남 ----------
   function meetSheet() {
     openSheet(`
@@ -360,7 +462,8 @@
     const hasMore = !S.created || from > S.created;
     if (S.created && from < S.created) from = S.created;
     if (from > t) from = t;
-    await loadAnswers(from, t);
+    const [, sk] = await Promise.all([loadAnswers(from, t), api(`streak?today=${t}`).catch(() => ({}))]);
+    S.streak = sk.streak || 0;
     updateBadge();
     if (S.tab !== "question") return;
 
@@ -372,22 +475,19 @@
       arch += `
         <div class="arch2${open ? " open" : ""}">
           <button class="li" data-act="toggleArch" data-date="${d}">
-            <span class="li-t"><b>${esc(qFor(d, "t").q)}</b><span>${fmtK(d)}</span></span>
+            <span class="li-t"><b>${esc(qFor(d, daySlot(d)).q)}</b><span>${fmtK(d)}</span></span>
             <span class="dots">${dot(S.who)}${dot(other())}</span>${ic("right", "li-chev")}
           </button>
-          ${open ? `<div class="arch2-in">${qCard(d, "t")}<section class="qbox">${CSLOTS.map((sl) => choiceOne(d, sl)).join("")}</section></div>` : ""}
+          ${open ? `<div class="arch2-in">${daySlot(d) === "t" ? qCard(d, "t") : `<section class="qbox">${choiceOne(d, "c1")}</section>`}</div>` : ""}
         </div>`;
     }
-    const mineN = answeredCount(t, S.who), otN = answeredCount(t, other());
+    const sl = daySlot(t);
     view.innerHTML = `
       <div class="q-top">
-        <div><h2>오늘의 질문</h2><span>${fmtK(t)} · 나 ${mineN}/4, ${esc(nm(other()))} ${otN}/4</span></div>
+        <div><h2>오늘의 질문</h2><span>${fmtK(t)}${S.streak ? ` · ${S.streak}일 연속 함께 답했어요` : ""}</span></div>
       </div>
-      ${qCard(t, "t")}
-      <section class="qbox">
-        <h3 class="qbox-t">둘 중 하나 <span>한 번만 고를 수 있어요</span></h3>
-        ${CSLOTS.map((sl) => choiceOne(t, sl)).join("")}
-      </section>
+      ${sl === "t" ? qCard(t, "t") : `<section class="qbox"><h3 class="qbox-t">둘 중 하나 <span>한 번만 고를 수 있어요</span></h3>${choiceOne(t, "c1")}</section>`}
+      <p class="q-hint">하루에 하나씩, 매일 새 질문이 와요</p>
       ${arch ? `<h3 class="q-past">지난 질문</h3><div class="list">${arch}</div>` : ""}
       ${arch && hasMore ? `<button class="btn gray block" data-act="qMore" style="margin-top:10px">더 보기</button>` : ""}`;
   }
@@ -403,8 +503,8 @@
     const ans = (w, text, edit) => `<div class="qa"><div class="qa-h">${av(w)}<b>${esc(nm(w))}</b>${edit ? `<button class="qa-edit" data-act="editT" data-key="${key}">수정</button>` : ""}</div><p>${esc(text)}</p></div>`;
     let body;
     if (!mine || S.editing === key) {
-      body = `<textarea data-ta="${date}" placeholder="내 생각을 적어주세요" maxlength="1000">${esc(mine?.answer || "")}</textarea>
-        <div class="q-actions">${mine ? `<button class="btn gray sm" data-act="cancelEdit">취소</button>` : ""}<button class="btn primary sm" data-act="saveT" data-date="${date}">${mine ? "저장" : "답하기"}</button></div>`;
+      body = `<textarea data-ta="${date}|${slot}" placeholder="내 생각을 적어주세요" maxlength="1000">${esc(mine?.answer || "")}</textarea>
+        <div class="q-actions">${mine ? `<button class="btn gray sm" data-act="cancelEdit">취소</button>` : ""}<button class="btn primary sm" data-act="saveT" data-date="${date}" data-slot="${slot}">${mine ? "저장" : "답하기"}</button></div>`;
     } else body = ans(me, mine.answer, true);
     if (theirs && !theirs.hidden) body += ans(ot, theirs.answer);
     else body += `<div class="qa-wait">${ic(theirs ? "lock" : "clock")}${theirs ? `${esc(nm(ot))}님 답은 내가 답하면 보여요` : `${esc(nm(ot))}님은 아직이에요`}</div>`;
@@ -1358,8 +1458,20 @@
   }
 
   // ---------- 시트 ----------
-  function openSheet(html) { $("#sheetBox").innerHTML = html; $("#sheet").hidden = false; }
-  function closeSheet() { $("#sheet").hidden = true; }
+  function openSheet(html) {
+    const sh = $("#sheet"), was = !sh.hidden && !sh.classList.contains("closing");
+    sh.classList.remove("closing");
+    $("#sheetBox").innerHTML = html;
+    sh.hidden = false;
+    // 이미 열려 있으면 내용만 부드럽게 바꿈
+    if (was) { const b = $("#sheetBox"); b.classList.remove("swap"); void b.offsetWidth; b.classList.add("swap"); }
+  }
+  function closeSheet() {
+    const sh = $("#sheet");
+    if (sh.hidden || sh.classList.contains("closing")) return;
+    sh.classList.add("closing");
+    setTimeout(() => { sh.hidden = true; sh.classList.remove("closing"); }, 220);
+  }
   $("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
 
   function otSheet() {
@@ -1451,6 +1563,25 @@
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     bucketOpen: () => bucketSheet(),
+    dailyOpen: () => dailySheet(),
+    dailyUp: () => $("#dailyInput").click(),
+    couponOpen: () => couponSheet(),
+    couponTab: (el) => couponSheet(el.dataset.t),
+    couponPreset(el) { $("#couponTitle").value = el.dataset.c; },
+    async couponGive() {
+      const title = $("#couponTitle").value.trim();
+      if (!title) return toast("쿠폰 이름을 적어주세요");
+      await api("coupons", { method: "POST", body: { title } });
+      toast(`${nm(other())}님에게 쿠폰을 줬어요`); couponSheet("gave");
+    },
+    async couponUse(el) {
+      if (!confirm("이 쿠폰을 쓸까요?")) return;
+      try { await api(`coupons/${el.dataset.id}/use`, { method: "POST", body: {} }); toast("쿠폰을 썼어요"); couponSheet("got"); } catch (e) { toast(e.message); }
+    },
+    async couponDel(el) { await api(`coupons/${el.dataset.id}`, { method: "DELETE" }); couponSheet("gave"); },
+    foodOpen: () => foodSheet(false),
+    foodSpin: () => foodSheet(true),
+    statsOpen: () => statsSheet(),
     notesOpen: () => notesSheet(),
     notesAbout: (el) => notesSheet(el.dataset.w),
     noteCat(el) { S.noteCat = el.dataset.c; $$(".chip-sel").forEach((b) => b.classList.toggle("on", b === el)); },
@@ -1599,13 +1730,13 @@
 
     // 질문
     async saveT(el) {
-      const date = el.dataset.date;
-      const ta = $(`textarea[data-ta="${date}"]`);
+      const date = el.dataset.date, slot = el.dataset.slot || "t";
+      const ta = $(`textarea[data-ta="${date}|${slot}"]`);
       const v = ta.value.trim();
       if (!v) return toast("답을 적어주세요");
       el.disabled = true;
       try {
-        await api("answers", { method: "POST", body: { qdate: date, slot: "t", answer: v } });
+        await api("answers", { method: "POST", body: { qdate: date, slot, answer: v } });
         S.editing = null;
         await render(true);
         toast("답을 남겼어요");
@@ -1622,6 +1753,7 @@
       } catch (e) { toast(e.message); }
       setTimeout(() => render(true), 350);
     },
+    qBonus() { S.bonusOpen = Math.max(S.bonusOpen || 0, bonusAnswered(today())) + 1; render(true); },
     qMore() { S.qDays = (S.qDays || 30) + 30; render(true); },
     toggleArch(el) {
       const d = el.dataset.date;
@@ -1786,6 +1918,14 @@
     if (e.target.id === "alInput" && e.target.files.length) albumUpload([...e.target.files]);
     if (e.target.id === "avInput" && e.target.files.length) uploadAvatar(e.target.files[0]);
     if (e.target.id === "coverInput" && e.target.files.length) uploadCover(e.target.files[0]);
+    if (e.target.id === "dailyInput" && e.target.files.length) {
+      const f = e.target.files[0];
+      (async () => {
+        toast("올리는 중...");
+        try { const p = await prepPhoto(f, 400); await api("daily", { method: "POST", body: { data: p.data, thumb: p.thumb } }); toast("오늘의 한 장을 올렸어요"); dailySheet(); }
+        catch (err) { toast(err.message); }
+      })();
+    }
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.isComposing) return;

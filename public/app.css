@@ -1784,3 +1784,11 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 /* 알림 문구가 '요'만 따로 다음 줄로 넘어가지 않게 */
 #toast { width: max-content !important; max-width: calc(100vw - 40px) !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word; text-wrap: balance; box-sizing: border-box; }
 body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: break-word; }
+.cm { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.cm-i { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border-radius: var(--r-surface); background: #F4F4F6; text-align: left; color: var(--ink); transition: transform .15s; }
+.cm-i:active { transform: scale(.98); }
+.cm-i > span:first-child { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: #fff; color: var(--ink); flex: none; }
+.cm-i.ft > span:first-child { background: #2BC46B; color: #fff; }
+.cm-i svg.i { width: 22px; height: 22px; }
+.cm-i b { display: block; font-size: 15px; font-weight: 700; }
+.cm-i em { display: block; font-style: normal; font-size: 12.5px; color: var(--sub); margin-top: 1px; }

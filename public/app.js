@@ -1380,6 +1380,27 @@
     if (/한식|국밥|찌개|냉면|국수|해장|한정식|백반|칼국수|순대|감자탕/.test(c)) return "한식";
     return c ? "기타" : "한식";
   }
+  // 통화 방법 고르기: 페이스타임이 가장 확실, 사이트 통화는 무료지만 망에 따라 안 될 수 있음
+  function callMenu(kind) {
+    S.callKind = kind;
+    const num = (S.phones || {})[other()];
+    const item = (v, icon, title, sub, cls = "") => `<button class="cm-i ${cls}" data-act="callVia" data-v="${v}"><span>${ic(icon)}</span><span><b>${title}</b><em>${sub}</em></span></button>`;
+    openSheet(`
+      <h2>${esc(nm(other()))}님에게 ${kind === "video" ? "영상통화" : "전화"}</h2>
+      <div class="cm">
+        ${kind === "video" ? item("ft", "video", "FaceTime 영상통화", num ? "가장 잘 연결돼요" : "번호를 먼저 등록해야 해요", "ft") : item("fta", "phone2", "FaceTime 음성통화", num ? "가장 잘 연결돼요 · 무료" : "번호를 먼저 등록해야 해요", "ft")}
+        ${kind === "voice" ? item("tel", "phone2", "일반 전화", num ? esc(num) : "번호를 먼저 등록해야 해요") : ""}
+        ${item("web", kind === "video" ? "video" : "phone2", "우주에서 통화", S.turn ? "중계 서버 켜짐" : "같은 와이파이 등 일부 망에서만 연결돼요")}
+      </div>
+      ${num ? "" : `<p class="route-note">${esc(nm(other()))}님이 설정 > 내 번호에서 전화번호나 Apple ID를 등록하면 FaceTime으로 걸 수 있어요</p>`}`);
+  }
+  function phoneSheet(need) {
+    openSheet(`
+      <h2>내 번호 (FaceTime)</h2>
+      <p class="sheet-sub">${need ? `${esc(nm(other()))}님이 아직 번호를 등록하지 않았어요. ` : ""}내 전화번호나 FaceTime에 쓰는 Apple ID 이메일을 적어두면 ${esc(nm(other()))}님이 버튼 한 번으로 FaceTime을 걸 수 있어요. 우리 둘만 볼 수 있어요.</p>
+      <input type="text" id="myPhone" value="${esc((S.phones || {})[S.who] || "")}" placeholder="010-1234-5678 또는 이메일" autocomplete="tel" style="display:block;width:100%;box-sizing:border-box;margin-top:12px">
+      <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="close">닫기</button><button class="btn primary" data-act="phoneSave">저장</button></div>`);
+  }
   function turnSheet() {
     openSheet(`
       <h2>통화 연결 (중계 서버)</h2>
@@ -2253,7 +2274,7 @@
       const ec = e.target.closest(".ev-card");
       if (ec) { const d = ec.dataset.date; S.cal = { y: +d.slice(0, 4), m: +d.slice(5, 7) - 1, sel: d }; S.memView = "cal"; setTab("calendar"); return; }
       const cm = e.target.closest(".call-msg");
-      if (cm) { startCall(cm.dataset.k); return; }
+      if (cm) { callMenu(cm.dataset.k); return; }
       const ecd = e.target.closest(".eat-card");
       if (ecd) { openEatFromChat(Number(ecd.dataset.eat), ecd.dataset.ek, +ecd.dataset.lat, +ecd.dataset.lon); return; }
       const lc = e.target.closest(".loc-card");
@@ -2712,7 +2733,7 @@
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
         ${row("placesSheet", "pin", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
-        ${row("turnSheet", "phone2", "통화 연결", S.turn ? "중계 서버 켜짐" : "통화가 연결 안 될 때")}
+        ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>
@@ -3505,7 +3526,19 @@
       catch (e) { toast(e.message); }
     },
     async turnOff() { await api("turnkey", { method: "POST", body: {} }); await api("relaykey", { method: "POST", body: {} }); S.turn = false; iceCache = null; toast("껐어요"); closeSheet(); },
-    callStart(el) { startCall(el.dataset.k); },
+    callStart(el) { callMenu(el.dataset.k); },
+    callVia(el) {
+      const v = el.dataset.v, num = (S.phones || {})[other()];
+      closeSheet();
+      if (v === "web") return startCall(S.callKind);
+      if (!num) return phoneSheet(true);
+      location.href = v === "ft" ? `facetime://${num}` : v === "fta" ? `facetime-audio://${num}` : `tel:${num}`;
+    },
+    phoneOpen: () => phoneSheet(false),
+    async phoneSave() {
+      const v = $("#myPhone").value.trim();
+      try { await api("phone", { method: "POST", body: { phone: v } }); S.phones = { ...S.phones, [S.who]: v }; toast(v ? "저장했어요" : "지웠어요"); closeSheet(); } catch (e) { toast(e.message); }
+    },
     callAccept: () => acceptCall(),
     callDecline() { endCall(true); },
     callEnd() { endCall(true); },
@@ -3914,7 +3947,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn;
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {};
       setBrand();
       await loadAnniv();
       showOnly("app");

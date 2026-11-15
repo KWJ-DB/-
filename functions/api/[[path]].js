@@ -218,7 +218,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url) });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url), phones: { a: st.phone_a || "", b: st.phone_b || "" } });
       }
       case "POST meet": {
         const b = await body(request);
@@ -950,6 +950,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
           } catch {}
         }
         return json({ ice, turn: false });
+      }
+      case "POST phone": {
+        const b = await body(request);
+        const v = str(b.phone, 60).replace(/[^0-9+@.a-zA-Z_-]/g, "");
+        await setSettings(env, { ["phone_" + who]: v });
+        return json(OK);
       }
       case "POST relaykey": {
         const b = await body(request);

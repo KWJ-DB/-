@@ -218,7 +218,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!(st.turn_id && st.turn_token) });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url) });
       }
       case "POST meet": {
         const b = await body(request);
@@ -929,6 +929,14 @@ export async function onRequest({ request, env, params, waitUntil }) {
       // 통화 중계 서버(TURN) 정보: Cloudflare TURN 키가 있으면 짧게 쓰는 비밀번호를 만들어 줌
       case "GET turn": {
         const ice = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
+        // Open Relay (Metered) 무료 중계 서버
+        if (st.relay_url) {
+          try {
+            const r = await fetch(st.relay_url);
+            const list = await r.json();
+            if (Array.isArray(list) && list.length) return json({ ice: ice.concat(list), turn: true });
+          } catch {}
+        }
         if (st.turn_id && st.turn_token) {
           try {
             const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${st.turn_id}/credentials/generate-ice-servers`, {
@@ -942,6 +950,20 @@ export async function onRequest({ request, env, params, waitUntil }) {
           } catch {}
         }
         return json({ ice, turn: false });
+      }
+      case "POST relaykey": {
+        const b = await body(request);
+        const v = str(b.key, 300);
+        if (!v) { await setSettings(env, { relay_url: "" }); return json(OK); }
+        // 주소 전체를 붙여넣어도, API 키만 붙여넣어도 되게
+        const url = /^https:\/\/[a-z0-9.-]+\.metered\.(live|ca)\//i.test(v) ? v : `https://openrelayproject.metered.ca/api/v1/turn/credentials?apiKey=${encodeURIComponent(v)}`;
+        try {
+          const r = await fetch(url);
+          const list = await r.json();
+          if (!Array.isArray(list) || !list.length) return err(400, "키가 맞지 않아요. 대시보드의 API Key 또는 credentials 주소를 확인해 주세요");
+        } catch { return err(400, "키를 확인하지 못했어요. 주소나 키를 다시 확인해 주세요"); }
+        await setSettings(env, { relay_url: url });
+        return json(OK);
       }
       case "POST turnkey": {
         const b = await body(request);

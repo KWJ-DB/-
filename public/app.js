@@ -1383,15 +1383,14 @@
   function turnSheet() {
     openSheet(`
       <h2>통화 연결 (중계 서버)</h2>
-      <p class="sheet-sub">통화가 "연결하는 중"에서 멈추면 통신사 망이 폰끼리 직접 연결을 막고 있는 거예요. Cloudflare의 무료 중계 서버를 켜면 어디서든 연결돼요. 우주 사이트를 올린 그 Cloudflare 계정에서 할 수 있어요.</p>
+      <p class="sheet-sub">통화가 "연결하는 중"에서 멈추면 통신사 망이 폰끼리 직접 연결을 막고 있는 거예요. 무료 중계 서버(Open Relay)를 켜면 어디서든 연결돼요. 카드 등록 없이 이메일로 가입하면 돼요.</p>
       <ol class="nv-steps">
-        <li><a href="https://dash.cloudflare.com/?to=/:account/realtime/turn/overview" target="_blank" rel="noopener">Cloudflare 대시보드</a> 왼쪽 메뉴 <b>Realtime</b> &gt; <b>TURN Server</b>로 가요</li>
-        <li><b>Create</b>(TURN 앱 만들기)를 누르고 이름은 아무거나 (예: wooju)</li>
-        <li>나오는 <b>Turn Token ID</b>와 <b>API Token</b>을 아래에 붙여넣어요 (API Token은 이때만 보여요)</li>
+        <li><a href="https://www.metered.ca/tools/openrelay/" target="_blank" rel="noopener">Open Relay</a>에서 무료로 가입해요 (요금제를 고르라고 하면 Free)</li>
+        <li>대시보드의 <b>TURN Server</b> 메뉴에서 <b>API Key</b>(또는 credentials로 끝나는 주소)를 복사해요</li>
+        <li>아래에 붙여넣고 켜기를 눌러요</li>
       </ol>
-      <input type="text" id="turnId" placeholder="Turn Token ID" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:12px">
-      <input type="text" id="turnTok" placeholder="API Token" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
-      <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="turnSave">켜기</button></div>`);
+      <input type="text" id="relayKey" placeholder="API Key 또는 credentials 주소" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:12px">
+      <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="relaySave">켜기</button></div>`);
   }
   function naverSheet(tab) {
     tab = tab || S.connTab || (S.naver && !S.kakao ? "naver" : "kakao");
@@ -3499,7 +3498,13 @@
       try { await api("turnkey", { method: "POST", body: { id, token } }); S.turn = true; iceCache = null; toast("중계 서버를 켰어요. 이제 어디서든 연결돼요"); closeSheet(); }
       catch (e) { toast(e.message); }
     },
-    async turnOff() { await api("turnkey", { method: "POST", body: {} }); S.turn = false; iceCache = null; toast("껐어요"); closeSheet(); },
+    async relaySave() {
+      const key = $("#relayKey").value.trim();
+      if (!key) return toast("키를 붙여넣어 주세요");
+      try { await api("relaykey", { method: "POST", body: { key } }); S.turn = true; iceCache = null; toast("중계 서버를 켰어요. 이제 어디서든 연결돼요"); closeSheet(); }
+      catch (e) { toast(e.message); }
+    },
+    async turnOff() { await api("turnkey", { method: "POST", body: {} }); await api("relaykey", { method: "POST", body: {} }); S.turn = false; iceCache = null; toast("껐어요"); closeSheet(); },
     callStart(el) { startCall(el.dataset.k); },
     callAccept: () => acceptCall(),
     callDecline() { endCall(true); },

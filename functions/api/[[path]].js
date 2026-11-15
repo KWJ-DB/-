@@ -197,7 +197,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret) });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key });
       }
       case "POST meet": {
         const b = await body(request);
@@ -455,13 +455,32 @@ export async function onRequest({ request, env, params, waitUntil }) {
         await setSettings(env, { naver_id: idk, naver_secret: sec });
         return json(OK);
       }
-      // 가게 검색: 네이버 → (없으면) Photon → Nominatim
+      case "POST kakaokey": {
+        const b = await body(request);
+        const k = str(b.key, 80).replace(/^KakaoAK\s+/i, "");
+        if (!k) { await setSettings(env, { kakao_key: "" }); return json(OK); }
+        const t = await kakaoLocal("맛집", k, 35.87, 128.6);
+        if (!t.ok) return err(400, t.msg);
+        await setSettings(env, { kakao_key: k });
+        return json(OK);
+      }
+      // 가게 검색: 카카오 → 네이버 → (없으면) Photon → Nominatim
       case "GET geo": {
         const kw = str(q("q"), 60);
         if (!kw) return json({ results: [] });
         const la = Number(q("lat")), lo = Number(q("lon"));
         const bias = Number.isFinite(la) && Number.isFinite(lo) ? `&lat=${la}&lon=${lo}` : "";
         const out = [];
+        if (st.kakao_key) {
+          const [r1, r2] = await Promise.all([
+            kakaoLocal(kw, st.kakao_key, bias ? la : null, bias ? lo : null),
+            bias ? kakaoLocal(kw, st.kakao_key, la, lo, "distance") : Promise.resolve({ items: [] }),
+          ]);
+          const seen = new Set();
+          for (const it of [...(r2.items || []), ...(r1.items || [])]) { if (seen.has(it.id)) continue; seen.add(it.id); out.push(it); }
+          if (bias) out.sort((x, y) => distM({ lat: la, lon: lo }, x) - distM({ lat: la, lon: lo }, y));
+          if (r1.ok) return json({ results: out.slice(0, 25), src: "kakao" });
+        }
         if (st.naver_id && st.naver_secret) {
           const qs = [kw];
           // 동네 이름을 붙인 검색도 같이 해서 가까운 가게가 잘 나오게 (예: "수성구 파스타")
@@ -910,11 +929,16 @@ export async function onRequest({ request, env, params, waitUntil }) {
 // 네이버 지역 검색 (한 번에 최대 5개)
 async function naverLocal(query, id, secret) {
   try {
-    const r = await fetch(`https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=5&sort=random`, {
-      headers: { "X-Naver-Client-Id": id, "X-Naver-Client-Secret": secret },
-    });
+    const qs = `query=${encodeURIComponent(query)}&display=5&sort=random`;
+    // 새 키(NAVER API HUB)로 먼저, 안 되면 예전 개발자센터 키 방식으로
+    let r = await fetch(`https://naverapihub.apigw.ntruss.com/search/v1/local?${qs}`, { headers: { "X-NCP-APIGW-API-KEY-ID": id, "X-NCP-APIGW-API-KEY": secret } });
+    if (r.status === 401 || r.status === 403) {
+      const r2 = await fetch(`https://openapi.naver.com/v1/search/local.json?${qs}`, { headers: { "X-Naver-Client-Id": id, "X-Naver-Client-Secret": secret } });
+      if (r2.ok) r = r2;
+    }
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) return { ok: false, msg: d.errorMessage ? `네이버: ${d.errorMessage}` : `네이버 검색 오류 (${r.status})`, items: [] };
+    const em = d.errorMessage || (d.error && (d.error.message || d.error.errorMessage));
+    if (!r.ok) return { ok: false, msg: r.status === 401 || r.status === 403 ? "네이버 키가 맞지 않아요. 검색 API를 선택했는지, ID와 Secret을 바꿔 넣지 않았는지 확인해 주세요" : em ? `네이버: ${em}` : `네이버 검색 오류 (${r.status})`, items: [] };
     const strip = (x) => String(x || "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
     const items = (d.items || []).map((it) => {
       let x = Number(it.mapx), y = Number(it.mapy);
@@ -924,5 +948,30 @@ async function naverLocal(query, id, secret) {
     return { ok: true, items };
   } catch (e) {
     return { ok: false, msg: "네이버에 연결하지 못했어요", items: [] };
+  }
+}
+
+// 카카오 키워드 장소 검색 (한 번에 최대 15개)
+async function kakaoLocal(query, key, lat, lon, sort) {
+  try {
+    let u = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=15`;
+    if (lat != null) u += `&y=${lat}&x=${lon}`;
+    if (sort === "distance") u += "&sort=distance&radius=8000";
+    const r = await fetch(u, { headers: { Authorization: `KakaoAK ${key}` } });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const m = String(d.message || d.msg || "");
+      let msg = `카카오 검색 오류 (${r.status})`;
+      if (r.status === 401) msg = "카카오 키가 맞지 않아요. REST API 키를 넣었는지 확인해 주세요";
+      else if (/disabled|OPEN_MAP_AND_LOCAL|activ|사용/i.test(m) || r.status === 403) msg = "카카오맵이 꺼져 있어요. 앱 관리 화면의 [카카오맵] > [사용 설정]을 ON으로 바꿔 주세요";
+      return { ok: false, msg, items: [] };
+    }
+    const items = (d.documents || []).map((p) => ({
+      id: "k" + p.id, name: p.place_name, cat: (p.category_name || "").replace(/\s*>\s*/g, ">"),
+      addr: p.road_address_name || p.address_name, lat: Number(p.y), lon: Number(p.x), kind: p.category_name || "", link: p.place_url || "",
+    }));
+    return { ok: true, items };
+  } catch (e) {
+    return { ok: false, msg: "카카오에 연결하지 못했어요", items: [] };
   }
 }

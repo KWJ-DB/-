@@ -1108,8 +1108,8 @@
     openSheet(`
       <h2>맛집 추가</h2>
       <div class="add-row" style="margin-top:10px"><input type="text" id="eatQ" placeholder="가게 이름 검색 (예: 동성로 파스타)" maxlength="60"><button class="btn primary" data-act="eatSearch" aria-label="검색">${ic("search")}</button></div>
-      <div id="eatRes">${S.naver ? `<p class="sheet-sub" style="margin-top:12px">네이버 검색으로 찾아요. 가까운 가게가 먼저 나와요</p>`
-        : `<button class="nv-cta" data-act="naverSheet"><span class="nv-logo">N</span><span><b>네이버 검색 연결하기</b><em>연결하면 네이버 지도처럼 동네 가게까지 정확히 찾아져요</em></span>${ic("right")}</button>`}</div>
+      <div id="eatRes">${S.kakao || S.naver ? `<p class="sheet-sub" style="margin-top:12px">${S.kakao ? "카카오맵" : "네이버"} 검색으로 찾아요. 가까운 가게가 먼저 나와요</p>`
+        : `<button class="nv-cta" data-act="naverSheet"><span class="kk-logo">K</span><span><b>가게 검색 연결하기</b><em>카카오맵이나 네이버 검색을 연결하면 동네 가게까지 정확히 찾아져요</em></span>${ic("right")}</button>`}</div>
       <button class="btn soft full" data-act="eatPickMap" style="margin-top:10px">${ic("target")}지도에서 직접 고르기</button>`);
     setTimeout(() => $("#eatQ") && $("#eatQ").focus(), 300);
     S.eatBias = me ? me : map ? { lat: map.getCenter().lat, lon: map.getCenter().lng } : null;
@@ -1141,19 +1141,36 @@
     if (/한식|국밥|찌개|냉면|국수|해장|한정식|백반|칼국수|순대|감자탕/.test(c)) return "한식";
     return c ? "기타" : "한식";
   }
-  function naverSheet() {
+  function naverSheet(tab) {
+    tab = tab || S.connTab || (S.naver && !S.kakao ? "naver" : "kakao");
+    S.connTab = tab;
+    const kk = tab === "kakao";
     openSheet(`
-      <h2><span class="nv-logo">N</span> 네이버 검색 연결</h2>
-      <p class="sheet-sub">네이버에서 무료 검색 키를 받아 한 번만 넣으면 둘 다 쓸 수 있어요. 5분이면 돼요.</p>
+      <h2>가게 검색 연결</h2>
+      <p class="sheet-sub">무료 검색 키를 한 번만 넣으면 둘 다 쓸 수 있어요. 키는 서버에만 저장돼요.</p>
+      <div class="seg" style="margin-top:12px">
+        <button class="${kk ? "on" : ""}" data-act="connTab" data-v="kakao"><span class="kk-logo sm">K</span>카카오맵 (추천)${S.kakao ? " · 연결됨" : ""}</button>
+        <button class="${kk ? "" : "on"}" data-act="connTab" data-v="naver"><span class="nv-logo sm">N</span>네이버${S.naver ? " · 연결됨" : ""}</button>
+      </div>
+      ${kk ? `
       <ol class="nv-steps">
-        <li><a href="https://developers.naver.com/apps/#/register" target="_blank" rel="noopener">네이버 개발자센터 애플리케이션 등록</a>을 열고 네이버로 로그인해요</li>
-        <li>애플리케이션 이름은 아무거나 (예: 우리), <b>사용 API</b>에서 <b>검색</b>을 골라요</li>
-        <li><b>환경 추가</b>에서 <b>WEB 설정</b>을 고르고 주소에 <b>https://wooju.pages.dev</b> 를 넣어요</li>
-        <li>등록하면 나오는 <b>Client ID</b>와 <b>Client Secret</b>을 아래에 붙여넣어요</li>
+        <li><a href="https://developers.kakao.com/console/app" target="_blank" rel="noopener">카카오 디벨로퍼스 내 애플리케이션</a>에 카카오로 로그인하고 <b>애플리케이션 추가하기</b>를 눌러요. 앱 이름·회사명은 아무거나 (예: 우리)</li>
+        <li>만든 앱을 열고 왼쪽 메뉴 <b>카카오맵</b>에서 <b>사용 설정</b> 상태를 <b>ON</b>으로 바꿔요</li>
+        <li>왼쪽 <b>앱 키</b>(또는 플랫폼 키)에서 <b>REST API 키</b>를 복사해서 아래에 붙여넣어요</li>
+      </ol>
+      <input type="text" id="kkKey" placeholder="REST API 키" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:12px">
+      <div class="row2" style="margin-top:14px">${S.kakao ? `<button class="btn gray" data-act="kakaoOff">연결 해제</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="kakaoSave">연결하기</button></div>`
+      : `
+      <p class="nv-note">네이버는 2026년 7월부터 개발자센터에서 검색 키를 새로 안 내주고, <b>네이버 클라우드 플랫폼</b>에서만 받을 수 있어요. 가입할 때 카드 등록을 요구할 수 있어서 카카오가 더 간단해요.</p>
+      <ol class="nv-steps">
+        <li><a href="https://console.ncloud.com" target="_blank" rel="noopener">네이버 클라우드 콘솔</a>에 가입하고 로그인해요</li>
+        <li>왼쪽 위 메뉴 &gt; <b>Services</b> &gt; <b>Application Services</b> &gt; <b>NAVER API HUB</b>로 가요</li>
+        <li><b>Application 등록</b>에서 <b>검색</b>을 고르고 이름을 넣어 완료해요</li>
+        <li>만든 Application의 <b>인증 정보</b>에서 Client ID와 Client Secret을 복사해 붙여넣어요</li>
       </ol>
       <input type="text" id="nvId" placeholder="Client ID" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:12px">
       <input type="text" id="nvSec" placeholder="Client Secret" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
-      <div class="row2" style="margin-top:14px">${S.naver ? `<button class="btn gray" data-act="naverOff">연결 해제</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="naverSave">연결하기</button></div>`);
+      <div class="row2" style="margin-top:14px">${S.naver ? `<button class="btn gray" data-act="naverOff">연결 해제</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="naverSave">연결하기</button></div>`}`);
   }
   function eatForm(p) {
     S.eatNew = p; S.eatCat = p.cat || "한식"; S.eatStatus = "want";
@@ -2124,7 +2141,7 @@
         ${row(ps === "granted" ? "pushTest" : "pushOn", "bell", "알림", ps === "granted" ? "켜짐 · 눌러서 테스트" : ps === "needs-home" ? "홈 화면에 추가해야 켤 수 있어요" : ps === "denied" ? "아이폰 설정에서 허용해 주세요" : "꺼짐 · 눌러서 켜기")}
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
-        ${row("naverSheet", "search", "가게 검색 (네이버)", S.naver ? "연결됨" : "연결하면 맛집 검색이 정확해져요")}
+        ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>
       <div class="list" style="margin-top:12px">
@@ -2383,6 +2400,18 @@
     eatSearch: () => eatSearch(),
     eatResPick(el) { const r = S.eatRes[+el.dataset.i]; eatForm({ ...r, cat: catOf(r.kind || "") }); },
     naverSheet: () => naverSheet(),
+    connTab(el) { naverSheet(el.dataset.v); },
+    async kakaoSave() {
+      const key = $("#kkKey").value.trim();
+      if (!key) return toast("REST API 키를 붙여넣어 주세요");
+      const b = $("[data-act=kakaoSave]"); b.disabled = true; b.textContent = "확인 중...";
+      try {
+        await api("kakaokey", { method: "POST", body: { key } });
+        S.kakao = true; toast("카카오맵 검색을 연결했어요");
+        S.tab === "map" ? eatAddSheet() : closeSheet();
+      } catch (e) { toast(e.message); b.disabled = false; b.textContent = "연결하기"; }
+    },
+    async kakaoOff() { if (!confirm("카카오 검색 연결을 해제할까요?")) return; await api("kakaokey", { method: "POST", body: { key: "" } }); S.kakao = false; toast("연결을 해제했어요"); closeSheet(); },
     async naverOff() { if (!confirm("네이버 검색 연결을 해제할까요?")) return; await api("naverkey", { method: "POST", body: { id: "", secret: "" } }); S.naver = false; toast("연결을 해제했어요"); closeSheet(); },
     async naverSave() {
       const id = $("#nvId").value.trim(), secret = $("#nvSec").value.trim();
@@ -2810,7 +2839,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver;
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao;
       setBrand();
       await loadAnniv();
       showOnly("app");

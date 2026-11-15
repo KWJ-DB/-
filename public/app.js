@@ -1390,7 +1390,7 @@
       <div class="cm">
         ${kind === "video" ? item("ft", "video", "FaceTime 영상통화", num ? "가장 잘 연결돼요" : "번호를 먼저 등록해야 해요", "ft") : item("fta", "phone2", "FaceTime 음성통화", num ? "가장 잘 연결돼요 · 무료" : "번호를 먼저 등록해야 해요", "ft")}
         ${kind === "voice" ? item("tel", "phone2", "일반 전화", num ? esc(num) : "번호를 먼저 등록해야 해요") : ""}
-        ${item("web", kind === "video" ? "video" : "phone2", "우주에서 통화", S.turn ? "중계 서버 켜짐" : "같은 와이파이 등 일부 망에서만 연결돼요")}
+        ${item("web", kind === "video" ? "video" : "phone2", "우주에서 통화", S.turn ? "중계 서버 켜짐" : "설정에서 무료 중계 서버를 켜면 어디서든 돼요")}
       </div>
       ${num ? "" : `<p class="route-note">${esc(nm(other()))}님이 설정 > 내 번호에서 전화번호나 Apple ID를 등록하면 FaceTime으로 걸 수 있어요</p>`}`);
   }
@@ -1403,15 +1403,17 @@
   }
   function turnSheet() {
     openSheet(`
-      <h2>통화 연결 (중계 서버)</h2>
-      <p class="sheet-sub">통화가 "연결하는 중"에서 멈추면 통신사 망이 폰끼리 직접 연결을 막고 있는 거예요. 무료 중계 서버(Open Relay)를 켜면 어디서든 연결돼요. 카드 등록 없이 이메일로 가입하면 돼요.</p>
+      <h2>우주 통화 연결 (무료 중계 서버)</h2>
+      <p class="sheet-sub">서로 다른 통신사나 LTE에서 우주 통화가 연결되려면 중계 서버가 필요해요. ExpressTURN은 카드 없이 이메일 가입만으로 매달 1TB까지 무료예요.</p>
       <ol class="nv-steps">
-        <li><a href="https://www.metered.ca/tools/openrelay/" target="_blank" rel="noopener">Open Relay</a>에서 무료로 가입해요 (요금제를 고르라고 하면 Free)</li>
-        <li>대시보드의 <b>TURN Server</b> 메뉴에서 <b>API Key</b>(또는 credentials로 끝나는 주소)를 복사해요</li>
-        <li>아래에 붙여넣고 켜기를 눌러요</li>
+        <li><a href="https://www.expressturn.com/" target="_blank" rel="noopener">ExpressTURN</a>에서 <b>Sign Up</b>(무료)으로 가입해요</li>
+        <li>로그인하면 나오는 대시보드에서 <b>TURN Server</b> 주소, <b>Username</b>, <b>Password</b>를 확인해요</li>
+        <li>아래에 그대로 붙여넣고 켜기를 눌러요</li>
       </ol>
-      <input type="text" id="relayKey" placeholder="API Key 또는 credentials 주소" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:12px">
-      <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="relaySave">켜기</button></div>`);
+      <input type="text" id="tuHost" value="relay1.expressturn.com" placeholder="서버 주소 (예: relay1.expressturn.com)" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:12px">
+      <input type="text" id="tuUser" placeholder="Username" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
+      <input type="text" id="tuPass" placeholder="Password" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
+      <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="tuSave">켜기</button></div>`);
   }
   function naverSheet(tab) {
     tab = tab || S.connTab || (S.naver && !S.kakao ? "naver" : "kakao");
@@ -2734,6 +2736,7 @@
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
         ${row("placesSheet", "pin", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
+        ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
@@ -3520,13 +3523,18 @@
       try { await api("turnkey", { method: "POST", body: { id, token } }); S.turn = true; iceCache = null; toast("중계 서버를 켰어요. 이제 어디서든 연결돼요"); closeSheet(); }
       catch (e) { toast(e.message); }
     },
+    async tuSave() {
+      const host = $("#tuHost").value.trim(), user = $("#tuUser").value.trim(), pass = $("#tuPass").value.trim();
+      try { await api("turnuser", { method: "POST", body: { host, user, pass } }); S.turn = true; iceCache = null; toast("중계 서버를 켰어요. 이제 어디서든 연결돼요"); closeSheet(); }
+      catch (e) { toast(e.message); }
+    },
     async relaySave() {
       const key = $("#relayKey").value.trim();
       if (!key) return toast("키를 붙여넣어 주세요");
       try { await api("relaykey", { method: "POST", body: { key } }); S.turn = true; iceCache = null; toast("중계 서버를 켰어요. 이제 어디서든 연결돼요"); closeSheet(); }
       catch (e) { toast(e.message); }
     },
-    async turnOff() { await api("turnkey", { method: "POST", body: {} }); await api("relaykey", { method: "POST", body: {} }); S.turn = false; iceCache = null; toast("껐어요"); closeSheet(); },
+    async turnOff() { await api("turnkey", { method: "POST", body: {} }); await api("relaykey", { method: "POST", body: {} }); await api("turnuser", { method: "POST", body: {} }); S.turn = false; iceCache = null; toast("껐어요"); closeSheet(); },
     callStart(el) { callMenu(el.dataset.k); },
     callVia(el) {
       const v = el.dataset.v, num = (S.phones || {})[other()];

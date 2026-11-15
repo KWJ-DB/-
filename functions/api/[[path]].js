@@ -218,7 +218,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url), phones: { a: st.phone_a || "", b: st.phone_b || "" } });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" } });
       }
       case "POST meet": {
         const b = await body(request);
@@ -929,6 +929,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
       // 통화 중계 서버(TURN) 정보: Cloudflare TURN 키가 있으면 짧게 쓰는 비밀번호를 만들어 줌
       case "GET turn": {
         const ice = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
+        // 직접 넣은 중계 서버 (ExpressTURN 등, 아이디·비밀번호 방식)
+        if (st.tu_host && st.tu_user && st.tu_pass) {
+          const h = st.tu_host;
+          ice.push({ urls: [`turn:${h}:3478?transport=udp`, `turn:${h}:3478?transport=tcp`, `turn:${h}:80?transport=tcp`, `turns:${h}:443?transport=tcp`], username: st.tu_user, credential: st.tu_pass });
+          return json({ ice, turn: true });
+        }
         // Open Relay (Metered) 무료 중계 서버
         if (st.relay_url) {
           try {
@@ -955,6 +961,15 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const b = await body(request);
         const v = str(b.phone, 60).replace(/[^0-9+@.a-zA-Z_-]/g, "");
         await setSettings(env, { ["phone_" + who]: v });
+        return json(OK);
+      }
+      case "POST turnuser": {
+        const b = await body(request);
+        const host = str(b.host, 120).replace(/^turns?:/, "").replace(/:\d+.*$/, "").trim();
+        const user = str(b.user, 200), pass = str(b.pass, 200);
+        if (!user && !pass) { await setSettings(env, { tu_host: "", tu_user: "", tu_pass: "" }); return json(OK); }
+        if (!host || !user || !pass) return err(400, "서버 주소, 아이디, 비밀번호를 모두 넣어주세요");
+        await setSettings(env, { tu_host: host, tu_user: user, tu_pass: pass });
         return json(OK);
       }
       case "POST relaykey": {

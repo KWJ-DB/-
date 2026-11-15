@@ -2846,14 +2846,64 @@
     dc.onmessage = (e) => {
       let m; try { m = JSON.parse(e.data); } catch { return; }
       if (m.t === "heart") floatHearts(m.n || 1, true);
+      if (m.t === "camreq") askCam();
+      if (m.t === "camres") toast(m.ok ? `${nm(other())}님이 영상을 켰어요` : `${nm(other())}님이 지금은 어렵대요`);
       if (m.t === "state") {
+        K.peerCam = !!m.cam; K.peerMuted = !!m.muted;
         $("#callFlags").innerHTML = `${m.muted ? `<em>${ic("micoff")}음소거</em>` : ""}${K.kind === "video" && m.cam ? `<em>${ic("camoff")}카메라 꺼짐</em>` : ""}`;
         $("#call").classList.toggle("peer-cam-off", !!m.cam);
+        if (K.state === "on") setCall("on");
       }
     };
   }
   const sendDC = (o) => { try { if (K.dc && K.dc.readyState === "open") K.dc.send(JSON.stringify(o)); } catch {} };
   const sendState = () => sendDC({ t: "state", muted: K.muted, cam: K.camOff });
+  // 상대에게 영상 켜달라고 요청 (상대가 켜기를 눌러야 켜짐)
+  function requestCam() {
+    if (!K.dc || K.dc.readyState !== "open") return toast("아직 연결 중이에요");
+    sendDC({ t: "camreq" });
+    toast(`${nm(other())}님에게 영상을 요청했어요`);
+  }
+  function askCam() {
+    // 영상통화 중엔 카메라 권한이 이미 있으므로 바로 켜줌 (상대가 미리 허락한 기능)
+    if (K.kind === "video") {
+      if (K.camOff || !(K.local && K.local.getVideoTracks().some((t) => t.enabled))) {
+        K.camOff = false;
+        if (K.local) K.local.getVideoTracks().forEach((t) => (t.enabled = true));
+        $("#call").classList.remove("cam-off"); sendState(); setCall(K.state);
+        toast(`${esc(nm(other()))}님이 영상을 켰어요`);
+      }
+      sendDC({ t: "camres", ok: true });
+      return;
+    }
+    // 음성통화에서는 브라우저가 카메라 권한을 새로 받아야 해서, 한 번 눌러줘야 함
+    const box = $("#rx");
+    box.innerHTML = `<div class="rx-bg" data-act="camNo"></div>
+      <div class="cam-ask"><b>${esc(nm(other()))}님이 영상을 보고 싶어해요</b><p>영상통화로 바꿀까요?</p>
+        <div class="row2"><button class="btn gray" data-act="camNo">지금은 안 할래</button><button class="btn primary" data-act="camYes">영상 켜기</button></div></div>`;
+    box.hidden = false;
+    try { navigator.vibrate && navigator.vibrate([30, 60, 30]); } catch {}
+  }
+  async function answerCam(ok) {
+    $("#rx").hidden = true;
+    if (!ok) { sendDC({ t: "camres", ok: false }); return; }
+    try {
+      if (K.kind === "video") { K.camOff = false; K.local.getVideoTracks().forEach((t) => (t.enabled = true)); $("#call").classList.remove("cam-off"); sendState(); setCall(K.state); sendDC({ t: "camres", ok: true }); }
+      else { await upgradeToVideo(); sendDC({ t: "camres", ok: true }); }
+    } catch { toast("카메라를 켜지 못했어요"); sendDC({ t: "camres", ok: false }); }
+  }
+  // 음성통화를 영상통화로 올리기 (카메라 트랙을 더해 다시 연결)
+  async function upgradeToVideo() {
+    const ns = await navigator.mediaDevices.getUserMedia({ video: { facingMode: K.front ? "user" : "environment" } });
+    const vt = ns.getVideoTracks()[0];
+    K.local.addTrack(vt);
+    const sender = K.pc.getSenders().find((x) => x.track && x.track.kind === "video") || K.pc.getSenders().find((x) => !x.track);
+    if (sender) await sender.replaceTrack(vt); else K.pc.addTrack(vt, K.local);
+    K.kind = "video"; K.camOff = false;
+    $("#call").classList.remove("voice"); $("#call").classList.add("video", "has-local");
+    $("#callLocal").srcObject = K.local;
+    setCall(K.state); sendState();
+  }
   function floatHearts(n, fromPeer) {
     const fx = $("#callFx");
     for (let i = 0; i < n * 6; i++) {
@@ -2927,7 +2977,7 @@
       const tick = () => { const d = Math.floor((Date.now() - K.t0) / 1000), tx = `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}`; st.textContent = tx; $("#callMiniT").textContent = tx; };
       tick(); K.timer = setInterval(tick, 1000);
       bar.innerHTML = `<div class="call-pad">${btn("callMute", K.muted ? "micoff" : "mic", K.muted ? "음소거 중" : "음소거", K.muted ? "on" : "")
-        + (K.kind === "video" ? btn("callCam", K.camOff ? "camoff" : "video", K.camOff ? "카메라 켜기" : "카메라", K.camOff ? "on" : "") + btn("callFlip", "flip", "전환") : "")
+        + (K.kind === "video" ? btn("callCam", K.camOff ? "camoff" : "video", K.camOff ? "카메라 켜기" : "카메라", K.camOff ? "on" : "") + (K.peerCam ? btn("callReqCam", "video", "영상 요청", "heart") : btn("callFlip", "flip", "전환")) : btn("callReqCam", "video", "영상 요청"))
         + btn("callHeart", "heart", "하트", "heart")}</div>` + btn("callEnd", "hang", "끊기", "red end");
       watchQuality(); showBar();
       $("#call").classList.add("live");
@@ -3156,10 +3206,9 @@
   // 당겨서 새로고침: 화면이 손가락 따라 내려오고, 위에 생긴 틈에서 동그라미가 돌다가 부드럽게 올라감
   (() => {
     const ind = document.createElement("div");
-    ind.className = "ptr"; ind.innerHTML = `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>`;
+    ind.className = "ptr"; ind.innerHTML = `<svg class="i"><use href="#i-refresh"/></svg>`;
     document.body.appendChild(ind);
-    const arc = ind.querySelector("circle");
-    const C = 2 * Math.PI * 9;
+    const ico = ind.querySelector("svg");
     let st = null, busy = false;
     const TH = 72, HOLD = 58;
     const place = (y) => {
@@ -3167,7 +3216,7 @@
       const k = Math.min(1, y / TH);
       ind.style.opacity = String(Math.min(1, y / 30));
       ind.style.transform = `translate(-50%, ${Math.min(y, HOLD) / 2 - 18}px) scale(${0.6 + 0.4 * k})`;
-      arc.style.strokeDasharray = `${C * 0.8 * k} ${C}`;
+      if (!ind.classList.contains("spin")) ico.style.transform = `rotate(${y * 3.2}deg)`;
       ind.classList.toggle("ready", y >= TH);
     };
     view.addEventListener("touchstart", (e) => {
@@ -3620,6 +3669,9 @@
     },
     async turnOff() { await api("turnkey", { method: "POST", body: {} }); await api("relaykey", { method: "POST", body: {} }); await api("turnuser", { method: "POST", body: {} }); S.turn = false; iceCache = null; toast("껐어요"); closeSheet(); },
     callHeart() { floatHearts(1, false); sendDC({ t: "heart", n: 1 }); showBar(); },
+    callReqCam() { requestCam(); showBar(); },
+    camYes() { answerCam(true); },
+    camNo() { answerCam(false); },
     callMin() { $("#call").classList.add("minimizing"); setTimeout(() => { $("#call").hidden = true; $("#call").classList.remove("minimizing"); }, 260); const m = $("#callMini"); m.hidden = false; m.classList.toggle("video", K.kind === "video"); },
     callMax() { $("#callMini").hidden = true; $("#call").hidden = false; showBar(); },
     callStart(el) { callMenu(el.dataset.k); },

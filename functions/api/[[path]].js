@@ -932,7 +932,10 @@ export async function onRequest({ request, env, params, waitUntil }) {
         // 직접 넣은 중계 서버 (ExpressTURN 등, 아이디·비밀번호 방식)
         if (st.tu_host && st.tu_user && st.tu_pass) {
           const h = st.tu_host;
-          ice.push({ urls: [`turn:${h}:3478?transport=udp`, `turn:${h}:3478?transport=tcp`, `turn:${h}:80?transport=tcp`, `turns:${h}:443?transport=tcp`], username: st.tu_user, credential: st.tu_pass });
+          const port = st.tu_port || "3478";
+          const urls = [`turn:${h}:${port}?transport=udp`, `turn:${h}:${port}?transport=tcp`];
+          if (!/^free\./.test(h)) urls.push(`turns:${h}:443?transport=tcp`);
+          ice.push({ urls, username: st.tu_user, credential: st.tu_pass });
           return json({ ice, turn: true });
         }
         // Open Relay (Metered) 무료 중계 서버
@@ -965,11 +968,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST turnuser": {
         const b = await body(request);
-        const host = str(b.host, 120).replace(/^turns?:/, "").replace(/:\d+.*$/, "").trim();
+        const raw = str(b.host, 120).replace(/^turns?:/, "").trim();
+        const host = raw.replace(/:\d+.*$/, "");
+        const pm = raw.match(/:(\d{2,5})/);
         const user = str(b.user, 200), pass = str(b.pass, 200);
         if (!user && !pass) { await setSettings(env, { tu_host: "", tu_user: "", tu_pass: "" }); return json(OK); }
         if (!host || !user || !pass) return err(400, "서버 주소, 아이디, 비밀번호를 모두 넣어주세요");
-        await setSettings(env, { tu_host: host, tu_user: user, tu_pass: pass });
+        await setSettings(env, { tu_host: host, tu_port: pm ? pm[1] : "3478", tu_user: user, tu_pass: pass });
         return json(OK);
       }
       case "POST relaykey": {

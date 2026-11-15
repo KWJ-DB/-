@@ -1410,7 +1410,7 @@
         <li>로그인하면 나오는 대시보드에서 <b>TURN Server</b> 주소, <b>Username</b>, <b>Password</b>를 확인해요</li>
         <li>아래에 그대로 붙여넣고 켜기를 눌러요</li>
       </ol>
-      <input type="text" id="tuHost" value="relay1.expressturn.com" placeholder="서버 주소 (예: relay1.expressturn.com)" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:12px">
+      <input type="text" id="tuHost" value="free.expressturn.com:3478" placeholder="서버 주소 (예: free.expressturn.com:3478)" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:12px">
       <input type="text" id="tuUser" placeholder="Username" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
       <input type="text" id="tuPass" placeholder="Password" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
       <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="tuSave">켜기</button></div>`);

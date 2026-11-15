@@ -1064,7 +1064,7 @@ img { transition: opacity .3s; }
 
 /* DM 배경: 옅은 하트 무늬 */
 #chatWrap { background: #FFF9FB; }
-.dm-list { background-color: #FFF9FB; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22140%22%20height%3D%22140%22%20viewBox%3D%220%200%20140%20140%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23F6C9D6%22%20stroke-width%3D%221.6%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20transform%3D%22translate%2814%2016%29%20scale%28.9%29%20rotate%28-12%2012%2012%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3Cpath%20transform%3D%22translate%2886%2030%29%20scale%28.62%29%20rotate%2814%2012%2012%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3Cpath%20transform%3D%22translate%2850%2082%29%20scale%28.75%29%20rotate%288%2012%2012%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3Cpath%20transform%3D%22translate%28108%20100%29%20scale%28.5%29%20rotate%28-18%2012%2012%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23FBE3EA%22%3E%3Cpath%20transform%3D%22translate%2830%20112%29%20scale%28.42%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3Cpath%20transform%3D%22translate%2866%208%29%20scale%28.36%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3C/g%3E%3C/svg%3E"); background-size: 140px 140px; background-attachment: local; }
+.dm-list { background-color: #FFF9FB; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22140%22%20height%3D%22140%22%20viewBox%3D%220%200%20140%20140%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23F9DCE4%22%20stroke-width%3D%221.6%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20transform%3D%22translate%2814%2016%29%20scale%28.9%29%20rotate%28-12%2012%2012%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3Cpath%20transform%3D%22translate%2886%2030%29%20scale%28.62%29%20rotate%2814%2012%2012%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3Cpath%20transform%3D%22translate%2850%2082%29%20scale%28.75%29%20rotate%288%2012%2012%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3Cpath%20transform%3D%22translate%28108%20100%29%20scale%28.5%29%20rotate%28-18%2012%2012%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23FDEEF2%22%3E%3Cpath%20transform%3D%22translate%2830%20112%29%20scale%28.42%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3Cpath%20transform%3D%22translate%2866%208%29%20scale%28.36%29%22%20d%3D%22M12%2021s-7.8-4.8-9.6-9.7C1.1%207.6%203.4%204%207%204c2.1%200%203.7%201.1%205%203%201.3-1.9%202.9-3%205-3%203.6%200%205.9%203.6%204.6%207.3C19.8%2016.2%2012%2021%2012%2021z%22/%3E%3C/g%3E%3C/svg%3E"); background-size: 180px 180px; background-attachment: local; }
 .dm-head, .dm-input { background: rgba(255,249,251,.96); }
 .dm-row.ot .dm-bub { background: #fff; box-shadow: 0 1px 2px rgba(200,120,150,.12); }
 .dm-pill { background: #fff; }
@@ -1602,3 +1602,24 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .map-card { z-index: 22 !important; }
 .map-fabs { z-index: 21 !important; }
 .tall-card .map-fabs { opacity: 0; pointer-events: none; transition: opacity .2s; }
+
+/* ===== 단순하게 ===== */
+/* 홈: 함께 하기를 앱 아이콘처럼 4칸으로 */
+.grid6 { grid-template-columns: repeat(4, 1fr) !important; gap: 4px !important; background: var(--card); border-radius: var(--r-surface); padding: 14px 6px 10px; }
+.grid6 button { background: transparent !important; padding: 6px 2px 8px !important; gap: 7px !important; font-size: 12px !important; font-weight: 600 !important; border-radius: 14px !important; white-space: nowrap; }
+.grid6 button:active { background: #F4F4F6 !important; }
+.grid6 button span { position: relative; width: 46px !important; height: 46px !important; border-radius: 16px !important; }
+.grid6 button span em { position: absolute; top: -6px; right: -10px; font-style: normal; font-size: 9.5px; font-weight: 800; color: #fff; background: var(--rose); border-radius: 999px; padding: 2px 5px; border: 2px solid #fff; white-space: nowrap; }
+.home-h { margin: 22px 4px 10px !important; }
+/* 맛집 상세 버튼 한 줄 */
+.eat-acts { display: grid !important; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 4px 0 16px !important; }
+.eat-acts button { padding: 10px 0 !important; font-size: 12px !important; }
+.eat-acts button .kk-logo.sm, .eat-acts button .nv-logo.sm { width: 20px; height: 20px; font-size: 12px; }
+.mini-wrap.still { margin: 14px 0 0 !important; }
+.del-link { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; margin-top: 14px; padding: 8px; font-size: 13px; font-weight: 650; color: #E0424A; }
+.del-link svg.i { width: 15px; height: 15px; }
+/* 맛집 뽑기 칩 */
+.eat2 .chip.rl-chip { display: inline-flex; align-items: center; gap: 4px; background: #FFF0F4; color: var(--rose); }
+.eat2 .chip.rl-chip svg.i { width: 14px; height: 14px; }
+.eat-chips { flex-wrap: nowrap !important; }
+.eat-d-top + .eat-wantline, .eat-d-top + .seg { margin-top: 12px; }

@@ -322,15 +322,12 @@
         ${row("tab", "chat", "오늘의 질문", myCnt >= 5 ? ic("check", "done") : `${myCnt}/5`, esc(qFor(qToday(), TS).q), 'data-tab="question"')}
         ${row("meetSheet", "cal", "다음 만남", meet ? dlabel(diff(t, meet)) : "정하기", meet ? fmtK(meet) : "")}
         ${row("annivSheet", "gift", next ? esc(next.title) : "기념일", next ? dlabel(diff(t, next.date)) : "", next ? fmtK(next.date) : "")}
-        ${row("tab", "pin", "우리 사이", S.together ? "함께" : dist || "-", S.together ? "같이 있어요" : "", 'data-tab="map"')}
-        ${row("bucketOpen", "list", "버킷리스트", bk.length ? `${bkDone}/${bk.length}` : "", "")}
-        ${row("lettersOpen", "msg", "편지", lt.unread ? `<i class="dot"></i>` : "", "정한 날에 열리는 편지")}
       </div>
       <h3 class="home-h">함께 하기</h3>
       <div class="grid6">
-        ${[["dailyOpen", "camera", "오늘의 한 장"], ["couponOpen", "gift", "사랑 쿠폰"], ["ideaOpen", "sparkle", "데이트 뭐 하지"],
-           ["eatOpen", "bowl", "맛집·갈 곳"], ["notesOpen", "star", "서로 알아두기"], ["statsOpen", "list", "우리 기록"]]
-          .map(([a, i, l]) => `<button data-act="${a}"><span>${ic(i)}</span>${l}</button>`).join("")}
+        ${[["eatOpen", "bowl", "맛집·갈 곳"], ["dailyOpen", "camera", "오늘의 한 장"], ["ideaOpen", "sparkle", "데이트 추천"], ["bucketOpen", "check", "버킷리스트", bk.length ? `${bkDone}/${bk.length}` : ""],
+           ["lettersOpen", "msg", "편지", lt.unread ? "새 편지" : ""], ["couponOpen", "gift", "사랑 쿠폰"], ["notesOpen", "star", "알아두기"], ["statsOpen", "list", "우리 기록"]]
+          .map(([a, i, l, b]) => `<button data-act="${a}"><span>${ic(i)}${b ? `<em>${b}</em>` : ""}</span>${l}</button>`).join("")}
       </div>`;
   }
 
@@ -1189,11 +1186,11 @@
           <div class="eat2-t">
             <div class="kind-tg"><button class="${E.kind === "food" ? "on" : ""}" data-act="eatKind" data-v="food">맛집</button><button class="${E.kind === "place" ? "on" : ""}" data-act="eatKind" data-v="place">갈 곳</button></div>
             <span>${E.list.length ? `가본 곳 ${nb} · 가볼 곳 ${E.list.length - nb}` : TK().sub}</span></div>
-          ${E.list.length ? `<button class="eat2-ib" data-act="eatRandom" aria-label="오늘 어디 가지">${ic("sparkle")}</button><button class="eat2-ib" data-act="eatView" data-v="list" aria-label="목록으로 보기">${ic("list")}</button>` : ""}
+          ${E.list.length ? `<button class="eat2-ib" data-act="eatView" data-v="list" aria-label="목록으로 보기">${ic("list")}</button>` : ""}
           <button class="eat2-add" data-act="eatAdd">${ic("plus")}추가</button>
           <button class="eat2-ib" data-act="eatClose" aria-label="닫기">${ic("x")}</button>
         </div>
-        ${E.list.length ? `<div class="chips eat-chips">${chip("all", "전체")}${chip("want", "가볼 곳")}${chip("been", "가본 곳")}${E.list.some(bothWant) ? chip("both", "둘 다 찜") : ""}${usedCats.map((c) => chip(c, c)).join("")}</div>` : ""}
+        ${E.list.length ? `<div class="chips eat-chips"><button class="chip rl-chip" data-act="eatRandom">${ic("sparkle")}뽑기</button>${chip("all", "전체")}${chip("want", "가볼 곳")}${chip("been", "가본 곳")}${E.list.some(bothWant) ? chip("both", "둘 다 찜") : ""}${usedCats.map((c) => chip(c, c)).join("")}</div>` : ""}
         <div class="eat-cards" id="eatCards">
           ${l.map((e) => {
             const r = avgRate(e);
@@ -1437,20 +1434,11 @@
     const mo = E.more && E.more.id === e.id ? E.more : null;
     const imgs = mo ? mo.imgs : [], visits = mo ? mo.visits : [];
     const html = `
-      ${imgs.length ? `<button class="eat-hero" data-act="eatPhView" data-i="0"><img src="/api/eatimg/${imgs[0].id}" alt=""></button>` : ""}
       <div class="eat-d-top"><span class="eat-dot big" style="--c:${catCol(e.cat)}">${ic(catIc(e.cat))}</span>
         <div style="min-width:0;flex:1"><h2 style="margin:0">${esc(e.name)}</h2><span class="sheet-sub">${esc(e.cat || "기타")}${e.price ? ` · ${PRICE[e.price]}` : ""}${e.addr ? " · " + esc(e.addr) : ""}</span></div>
         <button class="eat-edit" data-act="eatEdit" aria-label="수정">${ic("pen")}</button>
         <button class="eat-heart ${myW ? "on" : ""}" data-act="eatWant" aria-label="가고 싶어요">${ic("heart")}</button></div>
       ${e.status !== "been" ? `<div class="eat-wantline">${myW && otW ? `<b>둘 다 가고 싶어 해요</b>` : myW ? `나는 찜했어요. ${esc(nm(other()))}님은 아직이에요` : otW ? `<b>${esc(nm(other()))}님이 가고 싶어 해요</b>` : "하트를 누르면 가고 싶은 곳으로 찜돼요"}</div>` : ""}
-      <div class="eat-photos">
-        <button class="eat-ph-add" data-act="eatPhoto" aria-label="사진 추가">${ic("camera")}<span>사진</span></button>
-        ${imgs.map((im, i) => `<button class="eat-ph" data-act="eatPhView" data-i="${i}"><img src="/api/eatimg/${im.id}?thumb=1" alt=""></button>`).join("")}
-        ${!mo && e.imgN ? `<span class="eat-ph sk"></span>` : ""}
-      </div>
-      <input type="file" id="eatFile" accept="image/*" multiple hidden>
-      <div class="mini-wrap still"><div id="miniDet" class="mini sm"></div><span class="mini-pin" style="--c:${catCol(e.cat)}">${ic("pin")}</span>
-        <button class="mini-btn" data-act="eatEdit">${ic("pen")}위치 수정</button><button class="mini-btn r" data-act="eatFly">${ic("target")}큰 지도</button></div>
       <div class="seg eat-st">
         <button class="${e.status !== "been" ? "on" : ""}" data-act="eatSetSt" data-v="want">가보고 싶어요</button>
         <button class="${e.status === "been" ? "on" : ""}" data-act="eatSetSt" data-v="been">가봤어요${e.been ? ` <small>${fmtK(e.been)}</small>` : ""}</button>
@@ -1459,6 +1447,18 @@
         <div><span>내 별점</span><span class="stars big tap">${[1, 2, 3, 4, 5].map((i) => `<button class="${i <= mine ? "on" : ""}" data-act="eatRate" data-v="${i}" aria-label="${i}점">${ic("star")}</button>`).join("")}</span></div>
         <div><span>${esc(nm(other()))} 별점</span>${ot ? stars(ot, "big") : `<span class="muted">아직 안 줬어요</span>`}</div>
       </div>
+      <div class="eat-acts">
+        <button data-act="eatPlan">${ic("cal")}<span>같이 가기</span></button>
+        <button data-act="eatDm">${ic("send")}<span>보내기</span></button>
+        <button data-act="eatNav">${ic("route")}<span>길찾기</span></button>
+        <button data-act="eatNaver">${e.link && /kakao/.test(e.link) ? `<span class="kk-logo sm">K</span><span>가게 정보</span>` : `<span class="nv-logo sm">N</span><span>가게 정보</span>`}</button>
+      </div>
+      <div class="eat-photos">
+        <button class="eat-ph-add" data-act="eatPhoto" aria-label="사진 추가">${ic("camera")}<span>사진</span></button>
+        ${imgs.map((im, i) => `<button class="eat-ph" data-act="eatPhView" data-i="${i}"><img src="/api/eatimg/${im.id}?thumb=1" alt=""></button>`).join("")}
+        ${!mo && e.imgN ? `<span class="eat-ph sk"></span>` : ""}
+      </div>
+      <input type="file" id="eatFile" accept="image/*" multiple hidden>
       <div class="eat-sec">
         <div class="eat-sec-h"><b>다녀온 기록</b><span>${visits.length ? visits.length + "번" : ""}</span><button class="btn soft sm" data-act="eatVisitForm">${ic("plus")}다녀왔어요</button></div>
         <div id="eatVisitBox"></div>
@@ -1466,14 +1466,8 @@
           : mo ? `<p class="muted eat-none">${TK().hint}</p>` : ""}
       </div>
       <textarea id="eatMemoE" rows="2" placeholder="${TK().memoE}" maxlength="300">${esc(e.memo || "")}</textarea>
-      <div class="eat-acts g3">
-        <button data-act="eatPlan">${ic("cal")}<span>같이 가기</span></button>
-        <button data-act="eatDm">${ic("send")}<span>디엠 보내기</span></button>
-        <button data-act="eatNav">${ic("route")}<span>길찾기</span></button>
-        <button data-act="eatFly">${ic("target")}<span>지도에서 보기</span></button>
-        <button data-act="eatNaver">${e.link && /kakao/.test(e.link) ? `<span class="kk-logo sm">K</span><span>카카오맵</span>` : `<span class="nv-logo sm">N</span><span>네이버 지도</span>`}</button>
-        <button class="del" data-act="eatDel">${ic("trash")}<span>지우기</span></button>
-      </div>`;
+      <div class="mini-wrap still"><div id="miniDet" class="mini sm"></div><span class="mini-pin" style="--c:${catCol(e.cat)}">${ic("pin")}</span>
+        <button class="mini-btn" data-act="eatEdit">${ic("pen")}위치 수정</button><button class="mini-btn r" data-act="eatFly">${ic("target")}큰 지도</button></div>`;
     const fresh = $("#sheet").hidden || !$("#sheetBox .eat-d-top");
     if (fresh) openSheet(html);
     else {
@@ -1579,7 +1573,8 @@
       <label class="fl">위치 <span class="fl-sub" id="edMoved">${moved ? `원래 자리에서 ${fmtDist(distM(e, d))} 옮김` : "지도를 움직여 핀을 맞춰요"}</span></label>
       <div class="mini-wrap"><div id="miniEd" class="mini"></div><span class="mini-pin">${ic("pin")}</span><button class="mini-reset" data-act="edReset">원래 자리</button><button class="mini-reset l" data-act="edPick">크게 보기</button></div>
       ${e.status === "been" ? `<label class="fl">처음 간 날</label><input type="date" id="edBeen" value="${esc(d.been)}" max="${today()}">` : ""}
-      <div class="row2" style="margin-top:16px"><button class="btn gray" data-act="edCancel">취소</button><button class="btn primary" data-act="edSave">저장</button></div>`);
+      <div class="row2" style="margin-top:16px"><button class="btn gray" data-act="edCancel">취소</button><button class="btn primary" data-act="edSave">저장</button></div>
+      <button class="del-link" data-act="eatDel">${ic("trash")}이 ${E.kind === "place" ? "장소" : "맛집"} 지우기</button>`);
     edMini(e);
   }
   function edMini(e) {
@@ -2621,6 +2616,7 @@
         ${row(ps === "granted" ? "pushTest" : "pushOn", "bell", "알림", ps === "granted" ? "켜짐 · 눌러서 테스트" : ps === "needs-home" ? "홈 화면에 추가해야 켤 수 있어요" : ps === "denied" ? "아이폰 설정에서 허용해 주세요" : "꺼짐 · 눌러서 켜기")}
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
+        ${row("placesSheet", "pin", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>

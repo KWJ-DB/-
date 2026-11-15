@@ -856,11 +856,7 @@
       <div class="add-row" style="margin-bottom:12px">
         <input type="text" id="bkTitle" placeholder="예: 같이 바다 보러 가기" maxlength="80" value="${esc(keep)}">
         <button class="btn primary" data-act="bkAdd" aria-label="추가">${ic("plus")}</button>
-      </div>
-      <button class="link-s bk-bulk-t" data-act="bkBulkOpen">${ic("list")}여러 개 한 번에 붙여넣기</button>
-      <div class="bk-bulk" id="bkBulk" hidden>
-        <textarea id="bkBulkText" rows="6" placeholder="한 줄에 하나씩 적거나 메모장 체크리스트를 그대로 붙여넣어요&#10;- [ ] 붕어빵 먹기&#10;- [x] 커플테스트 하기"></textarea>
-        <div class="row2" style="margin-top:8px"><button class="btn gray" data-act="bkBulkOpen">닫기</button><button class="btn primary" data-act="bkBulkAdd">한 번에 추가</button></div>
+
       </div>
       ${bucket.map((b) => `
         <div class="bk ${b.done ? "done" : ""}">
@@ -3461,20 +3457,6 @@
       $("#bkTitle").value = "";
       await api("bucket", { method: "POST", body: { title } });
       bucketSheet();
-    },
-    bkBulkOpen() { const b = $("#bkBulk"); b.hidden = !b.hidden; if (!b.hidden) setTimeout(() => $("#bkBulkText").focus(), 50); },
-    async bkBulkAdd() {
-      const items = $("#bkBulkText").value.split(/\n+/).map((l) => {
-        const done = /^\s*[-*]?\s*\[[xX✓v]\]/.test(l);
-        const title = l.replace(/^\s*([-*•]|\d+[.)])?\s*(\[[ xX✓v]?\])?\s*/, "").replace(/\s*버킷(리스트)?에\s*넣어\s*줘\s*$/, "").trim();
-        return { title, done };
-      }).filter((x) => x.title);
-      if (!items.length) return toast("추가할 내용이 없어요");
-      try {
-        const r = await api("bucket", { method: "POST", body: { items } });
-        toast(r.added ? `${r.added}개를 추가했어요` : "이미 다 있는 항목이에요");
-        bucketSheet();
-      } catch (e) { toast(e.message); }
     },
     async bkToggle(el) {
       const done = el.dataset.done !== "1";

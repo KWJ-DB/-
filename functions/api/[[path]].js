@@ -926,6 +926,52 @@ export async function onRequest({ request, env, params, waitUntil }) {
           return json({ addr: parts.join(" "), building: d.name || a.building || a.amenity || "", jibun: "" });
         } catch { return json({ addr: "", building: "" }); }
       }
+      // ----- 전화·영상통화 (WebRTC 신호 주고받기) -----
+      case "GET call": {
+        const now = Date.now();
+        // 40초 넘게 안 받은 전화는 부재중으로
+        await DB.prepare("UPDATE calls SET state = 'missed', t_end = ?1 WHERE state = 'ringing' AND t < ?2").bind(now, now - 40000).run();
+        if (id) {
+          const c = await DB.prepare("SELECT id, caller, kind, state, answer, t, t_ans FROM calls WHERE id = ?1").bind(id).first();
+          return c ? json({ call: c }) : err(404, "통화가 없어요");
+        }
+        const c = await DB.prepare("SELECT id, caller, kind, state, offer, t FROM calls WHERE state = 'ringing' AND caller != ?1 ORDER BY id DESC LIMIT 1").bind(who).first();
+        return json({ call: c || null });
+      }
+      case "POST call": {
+        const b = await body(request);
+        const now = Date.now();
+        if (!id) {
+          const kind = b.kind === "video" ? "video" : "voice";
+          if (typeof b.offer !== "string" || b.offer.length > 60000) return err(400, "연결 정보가 없어요");
+          await DB.prepare("UPDATE calls SET state = 'ended', t_end = ?1 WHERE state IN ('ringing', 'active')").bind(now).run();
+          const r = await DB.prepare("INSERT INTO calls (caller, kind, state, offer, t) VALUES (?1, ?2, 'ringing', ?3, ?4)").bind(who, kind, b.offer, now).run();
+          const name = who === "a" ? st.a_name : st.b_name;
+          const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: `${name}님의 ${kind === "video" ? "영상통화" : "전화"}`, body: "눌러서 받기", url: "/#call", tag: "call" });
+          if (waitUntil) waitUntil(job); else await job;
+          return json({ ok: true, id: r.meta.last_row_id });
+        }
+        const c = await DB.prepare("SELECT caller, state, kind, t, t_ans FROM calls WHERE id = ?1").bind(id).first();
+        if (!c) return err(404, "통화가 없어요");
+        if (p2 === "answer") {
+          if (c.state !== "ringing") return err(409, "이미 끝난 전화예요");
+          if (typeof b.answer !== "string" || b.answer.length > 60000) return err(400, "연결 정보가 없어요");
+          await DB.prepare("UPDATE calls SET state = 'active', answer = ?1, t_ans = ?2 WHERE id = ?3").bind(b.answer, now, id).run();
+          return json(OK);
+        }
+        if (p2 === "end") {
+          if (c.state === "ringing" || c.state === "active") {
+            const st2 = c.state === "ringing" ? (c.caller === who ? "canceled" : "declined") : "ended";
+            await DB.prepare("UPDATE calls SET state = ?1, t_end = ?2 WHERE id = ?3").bind(st2, now, id).run();
+            // 통화 기록을 디엠에 남김
+            const dur = c.t_ans ? Math.round((now - c.t_ans) / 1000) : 0;
+            const label = st2 === "ended" ? `${c.kind === "video" ? "영상통화" : "음성통화"} ${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")}` : `${c.kind === "video" ? "영상통화" : "전화"} ${st2 === "declined" ? "거절" : "취소"}`;
+            await DB.prepare("INSERT INTO messages (who, text, likes, reacts, t, kind, meta) VALUES (?1, ?2, '', NULL, ?3, 'call', ?4)").bind(c.caller, label, now, JSON.stringify({ k: c.kind, s: st2, d: dur })).run();
+          }
+          return json(OK);
+        }
+        return err(404, "없는 기능");
+      }
       case "POST locreq": {
         const name = who === "a" ? st.a_name : st.b_name;
         const job = sendPush(env, st, setSettings, who === "a" ? "b" : "a", { title: "위치 알려줘", body: `${name}님이 지금 위치를 궁금해해요. 눌러서 알려주세요`, url: "/#map", tag: "locreq" });
@@ -960,13 +1006,14 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // 탭 배지 등 가벼운 상태 확인
       case "GET pulse": {
+        const ring = await DB.prepare("SELECT id, caller, kind, t FROM calls WHERE state = 'ringing' AND caller != ?1 AND t > ?2 ORDER BY id DESC LIMIT 1").bind(who, Date.now() - 40000).first();
         const last = await DB.prepare("SELECT id, who, substr(text, 1, 60) AS text, img FROM messages ORDER BY id DESC LIMIT 1").first();
         let place = null;
         try { place = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
         let miss = null;
         try { miss = st.last_miss ? JSON.parse(st.last_miss) : null; } catch {}
         const moodT = { a: st.mood_a ? (JSON.parse(st.mood_a).t || 0) : 0, b: st.mood_b ? (JSON.parse(st.mood_b).t || 0) : 0 };
-        return json({ miss, moodT, last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "", now: Date.now(), place, together: st.together === "1" });
+        return json({ miss, moodT, last: last || null, read: { a: Number(st.read_a) || 0, b: Number(st.read_b) || 0 }, touch: Number(st.last_touch) || 0, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "", now: Date.now(), place, together: st.together === "1", ring: ring || null });
       }
 
       // ----- 부딪히기 / 가까이 대기 -----

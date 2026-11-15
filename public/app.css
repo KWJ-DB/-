@@ -1741,3 +1741,43 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .dm-list { overflow-x: hidden !important; overscroll-behavior-x: none; touch-action: pan-y; }
 #chatWrap { overflow: hidden; overscroll-behavior: none; }
 .dm-row { max-width: 100%; }
+
+/* ===== 전화·영상통화 ===== */
+#call { position: fixed; inset: 0; z-index: 200; background: radial-gradient(120% 80% at 50% 0%, #4B3550, #1A141D 70%); color: #fff; display: flex; flex-direction: column; align-items: center; animation: callIn .35s cubic-bezier(.2,.9,.3,1); overflow: hidden; }
+#call.closing { animation: callOut .25s ease forwards; }
+@keyframes callIn { from { opacity: 0; transform: scale(1.04); } }
+@keyframes callOut { to { opacity: 0; transform: scale(.98); } }
+#callRemote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; opacity: 0; transition: opacity .4s; }
+#call.has-remote #callRemote { opacity: 1; }
+#callLocal { position: absolute; right: 14px; top: calc(var(--safe-t) + 16px); width: 108px; height: 160px; border-radius: 18px; object-fit: cover; background: #000; transform: scaleX(-1); box-shadow: 0 8px 24px rgba(0,0,0,.35); border: 1.5px solid rgba(255,255,255,.35); display: none; z-index: 3; touch-action: none; }
+#call.back-cam #callLocal { transform: none; }
+#call.video #callLocal { display: block; }
+#call.cam-off #callLocal { opacity: .25; }
+.call-info { position: relative; z-index: 2; margin-top: calc(var(--safe-t) + 15vh); display: flex; flex-direction: column; align-items: center; gap: 8px; text-shadow: 0 1px 8px rgba(0,0,0,.4); transition: margin .4s, opacity .4s; }
+#call.has-remote .call-info { margin-top: calc(var(--safe-t) + 20px); align-self: flex-start; align-items: flex-start; margin-left: 20px; }
+#call.has-remote .call-info .av { display: none; }
+.call-info .av { width: 108px !important; height: 108px !important; font-size: 40px; box-shadow: 0 0 0 8px rgba(255,255,255,.08), 0 0 0 18px rgba(255,255,255,.04); }
+#call:not(.has-remote) .call-info .av { animation: callPulse 2s ease-in-out infinite; }
+@keyframes callPulse { 50% { box-shadow: 0 0 0 14px rgba(255,255,255,.1), 0 0 0 30px rgba(255,255,255,.04); } }
+.call-info b { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+#callState { font-size: 15px; opacity: .8; font-feature-settings: "tnum"; }
+.call-bar { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-b) + 40px); z-index: 2; display: flex; justify-content: center; gap: 26px; }
+.cb { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #fff; }
+.cb span { width: 66px; height: 66px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.18); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); border: 1px solid rgba(255,255,255,.25); transition: transform .15s, background .2s; }
+.cb:active span { transform: scale(.9); }
+.cb svg.i { width: 28px; height: 28px; }
+.cb em { font-style: normal; font-size: 12.5px; font-weight: 600; opacity: .9; }
+.cb.red span { background: #F0424F; border-color: transparent; }
+.cb.red svg.i { fill: #fff; stroke: none; }
+.cb.green span { background: #2BC46B; border-color: transparent; animation: callPulse 1.6s ease-in-out infinite; }
+.cb.on span { background: #fff; color: #1D1C21; }
+/* 디엠 통화 기록 */
+.dm-row .dm-bub.callm { background: #fff !important; color: var(--ink) !important; border: 1px solid var(--line); padding: 10px 12px; }
+.call-msg { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.call-msg > svg.i { width: 34px; height: 34px; padding: 8px; border-radius: 50%; background: #E6F7EE; color: #2BA35F; flex: none; }
+.call-msg.miss > svg.i { background: #FDECEE; color: #E0424A; }
+.call-msg b { display: block; font-size: 14.5px; font-weight: 700; }
+.call-msg em { display: block; font-style: normal; font-size: 12px; color: var(--sub); }
+.dm-head .icon-btn { width: 38px; height: 38px; }
+#call.video #callLocal { display: none; }
+#call.video.has-local #callLocal { display: block; animation: callIn .3s ease; }

@@ -1641,3 +1641,70 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 .ptr.spin { transition: transform .25s cubic-bezier(.2,.9,.3,1); }
 .ptr.spin svg { animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* 오늘의 한 장: 사진 크기 통일 */
+.dpair > div { min-width: 0; }
+.dpair .df { width: 100%; aspect-ratio: 3 / 4; padding: 0; border: 0; border-radius: 18px; overflow: hidden; position: relative; }
+.dpair .df img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.dpair button.df { cursor: pointer; transition: transform .15s; }
+.dpair button.df:active { transform: scale(.97); }
+.dpair .df.empty { border: 1.5px dashed #D9D7DE; background: #FAFAFB; }
+.dpair.sm .df { aspect-ratio: 3 / 4; border-radius: 12px; }
+.dgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; margin-top: 8px; }
+.dday-c > span { display: block; font-size: 12px; color: var(--sub); font-weight: 650; margin: 0 2px 4px; }
+.dday-c .dpair.sm { margin: 0; gap: 4px; }
+.sec-t { display: flex; align-items: center; justify-content: space-between; }
+.link-s { font-size: 12.5px; font-weight: 700; color: var(--rose); padding: 4px 2px; }
+
+/* =========================================================
+   리퀴드 글래스 통일 + 곡률 맞춤
+   바깥 곡률 - 안쪽 여백 = 안쪽 곡률 (동심 모서리)
+   ========================================================= */
+:root { --r-float: 28px; --r-surface: 20px; --r-control: 14px;
+  --glass-bg: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.52));
+  --glass-blur: blur(24px) saturate(190%) brightness(1.04);
+  --glass-edge: 1px solid rgba(255,255,255,.65);
+  --glass-shadow: inset 0 1px 1px rgba(255,255,255,.95), inset 0 -1px 1px rgba(255,255,255,.3), 0 12px 32px rgba(70,40,80,.14), 0 2px 6px rgba(70,40,80,.05); }
+.tabbar, .map-card, .map-fabs, .dm-pill, #banner, .rx-bar, .rx-menu, .dm-jump, .ptr {
+  background: var(--glass-bg) !important;
+  backdrop-filter: var(--glass-blur) !important; -webkit-backdrop-filter: var(--glass-blur) !important;
+  border: var(--glass-edge) !important; box-shadow: var(--glass-shadow) !important; }
+.dm-jump { color: var(--ink) !important; }
+/* 위쪽 바: 내용이 비치는 유리 */
+.topbar, .dm-head { background: linear-gradient(180deg, rgba(246,246,248,.82), rgba(246,246,248,.6)) !important;
+  backdrop-filter: var(--glass-blur) !important; -webkit-backdrop-filter: var(--glass-blur) !important; border-bottom: 1px solid rgba(255,255,255,.5) !important; }
+.dm-input { background: transparent !important; }
+#chatWrap .dm-input { position: relative; z-index: 2; }
+/* 아래에서 올라오는 창도 유리 */
+.sheet-box { background: linear-gradient(180deg, rgba(255,255,255,.94), rgba(255,255,255,.88)) !important;
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-float) var(--r-float) 0 0 !important; box-shadow: inset 0 1px 1px rgba(255,255,255,1), 0 -8px 30px rgba(40,20,50,.12); }
+/* 곡률: 떠 있는 판 28 / 그 안 카드 20 / 버튼·입력 14 */
+.tabbar { border-radius: var(--r-float) !important; }
+.tab-pill { border-radius: calc(var(--r-float) - 7px) !important; }
+.tabbar button { border-radius: calc(var(--r-float) - 7px) !important; }
+.map-card { border-radius: var(--r-float) !important; }
+.map-card .ecard, .map-card .rl-card { border-radius: calc(var(--r-float) - 8px) !important; }
+.ecard-img { border-radius: calc(var(--r-float) - 8px - 10px + 4px) !important; }
+.map-card .eat2-ib, .map-card .eat2-add, .map-card .eat-find, .mc-acts button { border-radius: var(--r-control) !important; }
+.map-fabs { border-radius: 20px !important; padding: 4px !important; }
+.map-fabs .icon-btn { border-radius: 16px !important; }
+.dm-pill { border-radius: 26px !important; }
+.dm-pill .dm-send, .dm-pill .dm-plus { border-radius: 50% !important; }
+.list, .card, .qbox, .q-card, .hero, .grid6, .eat-rates, .eat-visits, .mini-wrap, .st-nums div, .rl-box, .rl-reel, .eat-statbtn, .ed-loc, .nv-cta { border-radius: var(--r-surface) !important; }
+.hero { border-radius: var(--r-float) !important; }
+.btn, input[type=text], input[type=search], input[type=date], input[type=time], input[type=password], textarea, select, .eat-acts button, .eat-price button, .eat-heart, .eat-edit, .icon-btn { border-radius: var(--r-control); }
+.btn.sm { border-radius: 11px !important; }
+.seg { border-radius: 16px !important; padding: 4px !important; }
+.seg button { border-radius: 12px !important; }
+.kind-tg { border-radius: 13px !important; }
+.kind-tg button { border-radius: 10px !important; }
+.chip, .cchip, .chips button, .hm, .brand-sub { border-radius: 999px !important; }
+.eat-ph, .eat-ph-add { border-radius: 16px !important; }
+.dpair .df { border-radius: var(--r-surface) !important; }
+.dpair.sm .df { border-radius: 12px !important; }
+.grid6 button span { border-radius: 16px !important; }
+.li-ic, .eat-dot { border-radius: 12px !important; }
+.eat-dot.big { border-radius: 16px !important; }
+/* 유리 위 손잡이 */
+.map-card::before { background: rgba(60,50,70,.18) !important; }
+.dm-pin { background: linear-gradient(180deg, rgba(255,255,255,.8), rgba(255,255,255,.62)) !important; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border-bottom: 1px solid rgba(255,255,255,.5) !important; }

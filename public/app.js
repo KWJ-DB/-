@@ -396,23 +396,33 @@
     const t = today();
     const { days } = await api(`daily?date=${t}`);
     const td = days.find((d) => d.date === t) || { date: t, mine: false, partner: false, open: false };
-    const frame = (d, w) => {
+    const v = Date.now() % 100000;
+    // 볼 수 있는 사진을 순서대로 모아서 옆으로 넘기는 갤러리로
+    const gal = [];
+    const canSee = (d, w) => (w === S.who ? d.mine : d.partner && d.mine);
+    for (const d of [td, ...days.filter((x) => x.date !== t)]) for (const w of [S.who, other()]) if (canSee(d, w)) gal.push({ date: d.date, w });
+    S.dailyGal = gal.map((g) => ({ src: `/api/dailyimg?date=${g.date}&w=${g.w}&v=${v}`, daily: true, chat: true, who: g.w, date: g.date, id: `d${g.date}${g.w}` }));
+    const gi = (d, w) => gal.findIndex((g) => g.date === d.date && g.w === w);
+    const frame = (d, w, big) => {
       const has = w === S.who ? d.mine : d.partner;
-      if (!has) return `<div class="df empty">${w === S.who ? `${ic("camera")}<span>내 사진 올리기</span>` : `<span>${esc(nm(w))}님 아직</span>`}</div>`;
+      if (!has) return w === S.who && big
+        ? `<button class="df empty" data-act="dailyUp">${ic("camera")}<span>내 사진 올리기</span></button>`
+        : `<div class="df empty"><span>${w === S.who ? "안 올림" : `${esc(nm(w))}님 아직`}</span></div>`;
       if (w !== S.who && !d.mine) return `<div class="df lockd">${ic("lock")}<span>내 사진을 올리면 보여요</span></div>`;
-      return `<div class="df"><img src="/api/dailyimg?date=${d.date}&w=${w}&thumb=1&v=${Date.now() % 100000}" alt=""></div>`;
+      return `<button class="df" data-act="dailyView" data-i="${gi(d, w)}"><img src="/api/dailyimg?date=${d.date}&w=${w}&thumb=1&v=${v}" alt="" loading="lazy"></button>`;
     };
-    const past = days.filter((d) => d.date !== t && d.open);
+    const past = days.filter((d) => d.date !== t && (d.mine || d.partner));
     openSheet(`
       <h2>오늘의 한 장</h2>
       <p>하루에 한 장씩 지금 모습을 올려요. 둘 다 올리면 서로 보여요.</p>
       <div class="dpair">
-        <button data-act="dailyUp">${frame(td, S.who)}<b>${esc(nm(S.who))}</b></button>
-        <div>${frame(td, other())}<b>${esc(nm(other()))}</b></div>
+        <div>${frame(td, S.who, true)}<b>${esc(nm(S.who))}</b></div>
+        <div>${frame(td, other(), true)}<b>${esc(nm(other()))}</b></div>
       </div>
       <input type="file" id="dailyInput" accept="image/*" capture="environment" hidden>
-      <div class="row2"><button class="btn primary" data-act="dailyUp">${ic("camera")}${td.mine ? "다시 찍기" : "지금 찍어 올리기"}</button></div>
-      ${past.length ? `<div class="sec-t"><span>지난 날</span></div>${past.map((d) => `<div class="dpast"><span>${fmtK(d.date)}</span><div class="dpair sm">${frame(d, S.who)}${frame(d, other())}</div></div>`).join("")}` : ""}`);
+      <button class="btn primary full" data-act="dailyUp" style="margin-top:12px">${ic("camera")}${td.mine ? "다시 찍기" : "지금 찍어 올리기"}</button>
+      ${past.length ? `<div class="sec-t"><span>지난 날</span>${gal.length > 2 ? `<button class="link-s" data-act="dailyView" data-i="0">전체 넘겨보기</button>` : ""}</div>
+        <div class="dgrid">${past.map((d) => `<div class="dday-c"><span>${fmtK(d.date)}</span><div class="dpair sm">${frame(d, S.who)}${frame(d, other())}</div></div>`).join("")}</div>` : ""}`);
   }
 
   // ---------- 사랑 쿠폰 ----------
@@ -831,7 +841,7 @@
         ${S.lbIdx > 0 ? `<button class="nav l" data-act="lbNav" data-d="-1">${ic("left")}</button>` : ""}
         ${S.lbIdx < S.lbList.length - 1 ? `<button class="nav r" data-act="lbNav" data-d="1">${ic("right")}</button>` : ""}
       </div>
-      <div class="lb-bot">${p.chat ? `<b>${esc(nm(p.who))}</b><span>${fmtTime(p.t)}</span>` : `<b>${fmtK(p.date)}${p.caption ? " · " + esc(p.caption) : ""}</b><span>${esc(nm(p.who))}님이 올림 · 우리 ${dplus(p.date)}일째</span>`}</div>`;
+      <div class="lb-bot">${p.daily ? `<b>${fmtK(p.date)}</b><span>${esc(nm(p.who))}의 한 장 · 우리 ${dplus(p.date)}일째</span>` : p.chat ? `<b>${esc(nm(p.who))}</b><span>${fmtTime(p.t)}</span>` : `<b>${fmtK(p.date)}${p.caption ? " · " + esc(p.caption) : ""}</b><span>${esc(nm(p.who))}님이 올림 · 우리 ${dplus(p.date)}일째</span>`}</div>`;
   }
 
   // ---------- 버킷리스트 (홈에서 여는 시트) ----------
@@ -3085,6 +3095,7 @@
       const id = S.eatCur; E.more = null; await loadEats(); eatDetail(E.list.find((x) => x.id === id));
     },
     eatPlan: () => eatPlanSheet(),
+    dailyView(el) { const i = Math.max(0, Number(el.dataset.i)); if (S.dailyGal && S.dailyGal.length) openLightbox(S.dailyGal, i); },
     eatStats: () => eatStatsSheet(),
     eatPrice(el) { const v = Number(el.dataset.v); S.eatPrice = S.eatPrice === v ? 0 : v; $$(".eat-price button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === S.eatPrice)); },
     edPrice(el) { const v = Number(el.dataset.v); E.edit.price = E.edit.price === v ? 0 : v; $$(".eat-price button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === E.edit.price)); },

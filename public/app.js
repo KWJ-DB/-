@@ -1087,7 +1087,7 @@
   async function openChat() {
     $("#dmAv").innerHTML = av(other());
     $("#dmName").textContent = nm(other());
-    if (!S.chat) { S.chat = { msgs: [], read: { a: 0, b: 0 }, readT: {}, more: true, first: true }; $("#dmList").innerHTML = skelChat(); }
+    if (!S.chat) { S.chat = { msgs: [], read: { a: 0, b: 0 }, readT: {}, more: true, first: true }; $("#dmList").innerHTML = skelChat(); $("#dmList")._map = null; }
     drawPresence();
     await refreshChat(true);
   }
@@ -1109,7 +1109,14 @@
       if (d.now) S.clockOff = d.now - Date.now();
       const minId = d.messages.length ? d.messages[0].id : Infinity;
       const older = S.chat.msgs.filter((m) => typeof m.id === "number" && m.id < minId);
-      const pending = S.chat.msgs.filter((m) => String(m.id).startsWith("tmp") && m.failed);
+      let pending = S.chat.msgs.filter((m) => String(m.id).startsWith("tmp") && !m.done);
+      // 서버에 이미 들어간 내 메시지는 보내는 중 말풍선과 짝지어서 같은 자리 유지
+      for (const m of d.messages) {
+        if (m.who !== S.who || cidOf[m.id] || (S.chat.shown && S.chat.shown.has(m.id))) continue;
+        const tm = pending.find((p) => !p.failed && (p.kind || "text") === (m.kind || "text") && (p.text || "") === (m.text || "") && !!(p.local) === !!m.img);
+        if (tm) { cidOf[m.id] = String(tm.id); tm.done = true; }
+      }
+      pending = pending.filter((p) => !p.done);
       const before = S.chat.sig;
       S.chat.msgs = older.concat(d.messages, pending);
       S.chat.read = d.read; S.chat.readT = d.readT || {}; S.chat.seen = d.seen; S.chat.pin = d.pin;
@@ -1147,51 +1154,106 @@
     const imgHtml = m.img || m.local ? `<img class="dm-img" src="${m.local || `/api/chatimg/${m.img}?thumb=1`}" style="aspect-ratio:${m.w || 4}/${m.h || 3}" data-img="${m.img || ""}" alt="">` : "";
     return `${rq}${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}`;
   }
-  function drawChat(stick) {
-    const L = $("#dmList");
-    const atBottom = L.scrollHeight - L.scrollTop - L.clientHeight < 140;
-    const ms = S.chat.msgs, GAP = 20 * 60000;
-    if (!ms.length) { L.innerHTML = `<div class="dm-empty">${av(other())}<br><b>${esc(nm(other()))}</b>님에게<br>첫 메시지를 보내보세요</div>`; return; }
+  // 화면 전체를 다시 그리지 않고 바뀐 줄만 바꿔서 깜빡임 없이 (인스타처럼)
+  const cidOf = {};
+  const keyOf = (m) => "m" + (cidOf[m.id] || m.id);
+  function chatParts() {
+    const ms = S.chat.msgs, GAP = 20 * 60000, out = [];
     const readUpTo = S.chat.read[other()] || 0;
-    let h = S.chat.more ? `<button class="dm-more" data-act="dmMore">이전 메시지 보기</button>` : "";
-    const prevCount = L.querySelectorAll(".dm-row:not(.typing)").length;
+    if (S.chat.more) out.push(["more", `<button class="dm-more" data-act="dmMore">이전 메시지 보기</button>`]);
     ms.forEach((m, i) => {
       const prev = ms[i - 1], next = ms[i + 1];
       const newDay = !prev || ymd(new Date(prev.t)) !== ymd(new Date(m.t));
-      if (newDay) h += `<div class="dm-day"><span>${dayLabel(m.t)}</span></div>`;
-      else if (m.t - prev.t > GAP) h += `<div class="dm-time">${hm(m.t)}</div>`;
+      if (newDay) out.push(["d" + ymd(new Date(m.t)), `<div class="dm-day"><span>${dayLabel(m.t)}</span></div>`]);
+      else if (m.t - prev.t > GAP) out.push(["t" + keyOf(m), `<div class="dm-time">${hm(m.t)}</div>`]);
       const first = newDay || !prev || prev.who !== m.who || m.t - prev.t > GAP;
       const last = !next || next.who !== m.who || next.t - m.t > GAP || ymd(new Date(next.t)) !== ymd(new Date(m.t));
       const mine = m.who === S.who;
       const rx = Object.entries(m.reacts || {});
       const rxHtml = rx.length ? `<span class="dm-rx">${rx.map(([w, r]) => `<i class="${w} r-${r}">${ic(r)}</i>`).join("")}</span>` : "";
-      const fresh = S.chat.shown && !S.chat.shown.has(m.id) ? " fresh" : "";
       const tmp = String(m.id).startsWith("tmp");
       const unread = mine && !tmp && m.id > readUpTo ? `<span class="dm-1">1</span>` : "";
-      const meta = last ? `<span class="dm-meta">${m.failed ? `<button class="dm-retry" data-act="dmRetry" data-id="${m.id}">다시 보내기</button>` : tmp ? "보내는 중" : hm(m.t)}${m.edited ? " · 수정됨" : ""}</span>` : (m.edited ? `<span class="dm-meta">수정됨</span>` : "");
+      const meta = last ? `<span class="dm-meta">${m.failed ? `<button class="dm-retry" data-act="dmRetry" data-id="${m.id}">다시 보내기</button>` : tmp ? "" : hm(m.t)}${m.edited ? " · 수정됨" : ""}</span>` : (m.edited ? `<span class="dm-meta">수정됨</span>` : "");
       const cls = m.kind === "heart" ? " heart" : m.kind === "loc" ? " loc" : m.kind === "event" ? " evm" : "";
-      h += `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${rx.length ? " liked" : ""}${fresh}" id="m${m.id}">
+      out.push([keyOf(m), `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${rx.length ? " liked" : ""}${tmp ? " sending" : ""}" id="m${m.id}">
         ${mine ? "" : last ? av(m.who) : '<span class="av-sp"></span>'}
         ${mine ? `<span class="dm-side">${unread}${meta}</span>` : ""}
         <div class="dm-bub${cls}${m.img || m.local ? " has-img" : ""}${(m.img || m.local) && !m.text ? " only-img" : ""}" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${bubbleInner(m, ms)}${rxHtml}</div>
         ${mine ? "" : `<span class="dm-side">${meta}</span>`}
-      </div>`;
+      </div>`, !mine || tmp]);
     });
-    // 내가 보낸 마지막 메시지를 상대가 읽었으면 언제 읽었는지
     const lastMine = [...ms].reverse().find((m) => m.who === S.who && typeof m.id === "number");
     const lastAll = ms[ms.length - 1];
     if (lastMine && lastAll.who === S.who && readUpTo >= lastMine.id && S.chat.readT[other()]) {
-      h += `<div class="dm-seen">${fmtTime(S.chat.readT[other()])} 읽음</div>`;
+      out.push(["seen", `<div class="dm-seen">${fmtTime(S.chat.readT[other()])} 읽음</div>`]);
     }
-    if (S.chat.typingOn) h += `<div class="dm-row ot first last typing">${av(other())}<div class="dm-bub"><i></i><i></i><i></i></div></div>`;
-    L.innerHTML = h;
-    S.chat.shown = new Set(ms.map((m) => m.id));
-    const newCount = ms.length;
-    if (stick || atBottom) {
+    if (S.chat.typingOn) out.push(["typing", `<div class="dm-row ot first last typing">${av(other())}<div class="dm-bub"><i></i><i></i><i></i></div></div>`]);
+    return out;
+  }
+  const tplEl = document.createElement("template");
+  // 같은 줄이면 바뀐 부분(읽음 1, 시간, 반응)만 바꿔서 사진이 다시 깜빡이지 않게
+  function morph(el, nw) {
+    if (el.tagName !== nw.tagName || el.children.length !== nw.children.length) return false;
+    const keep = el.className.split(" ").filter((c) => c === "fresh");
+    el.className = nw.className + (keep.length ? " fresh" : "");
+    if (el.id !== nw.id) el.id = nw.id;
+    [...nw.children].forEach((c, i) => {
+      const o = el.children[i];
+      if (o.outerHTML === c.outerHTML) return;
+      if (o.classList.contains("dm-bub") && c.classList.contains("dm-bub")) {
+        for (const a of ["data-mid", "data-mine", "class"]) o.setAttribute(a, c.getAttribute(a));
+        if (o.innerHTML !== c.innerHTML) {
+          const oi = o.querySelector("img"), ci = c.querySelector("img");
+          if (oi && ci && oi.getAttribute("src") !== ci.getAttribute("src") && oi.complete) {
+            // 보내는 중 미리보기를 서버 사진으로 바꿀 때 다 불러온 뒤 교체
+            const pre = new Image(); pre.onload = () => { oi.src = ci.getAttribute("src"); oi.dataset.img = ci.dataset.img || ""; }; pre.src = ci.getAttribute("src");
+            const rxN = o.querySelector(".dm-rx"), rxC = c.querySelector(".dm-rx");
+            if (rxN) rxN.remove(); if (rxC) o.appendChild(rxC.cloneNode(true));
+          } else o.innerHTML = c.innerHTML;
+        }
+      } else o.replaceWith(c.cloneNode(true));
+    });
+    return true;
+  }
+  function drawChat(stick, quiet) {
+    const L = $("#dmList");
+    const atBottom = L.scrollHeight - L.scrollTop - L.clientHeight < 140;
+    if (!S.chat.msgs.length) { L.innerHTML = `<div class="dm-empty">${av(other())}<br><b>${esc(nm(other()))}</b>님에게<br>첫 메시지를 보내보세요</div>`; L._map = null; return; }
+    if (!L._map) { L.innerHTML = ""; L._map = new Map(); }
+    const old = L._map, next = new Map();
+    const firstDraw = old.size === 0 || quiet;
+    let added = false, cursor = L.firstChild;
+    for (const [key, html, animate] of chatParts()) {
+      let el = old.get(key);
+      if (!el || el._h !== html) {
+        tplEl.innerHTML = html.trim();
+        const fresh = tplEl.content.firstElementChild;
+        fresh._h = html;
+        if (!el && !firstDraw && animate) { fresh.classList.add("fresh"); added = true; }
+        if (!el && !firstDraw) added = true;
+        if (el && morph(el, fresh)) { el._h = html; }
+        else {
+          if (el) { el.replaceWith(fresh); if (cursor === el) cursor = fresh; }
+          el = fresh;
+        }
+      }
+      next.set(key, el);
+      if (el !== cursor) L.insertBefore(el, cursor);
+      else cursor = cursor.nextSibling;
+    }
+    for (const [k, el] of old) if (!next.has(k) && el.parentNode) el.remove();
+    // 남은 옛 요소(빈 화면 문구 등) 정리
+    [...L.children].forEach((el) => { if (![...next.values()].includes(el)) el.remove(); });
+    L._map = next;
+    S.chat.shown = new Set(S.chat.msgs.map((m) => m.id));
+    if (quiet) return;
+    if (stick || firstDraw) {
       L.scrollTop = L.scrollHeight;
+      L.querySelectorAll("img").forEach((im) => { if (!im.complete) im.addEventListener("load", () => { L.scrollTop = L.scrollHeight; }, { once: true }); });
       $("#dmJump").hidden = true;
-      L.querySelectorAll("img").forEach((im) => im.addEventListener("load", () => { if (stick || atBottom) L.scrollTop = L.scrollHeight; }, { once: true }));
-    } else if (newCount > prevCount && prevCount) {
+    } else if (atBottom) {
+      L.scrollTo({ top: L.scrollHeight, behavior: "smooth" });
+    } else if (added) {
       $("#dmJump").hidden = false;
     }
   }
@@ -1204,7 +1266,7 @@
   }
   function autosize() { const t = $("#dmText"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 120) + "px"; }
   async function postMsg(body, tmp) {
-    try { await api("messages", { method: "POST", body }); tmp.done = true; }
+    try { const r = await api("messages", { method: "POST", body }); tmp.done = true; if (r && r.id) cidOf[r.id] = String(tmp.id); }
     catch (e) { tmp.failed = true; tmp.body = body; drawChat(); toast("전송 실패: 다시 보내기를 눌러주세요"); }
     refreshChat();
   }
@@ -1261,7 +1323,8 @@
       try {
         const p = await prepPhoto(f, 720);
         tmp.w = p.w; tmp.h = p.h;
-        await api("messages", { method: "POST", body: { img: p } });
+        const r = await api("messages", { method: "POST", body: { img: p } });
+        if (r && r.id) cidOf[r.id] = String(tmp.id);
       } catch (e) { tmp.failed = true; toast("사진 전송 실패: " + e.message); }
     }
     refreshChat(true);
@@ -1373,6 +1436,40 @@
           const list = S.chat.msgs.filter((m) => m.img).map((m) => ({ src: `/api/chatimg/${m.img}`, chat: true, who: m.who, t: m.t, id: m.img }));
           openLightbox(list, Math.max(0, list.findIndex((x) => String(x.id) === im.dataset.img)));
         }, 330);
+      }
+    });
+    // 옆으로 밀면 답장 (인스타처럼)
+    let sw = null;
+    L.addEventListener("touchstart", (e) => {
+      const row = e.target.closest(".dm-row:not(.typing)");
+      if (row && e.touches.length === 1) sw = { row, x: e.touches[0].clientX, y: e.touches[0].clientY, dx: 0, on: false };
+    }, { passive: true });
+    L.addEventListener("touchmove", (e) => {
+      if (!sw) return;
+      const dx = e.touches[0].clientX - sw.x, dy = e.touches[0].clientY - sw.y;
+      if (!sw.on) {
+        if (Math.abs(dy) > 10) { sw = null; return; }
+        if (Math.abs(dx) > 12) { sw.on = true; sw.row.classList.add("swiping"); }
+        else return;
+      }
+      const mine = sw.row.classList.contains("me");
+      let d = mine ? Math.min(0, dx) : Math.max(0, dx);
+      d = Math.sign(d) * Math.min(90, Math.abs(d) * 0.6);
+      sw.dx = d;
+      sw.row.style.transform = `translateX(${d}px)`;
+      sw.row.style.setProperty("--sw", Math.min(1, Math.abs(d) / 50));
+      if (Math.abs(d) >= 50 && !sw.buzz) { sw.buzz = true; try { navigator.vibrate && navigator.vibrate(8); } catch {} }
+    }, { passive: true });
+    L.addEventListener("touchend", () => {
+      if (!sw) return;
+      const { row, dx, on } = sw; sw = null;
+      if (!on) return;
+      row.classList.remove("swiping");
+      row.style.transform = ""; row.style.removeProperty("--sw");
+      if (Math.abs(dx) >= 50) {
+        const bub = row.querySelector(".dm-bub");
+        const m = bub && S.chat.msgs.find((x) => String(x.id) === bub.dataset.mid);
+        if (m && !String(m.id).startsWith("tmp")) setReply(m);
       }
     });
     L.addEventListener("touchstart", (e) => {
@@ -2002,8 +2099,9 @@
       const d = await api(`messages?before=${first.id}&limit=40`);
       S.chat.msgs = d.messages.concat(S.chat.msgs);
       S.chat.more = d.messages.length >= 40;
-      drawChat();
-      L.scrollTop = L.scrollHeight - h0;
+      const top0 = L.scrollTop;
+      drawChat(false, true);
+      L.scrollTop = top0 + (L.scrollHeight - h0);
     },
     toggleNear() {
       const on = !nearEnabled();

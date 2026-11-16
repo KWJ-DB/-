@@ -1978,3 +1978,8 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 .ig-pick i svg.i { width: 13px; height: 13px; stroke-width: 3; }
 .ig-steps li { margin-bottom: 10px; line-height: 1.55; }
 .ig-steps li b:first-child { color: var(--ink); }
+.ig-quick { margin-top: 12px; padding: 14px; border-radius: var(--r-surface, 20px); background: #FFF0F5; display: grid; gap: 6px; }
+.ig-quick b { display: flex; align-items: center; gap: 6px; font-size: 15px; }
+.ig-quick b svg.i { width: 17px; height: 17px; color: var(--rose); }
+.ig-quick span { font-size: 13px; color: var(--sub, #8a7f88); line-height: 1.5; }
+.ig-quick .btn { margin-top: 4px; }

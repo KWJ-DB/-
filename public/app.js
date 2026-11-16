@@ -1516,7 +1516,8 @@
       <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="tuSave">켜기</button></div>`);
   }
   // ---------- 인스타 자동 게시 ----------
-  const igMine = () => S.ig && S.ig.who === S.who;
+  const igShareMode = () => { try { return localStorage.getItem("wooju_igshare") === "1"; } catch { return false; } };
+  const igMine = () => (S.ig && S.ig.who === S.who) || (!S.ig && igShareMode());
   function igSheet() {
     if (S.ig) {
       openSheet(`
@@ -1528,6 +1529,12 @@
     openSheet(`
       <h2>${ic("camera")}인스타 자동 게시</h2>
       <p class="sheet-sub">우주에 사진을 올릴 때 인스타 게시물로도 같이 올릴 수 있어요. 매번 올릴지 물어보고, 고른 사진만 올라가요.</p>
+      <div class="ig-quick">
+        <b>${ic("send")}지금 바로: 인스타 앱으로 넘기기</b>
+        <span>설정 없이 돼요. 사진을 올리면 고른 사진을 인스타 앱으로 넘겨주고, 캡션은 복사해둬요. 인스타에서 게시만 누르면 끝.</span>
+        <button class="btn ${igShareMode() ? "gray" : "primary"}" data-act="igShareTog">${igShareMode() ? "끄기" : "켜기"}</button>
+      </div>
+      <p class="sheet-sub" style="margin-top:14px"><b>완전 자동</b>으로 하려면 아래처럼 연결해요.</p>
       <ol class="nv-steps ig-steps">
         <li><b>인스타를 프로페셔널 계정으로</b><br>인스타 앱 → 프로필 → 오른쪽 위 메뉴 → <b>설정 및 활동</b> → <b>계정 유형 및 도구</b> → <b>프로페셔널 계정으로 전환</b> → <b>크리에이터</b>. 무료예요. 계정이 <b>공개</b>여야 토큰이 나와요.</li>
         <li><b>Meta 개발자 가입</b><br><a href="https://developers.facebook.com/" target="_blank" rel="noopener">developers.facebook.com</a>에서 페이스북으로 로그인 → <b>시작하기</b>. 휴대폰 인증까지 마쳐요.</li>
@@ -1549,12 +1556,18 @@
   }
   function igAskDraw() {
     const g = S.igPick; if (!g) return;
+    const share = !S.ig;
+    if (share && !g.files) {
+      // 공유 버튼 누를 때 바로 넘길 수 있게 미리 받아둠
+      g.files = {};
+      g.ids.forEach((id) => fetch(`/api/photo/${id}`).then((r) => r.blob()).then((b) => { g.files[id] = new File([b], `wooju-${id}.jpg`, { type: "image/jpeg" }); }).catch(() => {}));
+    }
     openSheet(`
       <h2>${ic("camera")}인스타에도 올릴까요?</h2>
-      <p class="sheet-sub">@${esc(S.ig.user)} 게시물로 올라가요. 올릴 사진만 골라요${g.ids.length > 1 ? " (여러 장은 한 게시물로 묶여요, 최대 10장)" : ""}.</p>
+      <p class="sheet-sub">${share ? "고른 사진을 인스타 앱으로 넘겨요. 캡션은 복사돼 있으니 인스타에서 붙여넣기만 하면 돼요." : `@${esc(S.ig.user)} 게시물로 올라가요.`} 올릴 사진만 골라요${g.ids.length > 1 ? " (여러 장은 한 게시물로 묶여요, 최대 10장)" : ""}.</p>
       <div class="ig-pick">${g.ids.map((id) => `<button class="${g.on.has(id) ? "on" : ""}" data-act="igToggle" data-id="${id}"><img src="/api/photo/${id}?thumb=1" alt=""><i>${ic("check")}</i></button>`).join("")}</div>
       <textarea id="igCap" rows="3" maxlength="2000" placeholder="캡션 (비워도 돼요)" style="margin-top:12px;width:100%"></textarea>
-      <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="igSkip">안 올릴래요</button><button class="btn primary" data-act="igPost">${ic("send")}올리기</button></div>`);
+      <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="igSkip">안 올릴래요</button><button class="btn primary" data-act="${share ? "igShare" : "igPost"}">${ic("send")}${share ? "인스타로 넘기기" : "올리기"}</button></div>`);
   }
   function naverSheet(tab) {
     tab = tab || S.connTab || (S.naver && !S.kakao ? "naver" : "kakao");
@@ -3003,7 +3016,7 @@
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
-        ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : "사진 올릴 때 인스타에도 같이")}
+        ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : igShareMode() ? "인스타 앱으로 넘기기 켜짐" : "사진 올릴 때 인스타에도 같이")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>
@@ -3947,6 +3960,18 @@
       el.classList.toggle("on", g.on.has(id));
     },
     igSkip() { S.igPick = null; closeSheet(); },
+    igShareTog() { try { localStorage.setItem("wooju_igshare", igShareMode() ? "0" : "1"); } catch {} toast(igShareMode() ? "사진 올릴 때 인스타로 넘길지 물어볼게요" : "껐어요"); igSheet(); },
+    igShare() {
+      const g = S.igPick; if (!g) return;
+      const ids = g.ids.filter((x) => g.on.has(x));
+      const files = ids.map((id) => g.files && g.files[id]).filter(Boolean);
+      if (!ids.length) return toast("올릴 사진을 골라주세요");
+      if (files.length < ids.length) return toast("사진 준비 중이에요. 잠깐 뒤 다시 눌러주세요");
+      const cap = $("#igCap").value.trim();
+      if (cap) { try { navigator.clipboard.writeText(cap); } catch {} }
+      if (!navigator.canShare || !navigator.canShare({ files })) return toast("이 브라우저는 사진 넘기기를 못 해요. 사진을 저장해서 올려주세요");
+      navigator.share({ files }).then(() => { S.igPick = null; closeSheet(); toast(cap ? "인스타에서 캡션 칸에 붙여넣기 하세요" : "인스타에서 게시를 눌러주세요"); }).catch(() => {});
+    },
     async igPost(el) {
       const g = S.igPick; if (!g) return;
       const ids = g.ids.filter((x) => g.on.has(x));

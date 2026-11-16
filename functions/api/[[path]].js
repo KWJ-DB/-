@@ -435,8 +435,11 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST loc": {
         const b = await body(request);
-        await saveLoc(DB, who, { ...b, src: "web", t: Date.now() });
-        await later(placeNotify(who, b.lat, b.lon, b.acc, Date.now()).then(togetherCheck).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
+        // 끊겼다가 나중에 보낸 위치는 원래 찍힌 시각으로 (3일 이내)
+        const bt = Number(b.t), tt = Number.isFinite(bt) && bt < Date.now() + 60000 && bt > Date.now() - 3 * 86400000 ? bt : Date.now();
+        await saveLoc(DB, who, { ...b, src: "web", t: tt });
+        if (Date.now() - tt > 5 * 60000) return json(OK);
+        await later(placeNotify(who, b.lat, b.lon, b.acc, tt).then(togetherCheck).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
         return json(OK);
       }
       case "DELETE loc":

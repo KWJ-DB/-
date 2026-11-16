@@ -2027,10 +2027,38 @@
     try { if (navigator.getBattery) return Math.round((await navigator.getBattery()).level * 100); } catch {}
     return null;
   }
+  // 데이터가 끊겨 못 보낸 위치는 폰에 모아뒀다가 다시 연결되면 순서대로 보냄
+  const LQ = "wooju_locq";
+  const lqGet = () => { try { return JSON.parse(localStorage.getItem(LQ) || "[]"); } catch { return []; } };
+  const lqSet = (a) => { try { localStorage.setItem(LQ, JSON.stringify(a.slice(-400))); } catch {} };
+  async function flushLocQ() {
+    if (S.lqBusy) return;
+    let q = lqGet(); if (!q.length) return;
+    S.lqBusy = true;
+    try {
+      while (q.length) {
+        try { await api("loc", { method: "POST", body: q[0] }); }
+        catch (e) { if (!e.status || e.status === 401 || e.status >= 500) throw e; } // 연결 문제면 나중에 다시, 잘못된 점이면 버림
+        q.shift(); lqSet(q);
+      }
+    } catch {} finally { S.lqBusy = false; }
+  }
+  window.addEventListener("online", () => { flushLocQ(); });
   async function sendPos(p) {
     const sp = p.coords.speed;
-    await api("loc", { method: "POST", body: { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, vel: sp != null && sp >= 0 ? Math.round(sp * 3.6) : null, batt: await batt() } });
-    S.lastSent = { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now(), acc: p.coords.accuracy };
+    const b = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, vel: sp != null && sp >= 0 ? Math.round(sp * 3.6) : null, batt: await batt(), t: p.timestamp || Date.now() };
+    if (lqGet().length) await flushLocQ();
+    try { await api("loc", { method: "POST", body: b }); }
+    catch (e) {
+      if (!e.status) { // 서버 응답 자체가 없음 = 연결 끊김
+        const q = lqGet(); const l = q[q.length - 1];
+        if (!l || b.t - l.t > 60000 || distM(l, b) > 40) { q.push(b); lqSet(q); }
+        S.lastSent = { lat: b.lat, lon: b.lon, t: Date.now(), acc: b.acc };
+        return;
+      }
+      throw e;
+    }
+    S.lastSent = { lat: b.lat, lon: b.lon, t: Date.now(), acc: b.acc };
     refreshLoc();
   }
   // 사이트를 열면 항상 자동으로 내 위치를 보냄 (50m 움직이거나 2분마다)

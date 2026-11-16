@@ -1983,3 +1983,7 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 .ig-quick b svg.i { width: 17px; height: 17px; color: var(--rose); }
 .ig-quick span { font-size: 13px; color: var(--sub, #8a7f88); line-height: 1.5; }
 .ig-quick .btn { margin-top: 4px; }
+.ig-acct { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px 12px; border-radius: var(--r-control, 14px); background: #FFF6E5; font-size: 13px; line-height: 1.45; }
+.ig-acct > svg.i { flex: none; width: 17px; height: 17px; color: #C98A1A; }
+.ig-acct span { flex: 1; }
+.ig-acct button { flex: none; padding: 7px 10px; border-radius: 10px; background: #fff; font-size: 12.5px; font-weight: 700; color: var(--ink); }

@@ -1516,6 +1516,7 @@
       <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="tuSave">켜기</button></div>`);
   }
   // ---------- 인스타 자동 게시 ----------
+  const igHandle = () => { try { return localStorage.getItem("wooju_ighandle") || ""; } catch { return ""; } };
   const igShareMode = () => { try { return localStorage.getItem("wooju_igshare") === "1"; } catch { return false; } };
   const igAuto = () => (S.ig && S.ig.who === S.who) || (!S.ig && S.make && S.make.who === S.who);
   const igMine = () => igAuto() || (!S.ig && !S.make && igShareMode());
@@ -1541,6 +1542,8 @@
       <div class="ig-quick">
         <b>${ic("send")}지금 바로: 인스타 앱으로 넘기기</b>
         <span>설정 없이 돼요. 사진을 올리면 고른 사진을 인스타 앱으로 넘겨주고, 캡션은 복사해둬요. 인스타에서 게시만 누르면 끝.</span>
+        <input type="text" id="igHandle" value="${esc(igHandle())}" placeholder="올릴 인스타 아이디 (예: wooju_love)" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:4px">
+        <span>인스타는 지금 앱에 켜져 있는 계정으로 올려요. 아이디를 적어두면 넘기기 전에 그 계정으로 바꿨는지 확인해줘요.</span>
         <button class="btn ${igShareMode() ? "gray" : "primary"}" data-act="igShareTog">${igShareMode() ? "끄기" : "켜기"}</button>
       </div>
       <div class="ig-quick" style="background:#F2EEFF">
@@ -1588,6 +1591,7 @@
     openSheet(`
       <h2>${ic("camera")}인스타에도 올릴까요?</h2>
       <p class="sheet-sub">${share ? "고른 사진을 인스타 앱으로 넘겨요. 캡션은 복사돼 있으니 인스타에서 붙여넣기만 하면 돼요." : S.ig ? `@${esc(S.ig.user)} 게시물로 올라가요.` : "Make를 거쳐 인스타에 자동으로 올라가요."} 올릴 사진만 골라요${g.ids.length > 1 ? " (여러 장은 한 게시물로 묶여요, 최대 10장)" : ""}.</p>
+      ${share ? `<div class="ig-acct">${ic("user")}<span>${igHandle() ? `인스타 앱이 <b>@${esc(igHandle())}</b> 계정인지 확인하고 넘기세요` : "인스타 앱에 켜진 계정으로 올라가요. 올릴 계정으로 바꿔두고 넘기세요"}</span><button data-act="igOpenApp">계정 바꾸기</button></div>` : ""}
       <div class="ig-pick">${g.ids.map((id) => `<button class="${g.on.has(id) ? "on" : ""}" data-act="igToggle" data-id="${id}"><img src="/api/photo/${id}?thumb=1" alt=""><i>${ic("check")}</i></button>`).join("")}</div>
       <textarea id="igCap" rows="3" maxlength="2000" placeholder="캡션 (비워도 돼요)" style="margin-top:12px;width:100%"></textarea>
       <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="igSkip">안 올릴래요</button><button class="btn primary" data-act="${share ? "igShare" : "igPost"}">${ic("send")}${share ? "인스타로 넘기기" : "올리기"}</button></div>`);
@@ -3994,7 +3998,8 @@
       await api("makehook", { method: "POST", body: { url: "" } }); S.make = null; toast("Make 연결을 끊었어요"); igSheet();
     },
     igTokenView() { const m = S.make; S.make = null; igSheet(); S.make = m; },
-    igShareTog() { try { localStorage.setItem("wooju_igshare", igShareMode() ? "0" : "1"); } catch {} toast(igShareMode() ? "사진 올릴 때 인스타로 넘길지 물어볼게요" : "껐어요"); igSheet(); },
+    igShareTog() { try { const h = ($("#igHandle") && $("#igHandle").value.trim().replace(/^@/, "")) || ""; localStorage.setItem("wooju_ighandle", h); localStorage.setItem("wooju_igshare", igShareMode() ? "0" : "1"); } catch {} toast(igShareMode() ? "사진 올릴 때 인스타로 넘길지 물어볼게요" : "껐어요"); igSheet(); },
+    igOpenApp() { location.href = igHandle() ? `instagram://user?username=${encodeURIComponent(igHandle())}` : "instagram://app"; },
     igShare() {
       const g = S.igPick; if (!g) return;
       const ids = g.ids.filter((x) => g.on.has(x));

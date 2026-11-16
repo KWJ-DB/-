@@ -1876,3 +1876,14 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 /* 멀리서 볼 땐 가게 이름표 숨김 */
 .zoom-far .eat-mk:not(.sel) .eat-nm { opacity: 0; transform: translateY(4px) scale(.9); pointer-events: none; }
 .eat-mk .eat-nm { transition: opacity .2s ease, transform .2s ease; }
+
+/* 맛집: 위로 끌면 큰 목록 화면 */
+.tall-card .eat2-list { height: calc(100dvh - var(--tab-h) - var(--safe-b) - env(safe-area-inset-top) - 132px); max-height: none; }
+.tall-card .eat2-list .eat-li { padding: 11px 6px; gap: 12px; }
+.tall-card .eat2-list .eat-th, .tall-card .eat2-list .eat-dot { width: 52px; height: 52px; border-radius: 14px; }
+.tall-card .eat2-list .eat-t b { font-size: 16px; }
+.tall-card .eat2-list .eat-find { margin-top: 10px; }
+.tall-card .eat2-list .eat-find input { font-size: 16px; }
+.map-card.grow { animation: mcGrow .42s cubic-bezier(.2,.9,.3,1); }
+@keyframes mcGrow { from { transform: translateY(40px); opacity: .6; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .map-card.grow { animation: none; } }

@@ -3230,7 +3230,7 @@
     const mc = $("#mapCard");
     let st = null;
     mc.addEventListener("touchstart", (e) => {
-      if (e.touches.length !== 1 || e.target.closest("input, textarea, .eat-cards, .chips, .tr-tl")) return;
+      if (e.touches.length !== 1 || e.target.closest("input, textarea, .tr-tl")) return;
       const list = e.target.closest(".eat-list");
       if (list && list.scrollTop > 2) return;
       st = { y: e.touches[0].clientY, x: e.touches[0].clientX, dy: 0, on: false, t: Date.now() };
@@ -3241,20 +3241,32 @@
       if (!st.on) {
         if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) { st = null; return; }
         if (Math.abs(dy) < 8) return;
-        if (dy < 0 && !mc.classList.contains("mc-min")) { st = null; return; }
+        // 맛집 카드에서 위로 끌면 큰 목록으로
+        st.up = dy < 0 && !mc.classList.contains("mc-min") && S.eatOn && E.view !== "list" && E.list.length > 0;
+        if (dy < 0 && !mc.classList.contains("mc-min") && !st.up) { st = null; return; }
         st.on = true; mc.style.transition = "none";
       }
       e.preventDefault();
       const min = mc.classList.contains("mc-min");
+      if (st.up) { st.dy = Math.min(0, dy); mc.style.transform = `translateY(${st.dy * 0.35}px)`; return; }
       st.dy = min ? Math.min(0, dy) : Math.max(0, dy);
       mc.style.transform = `translateY(${st.dy * (min ? 0.6 : 1)}px)`;
     }, { passive: false });
     const end = () => {
       if (!st) return;
-      const { on, dy, t } = st; st = null;
+      const { on, dy, t, up } = st; st = null;
       if (!on) return;
       const fast = Math.abs(dy) / Math.max(1, Date.now() - t) > 0.5;
       mc.style.transition = ""; mc.style.transform = "";
+      if (up) {
+        if (dy < -50 || (fast && dy < -20)) {
+          E.view = "list"; mc.innerHTML = ""; renderMapCard();
+          mc.classList.remove("grow"); void mc.offsetWidth; mc.classList.add("grow");
+          setTimeout(() => mc.classList.remove("grow"), 450);
+          try { navigator.vibrate && navigator.vibrate(6); } catch {}
+        }
+        return;
+      }
       const min = mc.classList.contains("mc-min");
       if (!min && (dy > 70 || (fast && dy > 25))) {
         if (S.eatOn && E.view === "list") { E.view = "cards"; mc.innerHTML = ""; renderMapCard(); }

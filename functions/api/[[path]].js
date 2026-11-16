@@ -199,6 +199,22 @@ export async function onRequest({ request, env, params, waitUntil }) {
       return json({ ...base, match: false, touch: last, at: Number(st.last_touch_at) || 0, kind: st.last_touch_kind || "" });
     }
 
+    // ---------- 인스타가 사진을 가져가는 임시 주소 (서명 + 15분 만료) ----------
+    const igSig = async (pid, exp) => {
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(st.secret || ""), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`ig:${pid}:${exp}`)));
+      return [...sig.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    };
+    if (p0 === "igimg" && m === "GET") {
+      const mm = /^(\d+)-(\d+)-([0-9a-f]{24})\.jpg$/.exec(p1 || "");
+      if (!isSetup || !mm) return err(404, "없음");
+      const [, pid, exp, sig] = mm;
+      if (Date.now() > Number(exp) || !safeEq(sig, await igSig(pid, exp))) return err(403, "만료됐어요");
+      const r = await DB.prepare("SELECT data FROM photos WHERE id = ?1").bind(Number(pid)).first();
+      if (!r || !r.data) return err(404, "사진이 없어요");
+      return new Response(fromB64(r.data), { headers: { "content-type": "image/jpeg", "cache-control": "no-store" } });
+    }
+
     // ---------- 여기부터 로그인 필요 ----------
     if (!isSetup) return err(401, "처음 설정이 필요해요");
     const who = await readToken(st.secret, getCookie(request, "cp"));
@@ -220,7 +236,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" } });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" }, ig: st.ig_token ? { user: st.ig_name || "", who: st.ig_who || "" } : null });
       }
       case "POST meet": {
         const b = await body(request);
@@ -556,6 +572,69 @@ export async function onRequest({ request, env, params, waitUntil }) {
         return json(OK);
       }
       // 네이버 검색 API 키 연결 (키는 서버에만 저장)
+      // ----- 인스타 자동 게시 -----
+      case "POST igkey": {
+        const b = await body(request);
+        const tok = str(b.token, 600);
+        if (!tok) { await setSettings(env, { ig_token: "", ig_uid: "", ig_name: "", ig_who: "", ig_ref: "" }); return json(OK); }
+        const r = await fetch(`https://graph.instagram.com/v22.0/me?fields=user_id,username&access_token=${encodeURIComponent(tok)}`);
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.user_id) return err(400, "토큰이 올바르지 않아요" + (d.error && d.error.message ? ` (${d.error.message})` : ""));
+        await setSettings(env, { ig_token: tok, ig_uid: String(d.user_id), ig_name: d.username || "", ig_who: who, ig_ref: Date.now() });
+        return json({ ok: true, user: d.username || "" });
+      }
+      case "POST igpost": {
+        const b = await body(request);
+        if (!st.ig_token) return err(400, "인스타가 연결되어 있지 않아요");
+        const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter((x) => x > 0).slice(0, 10);
+        if (!ids.length) return err(400, "올릴 사진을 골라주세요");
+        let tok = st.ig_token;
+        // 장기 토큰은 60일짜리라 일주일 넘으면 새로 고침
+        if (Date.now() - (Number(st.ig_ref) || 0) > 7 * 86400000) {
+          try {
+            const rr = await fetch(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(tok)}`);
+            const dd = await rr.json();
+            if (dd.access_token) { tok = dd.access_token; await setSettings(env, { ig_token: tok, ig_ref: Date.now() }); }
+          } catch {}
+        }
+        const G = "https://graph.instagram.com/v22.0", uid = st.ig_uid || "me";
+        const call = async (path, params) => {
+          const u = new URLSearchParams({ ...params, access_token: tok });
+          const r = await fetch(`${G}/${path}`, { method: "POST", body: u });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || d.error) throw new Error((d.error && (d.error.error_user_msg || d.error.message)) || "인스타 오류 " + r.status);
+          return d;
+        };
+        const ready = async (cid) => {
+          for (let k = 0; k < 15; k++) {
+            const r = await fetch(`${G}/${cid}?fields=status_code&access_token=${encodeURIComponent(tok)}`);
+            const d = await r.json().catch(() => ({}));
+            if (d.status_code === "FINISHED") return;
+            if (d.status_code === "ERROR" || d.status_code === "EXPIRED") throw new Error("인스타가 사진을 처리하지 못했어요");
+            await new Promise((res) => setTimeout(res, 1500));
+          }
+        };
+        const origin = url.origin;
+        const exp = Date.now() + 15 * 60000;
+        const imgUrl = async (pid) => `${origin}/api/igimg/${pid}-${exp}-${await igSig(pid, exp)}.jpg`;
+        const caption = str(b.caption, 2000) || "";
+        try {
+          let cid;
+          if (ids.length === 1) {
+            cid = (await call(`${uid}/media`, { image_url: await imgUrl(ids[0]), caption })).id;
+          } else {
+            const kids = [];
+            for (const pid of ids) kids.push((await call(`${uid}/media`, { image_url: await imgUrl(pid), is_carousel_item: "true" })).id);
+            for (const k of kids) await ready(k);
+            cid = (await call(`${uid}/media`, { media_type: "CAROUSEL", children: kids.join(","), caption })).id;
+          }
+          await ready(cid);
+          const pub = await call(`${uid}/media_publish`, { creation_id: cid });
+          let link = "";
+          try { const r = await fetch(`${G}/${pub.id}?fields=permalink&access_token=${encodeURIComponent(tok)}`); link = (await r.json()).permalink || ""; } catch {}
+          return json({ ok: true, id: pub.id, link });
+        } catch (e) { return err(400, e.message); }
+      }
       case "POST naverkey": {
         const b = await body(request);
         const idk = str(b.id, 80), sec = str(b.secret, 80);

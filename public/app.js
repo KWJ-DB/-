@@ -754,9 +754,10 @@
   }
   async function albumUpload(files) {
     const date = today();
-    await uploadMany(files, async (b) => { const p = await prepPhoto(b); await api("photos", { method: "POST", body: { date, ...p } }); });
+    const ids = await uploadMany(files, async (b) => { const p = await prepPhoto(b); return (await api("photos", { method: "POST", body: { date, ...p } })).id; });
     S.album = null; S.calData = null;
     await render(true);
+    igAsk(ids);
   }
 
 
@@ -869,28 +870,30 @@
   async function uploadMany(files, send) {
     S.uploading = true;
     let ok = 0, fail = 0, lastErr = "";
+    const out = [];
     try {
       const blobs = await Promise.all(files.map((f) => f.arrayBuffer().then((b) => new Blob([b], { type: f.type || "image/jpeg" })).catch(() => null)));
       for (let i = 0; i < blobs.length; i++) {
         toast(`사진 올리는 중 ${i + 1}/${blobs.length}`);
         try {
           if (!blobs[i]) throw new Error("사진을 열 수 없어요");
-          await send(blobs[i]);
+          out.push(await send(blobs[i]));
           ok++;
         } catch (e) { fail++; lastErr = e.message; }
       }
     } finally { S.uploading = false; }
     document.querySelectorAll('input[type="file"]').forEach((x) => { try { x.value = ""; } catch {} });
     toast(fail ? `${ok}장 올렸고 ${fail}장은 실패했어요 (${lastErr})` : `사진 ${ok}장을 올렸어요`);
-    return ok;
+    return out;
   }
   async function uploadPhotos(files) {
     const date = S.cal.sel;
     const btn = $(".photos .up");
     if (btn) btn.classList.add("busy");
-    await uploadMany(files, async (b) => { const p = await prepPhoto(b); await api("photos", { method: "POST", body: { date, ...p } }); });
+    const ids = await uploadMany(files, async (b) => { const p = await prepPhoto(b); return (await api("photos", { method: "POST", body: { date, ...p } })).id; });
     S.calData = null; S.album = null;
     await render(true);
+    igAsk(ids);
   }
 
   // ---------- 라이트박스 ----------
@@ -903,7 +906,7 @@
       <div class="lb-top">
         <button class="icon-btn" data-act="lbClose" aria-label="닫기">${ic("x")}</button>
         <span style="font-size:14px;font-weight:600">${S.lbIdx + 1} / ${S.lbList.length}</span>
-        <span class="lb-acts"><button class="icon-btn" data-act="lbSave" aria-label="저장">${ic("download")}</button>${p.chat ? "" : `<button class="icon-btn" data-act="lbEdit" aria-label="고치기">${ic("pen")}</button><button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>`}</span>
+        <span class="lb-acts"><button class="icon-btn" data-act="lbSave" aria-label="저장">${ic("download")}</button>${p.chat ? "" : `${igMine() && !p.daily ? `<button class="icon-btn" data-act="lbIg" aria-label="인스타에 올리기">${ic("camera")}</button>` : ""}<button class="icon-btn" data-act="lbEdit" aria-label="고치기">${ic("pen")}</button><button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>`}</span>
       </div>
       <div class="lb-img">
         <img src="${p.src || `/api/photo/${p.id}`}" alt="">
@@ -1511,6 +1514,45 @@
       <input type="text" id="tuUser" placeholder="Username" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
       <input type="text" id="tuPass" placeholder="Password" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
       <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="tuSave">켜기</button></div>`);
+  }
+  // ---------- 인스타 자동 게시 ----------
+  const igMine = () => S.ig && S.ig.who === S.who;
+  function igSheet() {
+    if (S.ig) {
+      openSheet(`
+        <h2>${ic("camera")}인스타 자동 게시</h2>
+        <p class="sheet-sub"><b>@${esc(S.ig.user)}</b> 계정이 ${esc(nm(S.ig.who))} 폰에서 연결돼 있어요. ${igMine() ? "사진을 올리면 인스타에도 올릴지 물어봐요." : `${esc(nm(S.ig.who))}님이 사진을 올릴 때만 물어봐요.`}</p>
+        <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="igOff">연결 끊기</button><button class="btn primary" data-act="close">확인</button></div>`);
+      return;
+    }
+    openSheet(`
+      <h2>${ic("camera")}인스타 자동 게시</h2>
+      <p class="sheet-sub">우주에 사진을 올릴 때 인스타 게시물로도 같이 올릴 수 있어요. 매번 올릴지 물어보고, 고른 사진만 올라가요.</p>
+      <ol class="nv-steps">
+        <li>인스타 앱 설정에서 <b>계정 유형 및 도구</b> → <b>프로페셔널 계정으로 전환</b> (크리에이터 추천, 무료)</li>
+        <li><a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">Meta 개발자</a>에 로그인해서 <b>앱 만들기</b> → 사용 사례에서 <b>Instagram에서 메시지와 콘텐츠 관리</b>를 골라요. 앱 이름은 아무거나 (예: 우주)</li>
+        <li>앱 화면 왼쪽 <b>Instagram</b> → <b>Instagram 로그인을 통한 API 설정</b>으로 가요</li>
+        <li><b>액세스 토큰 생성</b>에서 <b>계정 추가</b>를 눌러 내 인스타로 로그인하고, 옆의 <b>토큰 생성</b>을 눌러요</li>
+        <li>나온 긴 토큰을 복사해서 아래에 붙여넣어요</li>
+      </ol>
+      <input type="text" id="igTok" placeholder="액세스 토큰 (IGAA로 시작)" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:12px">
+      <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="close">나중에</button><button class="btn primary" data-act="igSave">연결하기</button></div>`);
+  }
+  // 사진 올린 뒤 인스타에도 올릴지 묻기
+  function igAsk(ids) {
+    ids = (ids || []).filter(Boolean);
+    if (!ids.length || !igMine()) return;
+    S.igPick = { ids, on: new Set(ids.slice(0, 10)) };
+    igAskDraw();
+  }
+  function igAskDraw() {
+    const g = S.igPick; if (!g) return;
+    openSheet(`
+      <h2>${ic("camera")}인스타에도 올릴까요?</h2>
+      <p class="sheet-sub">@${esc(S.ig.user)} 게시물로 올라가요. 올릴 사진만 골라요${g.ids.length > 1 ? " (여러 장은 한 게시물로 묶여요, 최대 10장)" : ""}.</p>
+      <div class="ig-pick">${g.ids.map((id) => `<button class="${g.on.has(id) ? "on" : ""}" data-act="igToggle" data-id="${id}"><img src="/api/photo/${id}?thumb=1" alt=""><i>${ic("check")}</i></button>`).join("")}</div>
+      <textarea id="igCap" rows="3" maxlength="2000" placeholder="캡션 (비워도 돼요)" style="margin-top:12px;width:100%"></textarea>
+      <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="igSkip">안 올릴래요</button><button class="btn primary" data-act="igPost">${ic("send")}올리기</button></div>`);
   }
   function naverSheet(tab) {
     tab = tab || S.connTab || (S.naver && !S.kakao ? "naver" : "kakao");
@@ -2959,6 +3001,7 @@
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
+        ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : "사진 올릴 때 인스타에도 같이")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>
@@ -3885,6 +3928,38 @@
       setTimeout(() => eatDetail(e), 1100);
     },
     turnSheet: () => turnSheet(),
+    igSheet: () => igSheet(),
+    async igSave() {
+      const token = $("#igTok").value.trim();
+      if (!token) return toast("토큰을 붙여넣어 주세요");
+      try { const d = await api("igkey", { method: "POST", body: { token } }); S.ig = { user: d.user, who: S.who }; toast(`@${d.user} 연결됐어요`); igSheet(); }
+      catch (e) { toast(e.message); }
+    },
+    async igOff() {
+      if (!confirm("인스타 연결을 끊을까요?")) return;
+      await api("igkey", { method: "POST", body: { token: "" } }); S.ig = null; toast("연결을 끊었어요"); closeSheet();
+    },
+    igToggle(el) {
+      const g = S.igPick, id = Number(el.dataset.id);
+      if (g.on.has(id)) g.on.delete(id); else { if (g.on.size >= 10) return toast("한 게시물엔 10장까지예요"); g.on.add(id); }
+      el.classList.toggle("on", g.on.has(id));
+    },
+    igSkip() { S.igPick = null; closeSheet(); },
+    async igPost(el) {
+      const g = S.igPick; if (!g) return;
+      const ids = g.ids.filter((x) => g.on.has(x));
+      if (!ids.length) return toast("올릴 사진을 골라주세요");
+      el.disabled = true; el.classList.add("busy"); toast("인스타에 올리는 중이에요");
+      try {
+        const d = await api("igpost", { method: "POST", body: { ids, caption: $("#igCap").value.trim() } });
+        S.igPick = null; closeSheet(); toast("인스타에 올렸어요");
+        if (d.link) S.igLast = d.link;
+      } catch (e) { el.disabled = false; el.classList.remove("busy"); toast(e.message); }
+    },
+    lbIg() {
+      const p = S.lbList[S.lbIdx]; if (!p || !p.id) return;
+      $("#lightbox").hidden = true; igAsk([p.id]);
+    },
     async turnSave() {
       const id = $("#turnId").value.trim(), token = $("#turnTok").value.trim();
       if (!id || !token) return toast("둘 다 붙여넣어 주세요");
@@ -4358,7 +4433,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {};
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {}; S.ig = me.ig || null;
       setBrand();
       await loadAnniv();
       showOnly("app");

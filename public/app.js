@@ -753,16 +753,11 @@
   }
   async function albumUpload(files) {
     const date = today();
-    let ok = 0;
-    for (let i = 0; i < files.length; i++) {
-      toast(`사진 올리는 중 ${i + 1}/${files.length}`);
-      try { const p = await prepPhoto(files[i]); await api("photos", { method: "POST", body: { date, ...p } }); ok++; }
-      catch (e) { toast(e.message); }
-    }
+    await uploadMany(files, async (b) => { const p = await prepPhoto(b); await api("photos", { method: "POST", body: { date, ...p } }); });
     S.album = null; S.calData = null;
     await render(true);
-    if (ok) toast(`사진 ${ok}장을 올렸어요`);
   }
+
 
   // ---------- 캘린더 ----------
   async function renderCalendar() {
@@ -847,6 +842,7 @@
       const im = new Image();
       im.onload = () => { res(im); setTimeout(() => URL.revokeObjectURL(url), 1000); };
       im.onerror = () => rej(new Error("사진을 열 수 없어요"));
+      setTimeout(() => rej(new Error("사진을 여는 데 너무 오래 걸려요")), 20000);
       im.src = url;
     });
   }
@@ -867,22 +863,32 @@
     const th = draw(im, thumbMax, 0.74);
     return { data: f.b64, thumb: th.b64, w: f.w, h: f.h };
   }
+  // 여러 장 올리기 공통: 먼저 전부 메모리에 복사(아이폰은 화면이 바뀌면 원본을 못 읽기도 함), 올리는 동안 자동 새로고침 멈춤
+  async function uploadMany(files, send) {
+    S.uploading = true;
+    let ok = 0, fail = 0, lastErr = "";
+    try {
+      const blobs = await Promise.all(files.map((f) => f.arrayBuffer().then((b) => new Blob([b], { type: f.type || "image/jpeg" })).catch(() => null)));
+      for (let i = 0; i < blobs.length; i++) {
+        toast(`사진 올리는 중 ${i + 1}/${blobs.length}`);
+        try {
+          if (!blobs[i]) throw new Error("사진을 열 수 없어요");
+          await send(blobs[i]);
+          ok++;
+        } catch (e) { fail++; lastErr = e.message; }
+      }
+    } finally { S.uploading = false; }
+    document.querySelectorAll('input[type="file"]').forEach((x) => { try { x.value = ""; } catch {} });
+    toast(fail ? `${ok}장 올렸고 ${fail}장은 실패했어요 (${lastErr})` : `사진 ${ok}장을 올렸어요`);
+    return ok;
+  }
   async function uploadPhotos(files) {
     const date = S.cal.sel;
     const btn = $(".photos .up");
     if (btn) btn.classList.add("busy");
-    let ok = 0;
-    for (let i = 0; i < files.length; i++) {
-      toast(`사진 올리는 중 ${i + 1}/${files.length}`);
-      try {
-        const p = await prepPhoto(files[i]);
-        await api("photos", { method: "POST", body: { date, ...p } });
-        ok++;
-      } catch (e) { toast(e.message); }
-    }
-    S.calData = null;
+    await uploadMany(files, async (b) => { const p = await prepPhoto(b); await api("photos", { method: "POST", body: { date, ...p } }); });
+    S.calData = null; S.album = null;
     await render(true);
-    if (ok) toast(`사진 ${ok}장을 올렸어요`);
   }
 
   // ---------- 라이트박스 ----------
@@ -1645,12 +1651,7 @@
     }
   }
   async function eatUpload(id, files) {
-    let ok = 0;
-    for (let i = 0; i < files.length; i++) {
-      toast(`사진 올리는 중 ${i + 1}/${files.length}`);
-      try { await api(`eats/${id}/img`, { method: "POST", body: { img: await prepPhoto(files[i]) } }); ok++; } catch (e) { toast(e.message); }
-    }
-    if (ok) toast(`사진 ${ok}장을 올렸어요`);
+    await uploadMany(files, async (b) => { await api(`eats/${id}/img`, { method: "POST", body: { img: await prepPhoto(b) } }); });
     E.more = null; await loadEats();
     if (S.eatCur === id) eatDetail(E.list.find((x) => x.id === id));
   }
@@ -4343,7 +4344,7 @@
 
   // 둘이 동시에 수정해도 바로바로 보이게: 열려 있는 탭을 조용히 다시 불러옴
   async function liveRefresh() {
-    if (document.hidden || !S.who || S.liveBusy) return;
+    if (document.hidden || !S.who || S.liveBusy || S.uploading) return;
     S.liveBusy = true; S.quiet = true;
     try { await liveRefresh2(); } finally { S.quiet = false; S.liveBusy = false; }
   }

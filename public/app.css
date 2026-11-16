@@ -1639,8 +1639,8 @@ button.tr-i b { text-decoration: underline; text-decoration-color: #D9D7DE; text
 /* 당겨서 새로고침 */
 .ptr { position: fixed; left: 50%; top: calc(var(--safe-t) + 62px); width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; z-index: 15; opacity: 0; transform: translate(-50%, -18px) scale(.6); pointer-events: none; }
 .ptr svg.i { width: 22px; height: 22px; color: #B9B6C0; stroke: currentColor; fill: none; transition: color .2s; transform-box: fill-box; transform-origin: center center; }
-.ptr.ready svg.i, .ptr.spin svg.i { color: var(--rose); }
-.ptr.spin svg.i { animation: ptrSpin .7s linear infinite; }
+.ptr.ready svg.i, .ptr.ptr-spin svg.i { color: var(--rose); }
+.ptr.ptr-spin svg.i { animation: ptrSpin .7s linear infinite; }
 @keyframes ptrSpin { to { transform: rotate(360deg); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* 오늘의 한 장: 사진 크기 통일 */

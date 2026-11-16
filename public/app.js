@@ -3408,7 +3408,7 @@
       const k = Math.min(1, y / TH);
       ind.style.opacity = String(Math.min(1, y / 30));
       ind.style.transform = `translate(-50%, ${Math.min(y, HOLD) / 2 - 18}px) scale(${0.6 + 0.4 * k})`;
-      if (!ind.classList.contains("spin")) ico.style.transform = `rotate(${y * 2.6}deg)`;
+      if (!ind.classList.contains("ptr-spin")) ico.style.transform = `rotate(${y * 2.6}deg)`;
       ind.classList.toggle("ready", y >= TH);
     };
     view.addEventListener("touchstart", (e) => {
@@ -3434,7 +3434,7 @@
       view.style.transition = "transform .45s cubic-bezier(.2,.9,.3,1)";
       ind.style.transition = "transform .45s cubic-bezier(.2,.9,.3,1), opacity .3s";
       place(0);
-      setTimeout(() => { view.style.transition = ""; view.style.transform = ""; ind.classList.remove("spin"); }, 460);
+      setTimeout(() => { view.style.transition = ""; view.style.transform = ""; ind.classList.remove("ptr-spin"); }, 460);
     };
     const end = async () => {
       if (!st) return;
@@ -3444,7 +3444,7 @@
         busy = true;
         view.style.transition = "transform .3s cubic-bezier(.2,.9,.3,1)";
         ind.style.transition = "transform .3s cubic-bezier(.2,.9,.3,1)";
-        place(HOLD); ico.style.transform = ""; ind.classList.add("spin");
+        place(HOLD); ico.style.transform = ""; ind.classList.add("ptr-spin");
         const t0 = Date.now();
         try { await render(true); } catch {}
         await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - t0))));

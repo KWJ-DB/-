@@ -821,7 +821,8 @@
           <button class="x" data-act="edit" data-k="event" data-e="${esc(JSON.stringify({ id: e.id, date: e.date || sel, time: e.time || "", title: e.title, memo: e.memo || "" }))}" aria-label="고치기">${ic("pen")}</button>
           <button class="x" data-act="evDel" data-id="${e.id}" aria-label="삭제">${ic("x")}</button></div>`).join("")}
         <div class="add-row">
-          <input type="time" id="evTime" aria-label="시간">
+          <label class="ev-tbtn${S.evTime ? " on" : ""}" aria-label="시간">${ic("clock")}<span>${S.evTime || "종일"}</span><input type="time" id="evTime" value="${S.evTime || ""}"></label>
+          ${S.evTime ? `<button class="ev-tclr" data-act="evTimeClr" aria-label="시간 빼기">${ic("x")}</button>` : ""}
           <input type="text" id="evTitle" placeholder="일정 추가" maxlength="60">
           <button class="btn primary" data-act="evAdd" aria-label="추가">${ic("plus")}</button>
         </div>
@@ -4092,10 +4093,11 @@
       const title = $("#evTitle").value.trim();
       if (!title) return toast("일정 내용을 적어주세요");
       try {
-        await api("events", { method: "POST", body: { date: S.cal.sel, time: $("#evTime").value || null, title } });
-        S.calData = null; await render(true); toast("일정을 추가했어요");
+        await api("events", { method: "POST", body: { date: S.cal.sel, time: S.evTime || null, title } });
+        S.evTime = ""; S.calData = null; await render(true); toast("일정을 추가했어요");
       } catch (e) { toast(e.message); }
     },
+    evTimeClr() { S.evTime = ""; render(true); },
     async evDel(el) {
       if (!confirm("이 일정을 지울까요?")) return;
       await api(`events/${el.dataset.id}`, { method: "DELETE" });
@@ -4268,6 +4270,8 @@
     const fn = ACT[el.dataset.act];
     if (fn) { e.preventDefault(); Promise.resolve(fn(el, e)).catch((err) => err.status !== 401 && toast(err.message)); }
   });
+  // 일정 시간: 고르면 표시, 비워두면 종일
+  document.addEventListener("change", (e) => { if (e.target.id === "evTime") { S.evTime = e.target.value || ""; const t = $("#evTitle") && $("#evTitle").value; render(true).then(() => { if (t && $("#evTitle")) $("#evTitle").value = t; }); } });
   document.addEventListener("change", (e) => {
     if (e.target.id === "phInput" && e.target.files.length) uploadPhotos([...e.target.files]);
     if (e.target.id === "alInput" && e.target.files.length) albumUpload([...e.target.files]);

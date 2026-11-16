@@ -193,14 +193,20 @@
     else view.innerHTML = "";
     render();
   }
+  // 자동 새로고침 때 새로 생긴 칸은 등장 애니메이션 없이 조용히
+  function qClone(n) {
+    const c = n.cloneNode(true);
+    if (S.quiet && c.nodeType === 1) c.setAttribute("data-q", "");
+    return c;
+  }
   // 화면을 통째로 갈아끼우지 않고 바뀐 곳만 고쳐서 들썩임·깜빡임 없게
   function morphNode(o, n) {
-    if (o.nodeType !== n.nodeType || o.nodeName !== n.nodeName) { o.replaceWith(n.cloneNode(true)); return; }
+    if (o.nodeType !== n.nodeType || o.nodeName !== n.nodeName) { o.replaceWith(qClone(n)); return; }
     if (o.nodeType === 3 || o.nodeType === 8) { if (o.data !== n.data) o.data = n.data; return; }
     if (o.nodeType !== 1) return;
     const focused = o === document.activeElement;
     if (o.classList.contains("maplibregl-map")) return;
-    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name) && a.name !== "data-l") o.removeAttribute(a.name);
+    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name) && a.name !== "data-l" && a.name !== "data-q") o.removeAttribute(a.name);
     for (const a of [...n.attributes]) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
     if (o.nodeName === "TEXTAREA" || o.nodeName === "INPUT" || o.nodeName === "SELECT") {
       if (!focused && o.nodeName === "TEXTAREA" && o.value !== n.value) { o.value = n.value; o.textContent = n.textContent; }
@@ -212,7 +218,7 @@
   function morphKids(op, np) {
     if (op.classList && op.classList.contains("maplibregl-map")) return;
     const on = [...op.childNodes], nn = [...np.childNodes];
-    nn.forEach((n, i) => { if (on[i]) morphNode(on[i], n); else op.appendChild(n.cloneNode(true)); });
+    nn.forEach((n, i) => { if (on[i]) morphNode(on[i], n); else op.appendChild(qClone(n)); });
     for (let i = nn.length; i < on.length; i++) on[i].remove();
   }
   const viewTpl = document.createElement("template");
@@ -235,7 +241,7 @@
     try {
       if (S.tab === "home") await renderHome();
       else if (S.tab === "question") { if (![...document.querySelectorAll("#view textarea")].some((t) => t.value.trim())) await renderQuestion(); }
-      else if (S.tab === "calendar") await (S.memView === "cal" ? renderCalendar() : renderAlbum());
+      else if (S.tab === "calendar") await (S.memView === "cal" ? renderCalendar() : renderAlbum("live"));
 
     } catch (e) {
       if (e.status !== 401) view.innerHTML = `<div class="card empty">불러오지 못했어요<br>${esc(e.message)}</div>`;
@@ -669,7 +675,15 @@
   // ---------- 추억: 공유 앨범 ----------
   const segHtml = () => `<div class="seg"><button class="${S.memView !== "cal" ? "on" : ""}" data-act="memView" data-v="album">${ic("image")}앨범</button><button class="${S.memView === "cal" ? "on" : ""}" data-act="memView" data-v="cal">${ic("cal")}캘린더</button></div>`;
   async function renderAlbum(more) {
-    if (!more || !S.album) { spinner(); const d = await api("album"); S.album = { photos: d.photos, total: d.total }; }
+    if (more === "live" && S.album) {
+      // 자동 새로고침: 첫 페이지만 받아서 바뀐 게 없으면 아무것도 안 함, 더 불러온 사진은 유지
+      const d = await api("album");
+      const cur = S.album.photos, ids = new Set(d.photos.map((p) => p.id));
+      const sig = (a) => a.map((p) => p.id + ":" + (p.caption || "") + ":" + p.date).join(",");
+      if (sig(d.photos) === sig(cur.slice(0, d.photos.length)) && d.total === S.album.total) return;
+      S.album = { photos: d.photos.concat(cur.slice(d.photos.length).filter((p) => !ids.has(p.id))), total: d.total };
+    }
+    else if (!more || !S.album) { spinner(); const d = await api("album"); S.album = { photos: d.photos, total: d.total }; }
     else { const d = await api(`album?offset=${S.album.photos.length}`); S.album.photos = S.album.photos.concat(d.photos); S.album.total = d.total; }
     if (S.tab !== "calendar" || S.memView === "cal") return;
     const ph = S.album.photos;
@@ -1254,6 +1268,8 @@
           ${!l.length ? `<div class="ecard-empty">${E.list.length ? TK().none : `${ic(E.kind === "place" ? "pin" : "bowl")}<b>${TK().empty}</b><span>가본 곳, 가보고 싶은 곳 모두 좋아요</span>`}</div>` : ""}
         </div>
       </div>`;
+    if (card._eh === html && card.querySelector(".eat2:not(.eat2-list)")) return bindEatCards();
+    card._eh = html;
     const keep = $("#eatCards") ? $("#eatCards").scrollLeft : 0;
     if (card.querySelector(".eat2")) { const t = document.createElement("template"); t.innerHTML = html.trim(); morphKids(card, t.content); }
     else { card.innerHTML = html; const c = $("#eatCards"); if (c) c.scrollLeft = keep; }
@@ -1336,6 +1352,8 @@
             ${avgRate(e) ? `<span class="eat-r">${ic("star")}${avgRate(e).toFixed(1)}</span>` : ""}
           </button>`).join("") : `<div class="empty" style="padding:22px 0">${E.q ? `"${esc(E.q)}" 찾는 결과가 없어요` : E.list.length ? TK().none : TK().empty}</div>`}</div>
       </div>`;
+    if (card._eh === html && card.querySelector(".eat2-list")) return;
+    card._eh = html;
     if (card.querySelector(".eat2-list")) { const t = document.createElement("template"); t.innerHTML = html.trim(); morphKids(card, t.content); }
     else card.innerHTML = html;
   }
@@ -2026,7 +2044,8 @@
   function drawPin() {
     const p = S.chat && S.chat.pin, el = $("#dmPin");
     if (!p) { el.hidden = true; return; }
-    el.innerHTML = `${ic("pinned")}<span><b>고정된 메시지</b>${esc(p.text || "사진")}</span>`;
+    const h = `${ic("pinned")}<span><b>고정된 메시지</b>${esc(p.text || "사진")}</span>`;
+    if (el._h !== h) { el.innerHTML = h; el._h = h; }
     el.dataset.id = p.id; el.hidden = false;
   }
   function bubbleInner(m, ms) {
@@ -2733,7 +2752,10 @@
     if (refresher) S.sheetRefresh = refresher;
     const sh = $("#sheet"), was = !sh.hidden && !sh.classList.contains("closing");
     sh.classList.remove("closing");
-    b.innerHTML = html;
+    if (S.silentSheet) {
+      // 자동 새로고침: 통째로 갈지 않고 바뀐 곳만 (애니메이션 다시 안 나오게)
+      if (S.sheetHtml !== html) { S.sheetHtml = html; const t = document.createElement("template"); t.innerHTML = html; S.quiet = true; try { morphKids(b, t.content); } finally { S.quiet = false; } }
+    } else { S.sheetHtml = html; b.innerHTML = html; }
     sh.hidden = false;
     if (S.silentSheet) { b.scrollTop = sc; return; }            // 조용히 새로고침: 스크롤 유지, 애니메이션 없음
     // 이미 열려 있으면 내용만 부드럽게 바꿈
@@ -4233,7 +4255,11 @@
 
   // 둘이 동시에 수정해도 바로바로 보이게: 열려 있는 탭을 조용히 다시 불러옴
   async function liveRefresh() {
-    if (document.hidden || !S.who) return;
+    if (document.hidden || !S.who || S.liveBusy) return;
+    S.liveBusy = true; S.quiet = true;
+    try { await liveRefresh2(); } finally { S.quiet = false; S.liveBusy = false; }
+  }
+  async function liveRefresh2() {
     if ($("#view").style.transform) return;               // 당겨서 새로고침 중이면 건너뜀
     // 열려 있는 창(버킷리스트·장소·쿠폰 등)도 새로고침 — 단, 입력 중인 칸은 건드리지 않음
     if (!$("#sheet").hidden) {

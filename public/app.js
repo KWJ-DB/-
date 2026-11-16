@@ -1528,13 +1528,15 @@
     openSheet(`
       <h2>${ic("camera")}인스타 자동 게시</h2>
       <p class="sheet-sub">우주에 사진을 올릴 때 인스타 게시물로도 같이 올릴 수 있어요. 매번 올릴지 물어보고, 고른 사진만 올라가요.</p>
-      <ol class="nv-steps">
-        <li>인스타 앱 설정에서 <b>계정 유형 및 도구</b> → <b>프로페셔널 계정으로 전환</b> (크리에이터 추천, 무료)</li>
-        <li><a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">Meta 개발자</a>에 로그인해서 <b>앱 만들기</b> → 사용 사례에서 <b>Instagram에서 메시지와 콘텐츠 관리</b>를 골라요. 앱 이름은 아무거나 (예: 우주)</li>
-        <li>앱 화면 왼쪽 <b>Instagram</b> → <b>Instagram 로그인을 통한 API 설정</b>으로 가요</li>
-        <li><b>액세스 토큰 생성</b>에서 <b>계정 추가</b>를 눌러 내 인스타로 로그인하고, 옆의 <b>토큰 생성</b>을 눌러요</li>
-        <li>나온 긴 토큰을 복사해서 아래에 붙여넣어요</li>
+      <ol class="nv-steps ig-steps">
+        <li><b>인스타를 프로페셔널 계정으로</b><br>인스타 앱 → 프로필 → 오른쪽 위 메뉴 → <b>설정 및 활동</b> → <b>계정 유형 및 도구</b> → <b>프로페셔널 계정으로 전환</b> → <b>크리에이터</b>. 무료예요. 계정이 <b>공개</b>여야 토큰이 나와요.</li>
+        <li><b>Meta 개발자 가입</b><br><a href="https://developers.facebook.com/" target="_blank" rel="noopener">developers.facebook.com</a>에서 페이스북으로 로그인 → <b>시작하기</b>. 휴대폰 인증까지 마쳐요.</li>
+        <li><b>앱 만들기</b><br><a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">내 앱</a> → <b>앱 만들기</b> → 앱 이름(예: 우주)과 이메일 → 사용 사례에서 <b>Instagram에서 메시지 및 콘텐츠 관리</b>(Manage messaging &amp; content on Instagram) 선택 → 비즈니스 포트폴리오는 <b>아직 연결 안 함</b> → 만들기.</li>
+        <li><b>내 인스타를 테스터로 추가</b><br>왼쪽 <b>앱 역할</b> → <b>역할</b> → <b>사람 추가</b> → <b>Instagram 테스터</b> → 내 인스타 아이디 입력.<br>그다음 컴퓨터나 폰 브라우저로 <a href="https://www.instagram.com/accounts/manage_access/" target="_blank" rel="noopener">instagram.com 앱 및 웹사이트</a> → <b>테스터 초대</b>에서 <b>수락</b>.</li>
+        <li><b>토큰 만들기</b><br>왼쪽 <b>사용 사례</b> → 인스타 항목의 <b>맞춤 설정</b> → <b>Instagram 로그인을 통한 API 설정</b> (화면에 따라 <b>통합 로그인을 통한 API 설정</b>) → <b>1. 액세스 토큰 생성</b> → <b>계정 추가</b> → 인스타 로그인하고 허용 → 계정 옆 <b>토큰 생성</b> → 안내 체크 → 토큰 <b>복사</b>. 한 번만 보여주니까 바로 복사해요.</li>
+        <li><b>우주에 붙여넣기</b><br>아래 칸에 붙여넣고 연결하기. 앱은 <b>개발 모드</b> 그대로 둬도 내 계정엔 올라가요.</li>
       </ol>
+      <p class="sheet-sub" style="margin-top:8px">안 될 때: 계정이 비공개면 공개로, 테스터 초대를 수락했는지, 권한 목록에 <b>instagram_business_content_publish</b>가 있는지 확인해요.</p>
       <input type="text" id="igTok" placeholder="액세스 토큰 (IGAA로 시작)" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:12px">
       <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="close">나중에</button><button class="btn primary" data-act="igSave">연결하기</button></div>`);
   }

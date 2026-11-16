@@ -1897,3 +1897,13 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 .eat-list { contain: content; }
 [data-q], [data-q] * { animation: none !important; }
 .tr-i b small { display: block; font-size: 12px; font-weight: 500; color: var(--sub, #8a7f88); margin-top: 1px; }
+
+/* 수정하기 시트 */
+.ed { display: flex; flex-direction: column; gap: 12px; margin: 12px 0 16px; }
+.ed-f { display: flex; flex-direction: column; gap: 6px; }
+.ed-f > span { font-size: 13px; font-weight: 600; color: var(--sub, #8a7f88); }
+.ed-f input, .ed-f textarea { width: 100%; font-size: 16px; }
+.ed-f textarea { resize: none; line-height: 1.5; }
+.ed-ck { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 500; }
+.ed-ck input { width: 20px; height: 20px; accent-color: var(--accent, #E5406A); }
+.letter .lt-ed { right: 44px; }

@@ -251,6 +251,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST letters": {
         const b = await body(request);
+        if (id && p2 === "edit") {
+          const text = str(b.body, 3000);
+          if (!text) return err(400, "편지 내용을 적어주세요");
+          const r = await DB.prepare("UPDATE letters SET body = ?1, open_date = ?2 WHERE id = ?3 AND from_who = ?4").bind(text, isDate(b.open_date) ? b.open_date : todayKST(), id, who).run();
+          if (!r.meta?.changes) return err(403, "내가 쓴 편지만 고칠 수 있어요");
+          return json(OK);
+        }
         if (id && p2 === "read") {
           await DB.prepare("UPDATE letters SET read = 1 WHERE id = ?1 AND from_who != ?2").bind(id, who).run();
           return json(OK);
@@ -311,6 +318,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST coupons": {
         const b = await body(request);
+        if (id && p2 === "edit") {
+          const title = str(b.title, 30);
+          if (!title) return err(400, "쿠폰 이름을 적어주세요");
+          const r = await DB.prepare("UPDATE coupons SET title = ?1 WHERE id = ?2 AND from_who = ?3 AND used = 0").bind(title, id, who).run();
+          if (!r.meta?.changes) return err(403, "내가 준, 안 쓴 쿠폰만 고칠 수 있어요");
+          return json(OK);
+        }
         if (id && p2 === "use") {
           const c = await DB.prepare("SELECT from_who, title, used FROM coupons WHERE id = ?1").bind(id).first();
           if (!c || c.from_who === who) return err(400, "받은 쿠폰만 쓸 수 있어요");
@@ -697,6 +711,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       case "POST events": {
         const b = await body(request);
+        if (id && p2 === "edit") {
+          const title = str(b.title, 60);
+          if (!isDate(b.date) || !title) return err(400, "날짜와 내용을 입력하세요");
+          await DB.prepare("UPDATE events SET date = ?1, time = ?2, title = ?3, memo = ?4 WHERE id = ?5").bind(b.date, isTime(b.time) ? b.time : null, title, str(b.memo, 300) || null, id).run();
+          return json(OK);
+        }
         const title = str(b.title, 60);
         if (!isDate(b.date) || !title) return err(400, "날짜와 내용을 입력하세요");
         const r = await DB.prepare("INSERT INTO events (date, time, title, memo, who, t) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
@@ -714,6 +734,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST anniv": {
         const b = await body(request);
+        if (id && p2 === "edit") {
+          const title = str(b.title, 30);
+          if (!isDate(b.date) || !title) return err(400, "날짜와 이름을 입력하세요");
+          await DB.prepare("UPDATE anniv SET title = ?1, date = ?2, yearly = ?3 WHERE id = ?4").bind(title, b.date, b.yearly ? 1 : 0, id).run();
+          return json(OK);
+        }
         const title = str(b.title, 30);
         if (!isDate(b.date) || !title) return err(400, "날짜와 이름을 입력하세요");
         await DB.prepare("INSERT INTO anniv (title, date, yearly, who, t) VALUES (?1, ?2, ?3, ?4, ?5)")
@@ -738,6 +764,11 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST photos": {
         const b = await body(request);
+        if (id && p2 === "edit") {
+          if (!isDate(b.date)) return err(400, "날짜가 올바르지 않아요");
+          await DB.prepare("UPDATE photos SET caption = ?1, date = ?2 WHERE id = ?3").bind(str(b.caption, 100) || null, b.date, id).run();
+          return json(OK);
+        }
         if (!isDate(b.date)) return err(400, "날짜가 올바르지 않아요");
         const data = typeof b.data === "string" ? b.data : "";
         const thumb = typeof b.thumb === "string" ? b.thumb : "";
@@ -1066,6 +1097,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST notes": {
         const b = await body(request);
+        if (id && p2 === "edit") {
+          const text = str(b.text, 100);
+          if (!text) return err(400, "내용을 입력하세요");
+          await DB.prepare("UPDATE notes SET text = ?1, cat = ?2 WHERE id = ?3").bind(text, str(b.cat, 20) || null, id).run();
+          return json(OK);
+        }
         const about = ["a", "b"].includes(b.about) ? b.about : null;
         const text = str(b.text, 100), cat = str(b.cat, 20);
         if (!about || !text) return err(400, "내용을 입력하세요");
@@ -1154,6 +1191,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       case "POST bucket": {
         const b = await body(request);
+        if (id && p2 === "edit") {
+          const title = str(b.title, 80);
+          if (!title) return err(400, "내용을 입력하세요");
+          await DB.prepare("UPDATE bucket SET title = ?1, done_date = CASE WHEN done = 1 AND ?2 IS NOT NULL THEN ?2 ELSE done_date END WHERE id = ?3").bind(title, isDate(b.date) ? b.date : null, id).run();
+          return json(OK);
+        }
         if (id) {
           const done = b.done ? 1 : 0;
           await DB.prepare("UPDATE bucket SET done = ?1, done_date = ?2 WHERE id = ?3")

@@ -349,7 +349,7 @@
     sheetOpen(sx, `
       <h2>${ic("star")}서로 알아두기</h2>
       <div class="seg" style="margin-top:8px">${["a", "b"].map((w) => `<button class="${w === about ? "on" : ""}" data-act="notesAbout" data-w="${w}">${esc(nm(w))}</button>`).join("")}</div>
-      ${groups.map(([c, l]) => `<div class="sec-t"><span>${c}</span></div>${l.map((n) => `<div class="ev"><span class="tt">${esc(n.text)}</span><button class="x" data-act="noteDel" data-id="${n.id}" aria-label="삭제">${ic("x")}</button></div>`).join("")}`).join("")
+      ${groups.map(([c, l]) => `<div class="sec-t"><span>${c}</span></div>${l.map((n) => `<div class="ev"><span class="tt">${esc(n.text)}</span><button class="x" data-act="edit" data-k="note" data-e="${esc(JSON.stringify({ id: n.id, text: n.text, cat: n.cat || "기억할 것" }))}" aria-label="고치기">${ic("pen")}</button><button class="x" data-act="noteDel" data-id="${n.id}" aria-label="삭제">${ic("x")}</button></div>`).join("")}`).join("")
         || `<div class="empty">${esc(nm(about))}님에 대해 기억하고 싶은 걸 적어보세요<br>예: 민트초코 싫어함, 신발 240</div>`}
       <div class="note-add">
         <div class="chips">${NOTE_CATS.map((c, i) => `<button class="chip-sel${i === 0 ? " on" : ""}" data-act="noteCat" data-c="${c}">${c}</button>`).join("")}</div>
@@ -448,6 +448,7 @@
         <div class="coupon ${c.used ? "used" : ""}">
           <div class="cp-l"><b>${esc(c.title)}</b><span>${c.used ? `${new Date(c.used_t).getMonth() + 1}월 ${new Date(c.used_t).getDate()}일에 씀` : tab === "got" ? `${esc(nm(c.from_who))}님이 줬어요` : "아직 안 썼어요"}</span></div>
           ${tab === "got" && !c.used ? `<button class="btn primary sm" data-act="couponUse" data-id="${c.id}">쓰기</button>` : ""}
+          ${tab === "gave" && !c.used ? `<button class="x" data-act="edit" data-k="coupon" data-e="${esc(JSON.stringify({ id: c.id, title: c.title }))}" aria-label="고치기">${ic("pen")}</button>` : ""}
           ${tab === "gave" && !c.used ? `<button class="x" data-act="couponDel" data-id="${c.id}" aria-label="삭제">${ic("x")}</button>` : ""}
         </div>`).join("") || `<div class="empty">${tab === "got" ? "아직 받은 쿠폰이 없어요" : "쿠폰을 만들어서 선물해 보세요"}</div>`}
       <div class="note-add">
@@ -498,6 +499,41 @@
       <div class="row2"><button class="btn gray" data-act="meetClear">지우기</button><button class="btn primary" data-act="meetSave">저장</button></div>`);
   }
 
+  // ---------- 수정하기 ----------
+  function editOpen(k, e) {
+    const reCal = async () => { S.calData = null; closeSheet(); await render(true); };
+    const C = {
+      bucket: { title: "버킷 고치기", url: `bucket/${e.id}/edit`, back: bucketSheet, after: bucketSheet,
+        fields: [{ k: "title", label: "내용", val: e.title, req: 1, max: 80 }].concat(e.done ? [{ k: "date", label: "이룬 날", type: "date", val: e.date }] : []) },
+      event: { title: "일정 고치기", url: `events/${e.id}/edit`, after: reCal,
+        fields: [{ k: "title", label: "내용", val: e.title, req: 1, max: 60 }, { k: "date", label: "날짜", type: "date", val: e.date, req: 1 }, { k: "time", label: "시간 (비우면 종일)", type: "time", val: e.time }, { k: "memo", label: "메모", type: "area", val: e.memo, max: 300 }] },
+      anniv: (() => { const a = (S.anniv || []).find((x) => x.id === e.id) || {}; return { title: "기념일 고치기", url: `anniv/${e.id}/edit`,
+        after: async () => { await loadAnniv(); closeSheet(); render(true); },
+        fields: [{ k: "title", label: "이름", val: a.title, req: 1, max: 30 }, { k: "date", label: "날짜", type: "date", val: a.date, req: 1 }, { k: "yearly", label: "매년 반복", type: "check", val: !!a.yearly }] }; })(),
+      coupon: { title: "쿠폰 고치기", url: `coupons/${e.id}/edit`, back: () => couponSheet("gave"), after: () => couponSheet("gave"),
+        fields: [{ k: "title", label: "쿠폰 이름", val: e.title, req: 1, max: 30 }] },
+      note: { title: "알아두기 고치기", url: `notes/${e.id}/edit`, back: () => notesSheet(S.notesAbout), after: () => notesSheet(S.notesAbout),
+        fields: [{ k: "cat", label: "분류", type: "chips", opts: NOTE_CATS, val: e.cat }, { k: "text", label: "내용", val: e.text, req: 1, max: 100 }] },
+      letter: { title: "편지 고치기", url: `letters/${e.id}/edit`, back: lettersSheet, after: lettersSheet,
+        fields: [{ k: "body", label: "내용", type: "area", val: e.body, req: 1, max: 3000, big: 1 }, { k: "open_date", label: "열리는 날", type: "date", val: e.open_date, req: 1 }] },
+      photo: { title: "사진 고치기", url: `photos/${e.id}/edit`, after: async () => { closeSheet(); S.calData = null; S.album = null; await render(true); },
+        fields: [{ k: "caption", label: "한마디", val: e.caption, max: 100 }, { k: "date", label: "날짜", type: "date", val: e.date, req: 1 }] },
+    }[k];
+    if (!C) return;
+    S.ed = C;
+    const fld = (f) => {
+      const v = f.val ?? "";
+      if (f.type === "check") return `<label class="ed-ck"><input type="checkbox" id="ed_${f.k}" ${v ? "checked" : ""}><span>${f.label}</span></label>`;
+      if (f.type === "chips") return `<div class="ed-f"><span>${f.label}</span><input type="hidden" id="ed_${f.k}" value="${esc(v)}"><div class="chips">${f.opts.map((o) => `<button class="chip-sel${o === v ? " on" : ""}" data-act="edChip" data-k="${f.k}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>`;
+      if (f.type === "area") return `<label class="ed-f"><span>${f.label}</span><textarea id="ed_${f.k}" maxlength="${f.max || 300}" rows="${f.big ? 8 : 3}">${esc(v)}</textarea></label>`;
+      return `<label class="ed-f"><span>${f.label}</span><input type="${f.type || "text"}" id="ed_${f.k}" value="${esc(v)}" ${f.max ? `maxlength="${f.max}"` : ""}></label>`;
+    };
+    openSheet(`
+      <h2>${ic("pen")}${C.title}</h2>
+      <div class="ed">${C.fields.map(fld).join("")}</div>
+      <div class="row2"><button class="btn gray" data-act="edBack">취소</button><button class="btn primary" data-act="edSave">저장</button></div>`);
+  }
+
   // ---------- 편지 ----------
   async function lettersSheet() {
     const t = today();
@@ -510,6 +546,7 @@
         <div class="letter ${l.mine ? "mine" : ""} ${l.open ? "" : "lt-wait"}">
           <div class="lh">${l.mine ? `내가 보낸 편지` : `${esc(nm(l.from))}님의 편지`}<span>${l.open ? fmtK(l.open_date) : `${fmtK(l.open_date)}에 열려요`}</span></div>
           ${l.body !== null ? `<div class="lb">${esc(l.body)}</div>` : `<div class="lb lock">${ic("lock")}아직 열 수 없어요 · ${dlabel(diff(t, l.open_date))}</div>`}
+          ${l.mine && l.body !== null ? `<button class="x lt-ed" data-act="edit" data-k="letter" data-e="${esc(JSON.stringify({ id: l.id, body: l.body, open_date: l.open_date }))}" aria-label="고치기">${ic("pen")}</button>` : ""}
           ${l.mine ? `<button class="x" data-act="letterDel" data-id="${l.id}" aria-label="삭제">${ic("trash")}</button>` : ""}
         </div>`).join("") || `<div class="empty">아직 편지가 없어요</div>`}`);
     for (const l of letters) if (!l.mine && l.open && !l.read) api(`letters/${l.id}/read`, { method: "POST", body: {} }).catch(() => {});
@@ -532,6 +569,7 @@
           <div class="ic">${ic(a.kind === "custom" ? "star" : "gift")}</div>
           <div class="t"><b>${esc(a.title)}</b><span>${fmtK(a.date)}${a.date.slice(0, 4) !== t.slice(0, 4) ? " · " + a.date.slice(0, 4) : ""}</span></div>
           <div class="d">${dlabel(diff(t, a.date))}</div>
+          ${a.kind === "custom" ? `<button class="x" data-act="edit" data-k="anniv" data-e="${esc(JSON.stringify({ id: a.id }))}" aria-label="고치기">${ic("pen")}</button>` : ""}
           ${a.kind === "custom" ? `<button class="x" data-act="annivDel" data-id="${a.id}" aria-label="삭제">${ic("x")}</button>` : ""}
         </div>`).join("")}
       <div class="row2"><button class="btn gray" data-act="close">닫기</button><button class="btn primary" data-act="annivAdd" data-date="${t}">${ic("plus")}기념일 추가</button></div>`);
@@ -778,12 +816,13 @@
           <div><h3>${fmtK(sel)}</h3><div class="sub">${dp > 0 ? `우리가 함께한 지 ${dp}일째` : `${sel.slice(0, 4)}년`}</div></div>
           <button class="btn soft sm" data-act="annivAdd" data-date="${sel}">${ic("heart")}기념일로</button>
         </div>
-        ${sAn.length ? `<div class="chips">${sAn.map((a) => `<span class="chip">${ic("heart")}${esc(a.title)}${a.kind === "custom" ? `<button class="del" data-act="annivDel" data-id="${a.id}" aria-label="삭제">${ic("x")}</button>` : ""}</span>`).join("")}</div>` : ""}
+        ${sAn.length ? `<div class="chips">${sAn.map((a) => `<span class="chip">${ic("heart")}${esc(a.title)}${a.kind === "custom" ? `<button class="del" data-act="edit" data-k="anniv" data-e="${esc(JSON.stringify({ id: a.id }))}" aria-label="고치기">${ic("pen")}</button><button class="del" data-act="annivDel" data-id="${a.id}" aria-label="삭제">${ic("x")}</button>` : ""}</span>`).join("")}</div>` : ""}
 
         <div class="sec-t"><span>일정</span></div>
         ${sEv.map((e) => `
           <div class="ev"><span class="bar ${e.who}"></span><span class="tm">${e.time || "종일"}</span><span class="tt">${esc(e.title)}</span>
           <button class="x" data-act="evShare" data-id="${e.id}" aria-label="디엠으로 보내기">${ic("send")}</button>
+          <button class="x" data-act="edit" data-k="event" data-e="${esc(JSON.stringify({ id: e.id, date: e.date || sel, time: e.time || "", title: e.title, memo: e.memo || "" }))}" aria-label="고치기">${ic("pen")}</button>
           <button class="x" data-act="evDel" data-id="${e.id}" aria-label="삭제">${ic("x")}</button></div>`).join("")}
         <div class="add-row">
           <input type="time" id="evTime" aria-label="시간">
@@ -856,7 +895,7 @@
       <div class="lb-top">
         <button class="icon-btn" data-act="lbClose" aria-label="닫기">${ic("x")}</button>
         <span style="font-size:14px;font-weight:600">${S.lbIdx + 1} / ${S.lbList.length}</span>
-        <span class="lb-acts"><button class="icon-btn" data-act="lbSave" aria-label="저장">${ic("download")}</button>${p.chat ? "" : `<button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>`}</span>
+        <span class="lb-acts"><button class="icon-btn" data-act="lbSave" aria-label="저장">${ic("download")}</button>${p.chat ? "" : `<button class="icon-btn" data-act="lbEdit" aria-label="고치기">${ic("pen")}</button><button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>`}</span>
       </div>
       <div class="lb-img">
         <img src="${p.src || `/api/photo/${p.id}`}" alt="">
@@ -885,6 +924,7 @@
         <div class="bk ${b.done ? "done" : ""}">
           <button class="ck" data-act="bkToggle" data-id="${b.id}" data-done="${b.done}" aria-label="완료">${ic("check")}</button>
           <div class="tt"><b>${esc(b.title)}</b><span>${b.done && b.done_date ? fmtDot(b.done_date) + " 이룸" : esc(nm(b.who)) + "의 소원"}</span></div>
+          <button class="x" data-act="edit" data-k="bucket" data-e="${esc(JSON.stringify({ id: b.id, title: b.title, done: b.done, date: b.done_date || "" }))}" aria-label="고치기">${ic("pen")}</button>
           <button class="x" data-act="bkDel" data-id="${b.id}" aria-label="삭제">${ic("x")}</button>
         </div>`).join("") || `<div class="empty">첫 번째 버킷을 적어보세요</div>`}`);
   }
@@ -4042,6 +4082,27 @@
         drawLightbox();
         S.calData = null; S.album = null; render(true);
       } catch (e) { toast(e.message); }
+    },
+
+    // 수정하기 (버킷·일정·기념일·쿠폰·알아두기·편지·사진)
+    edit(el) { editOpen(el.dataset.k, JSON.parse(el.dataset.e)); },
+    edChip(el) { $("#ed_" + el.dataset.k).value = el.dataset.v; el.parentNode.querySelectorAll(".chip-sel").forEach((c) => c.classList.toggle("on", c === el)); },
+    edBack() { const c = S.ed; S.ed = null; if (c && c.back) c.back(); else closeSheet(); },
+    async edSave() {
+      const c = S.ed; if (!c) return;
+      const v = {};
+      for (const f of c.fields) { const e = $("#ed_" + f.k); v[f.k] = f.type === "check" ? e.checked : e.value.trim(); }
+      for (const f of c.fields) if (f.req && !v[f.k]) return toast(`${f.label}을(를) 적어주세요`);
+      try {
+        await api(c.url, { method: "POST", body: v });
+        S.ed = null; toast("고쳤어요");
+        await c.after();
+      } catch (e) { toast(e.message); }
+    },
+    lbEdit() {
+      const p = S.lbList[S.lbIdx]; if (!p) return;
+      $("#lightbox").hidden = true;
+      editOpen("photo", { id: p.id, caption: p.caption || "", date: p.date });
     },
 
     // 버킷

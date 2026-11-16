@@ -2956,7 +2956,6 @@
         K.camOff = false;
         if (K.local) K.local.getVideoTracks().forEach((t) => (t.enabled = true));
         $("#call").classList.remove("cam-off"); sendState(); setCall(K.state);
-        toast(`${esc(nm(other()))}님이 영상을 켰어요`);
       }
       sendDC({ t: "camres", ok: true });
       return;

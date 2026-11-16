@@ -2783,10 +2783,24 @@
   // ---------- 알림 ----------
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
   const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  // 앱을 열거나 다시 보면 알림 센터에 쌓인 우주 알림과 아이콘 숫자 지우기
+  async function clearNotis() {
+    try { if (navigator.clearAppBadge) navigator.clearAppBadge(); } catch {}
+    try {
+      const r = S.swReg || (navigator.serviceWorker && await navigator.serviceWorker.getRegistration());
+      if (!r) return;
+      const ns = await r.getNotifications();
+      ns.forEach((n) => { if (n.tag !== "call") n.close(); });
+      if (r.active) r.active.postMessage({ type: "clearNotis" });
+    } catch {}
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) clearNotis(); });
+  window.addEventListener("focus", clearNotis);
   async function registerSW() {
     if (!("serviceWorker" in navigator)) return;
     try {
       S.swReg = await navigator.serviceWorker.register("/sw.js");
+      clearNotis();
       navigator.serviceWorker.addEventListener("message", (e) => {
         if (!e.data) return;
         if (e.data.type === "call") { setTab("chat"); if (window.checkIncomingNow) checkIncomingNow(); return; }

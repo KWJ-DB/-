@@ -1820,43 +1820,57 @@
   }
   // 경로 다듬기: 오차 큰 점·튀는 점 버리고, 한곳에 머문 구간은 한 점으로 묶고, 이동 구간은 살짝 매끄럽게
   function cleanTrail(raw) {
-    let p = raw.filter((x) => x.acc == null || x.acc <= 80);
+    let p = raw.filter((x) => x.acc == null || x.acc <= 80).map((x) => ({ ...x }));
+    // 등록한 장소(집·학교 등) 안에서 흔들린 점은 그 장소 한가운데로 모음 (실내 GPS 튐 방지)
+    for (const x of p) {
+      let best = null, bd = Infinity;
+      for (const pl of S.places || []) { const d = distM(x, pl); if (d <= (pl.radius || 80) + Math.min(Math.max(40, x.acc || 0), 80) && d < bd) { bd = d; best = pl; } }
+      if (best) { x.lat = best.lat; x.lon = best.lon; x.pl = best.name; }
+    }
     // 앞뒤는 가까운데 혼자 멀리 튄 점 제거
-    for (let pass = 0; pass < 2; pass++) {
+    for (let pass = 0; pass < 3; pass++) {
       p = p.filter((x, i) => {
         const a = p[i - 1], b = p[i + 1];
         if (!a || !b) return true;
         const da = distM(a, x), db = distM(x, b), ab = distM(a, b);
-        return !(da > 120 && db > 120 && ab < Math.min(da, db) * 0.5);
+        return !(da > 80 && db > 80 && ab < Math.min(da, db) * 0.5);
       });
     }
-    // 머문 곳 찾기: 반경 60m 안에 5분 넘게 있으면 한 곳
+    // 머문 곳 찾기: 정확도에 맞춘 반경 안에 5분 넘게 있으면 한 곳
     const stays = [], seg = [];
     let i = 0;
     while (i < p.length) {
       let j = i, cLat = p[i].lat, cLon = p[i].lon, n = 1;
-      while (j + 1 < p.length && distM({ lat: cLat, lon: cLon }, p[j + 1]) < 60) {
-        j++; n++; cLat += (p[j].lat - cLat) / n; cLon += (p[j].lon - cLon) / n;
+      while (j + 1 < p.length) {
+        const q = p[j + 1], rad = Math.min(120, Math.max(60, (q.acc || 0) * 1.2));
+        if (!(q.pl && q.pl === p[i].pl) && distM({ lat: cLat, lon: cLon }, q) >= rad) break;
+        j++; n++; cLat += (q.lat - cLat) / n; cLon += (q.lon - cLon) / n;
       }
       if (j > i && p[j].t - p[i].t >= 5 * 60000) {
-        const st = { lat: cLat, lon: cLon, t0: p[i].t, t1: p[j].t, stay: true };
+        const st = { lat: p[i].pl ? p[i].lat : cLat, lon: p[i].pl ? p[i].lon : cLon, t0: p[i].t, t1: p[j].t, stay: true, pl: p[i].pl };
         stays.push(st); seg.push(st); i = j + 1;
       } else { seg.push(p[i]); i++; }
     }
-    // 가까이 붙어 있는 머문 곳은 하나로 합침 (사이에 흔들린 점 몇 개가 끼어 있어도)
+    // 가까운 머문 곳 둘 사이에 잠깐 흔들린 점만 있으면 하나로 합침
     for (let k = 0; k < seg.length; k++) {
       const A = seg[k];
       if (!A.stay) continue;
       let j = k + 1;
-      while (j < seg.length && !seg[j].stay && distM(A, seg[j]) < 120) j++;
+      while (j < seg.length && !seg[j].stay && distM(A, seg[j]) < 300) j++;
       const B = seg[j];
-      if (B && B.stay && distM(A, B) < 100 && B.t0 - A.t1 < 10 * 60000) {
+      if (B && B.stay && distM(A, B) < 150 && B.t0 - A.t1 < 45 * 60000) {
         const wa = A.t1 - A.t0 + 1, wb = B.t1 - B.t0 + 1;
-        A.lat = (A.lat * wa + B.lat * wb) / (wa + wb); A.lon = (A.lon * wa + B.lon * wb) / (wa + wb); A.t1 = B.t1;
+        if (!A.pl) { A.lat = (A.lat * wa + B.lat * wb) / (wa + wb); A.lon = (A.lon * wa + B.lon * wb) / (wa + wb); }
+        A.t1 = B.t1; A.pl = A.pl || B.pl;
         stays.splice(stays.indexOf(B), 1);
         seg.splice(k + 1, j - k);
         k--;
       }
+    }
+    // 하루 시작 부분에 첫 머문 곳 주변에서 흔들린 점은 그 머문 곳으로 흡수
+    const fs = seg.findIndex((x) => x.stay);
+    if (fs > 0 && seg.slice(0, fs).every((x) => distM(x, seg[fs]) < 250) && seg[fs].t0 - seg[0].t < 20 * 60000) {
+      seg[fs].t0 = seg[0].t; seg.splice(0, fs);
     }
     // 이동 구간 매끄럽게 (머문 곳은 그대로)
     const path = seg.map((x, k) => {
@@ -1865,13 +1879,18 @@
       if (!a || !b || a.stay || b.stay) return x;
       return { ...x, lat: (a.lat + 2 * x.lat + b.lat) / 4, lon: (a.lon + 2 * x.lon + b.lon) / 4 };
     });
-    let dist = 0;
-    for (let k = 1; k < path.length; k++) dist += distM(path[k - 1], path[k]);
+    // 거리: 오차보다 작은 흔들림은 빼고 셈
+    let dist = 0, last = path[0];
+    for (let k = 1; k < path.length; k++) {
+      const d = distM(last, path[k]);
+      if (d >= Math.max(25, ((last.acc || 15) + (path[k].acc || 15)) / 2)) { dist += d; last = path[k]; }
+    }
     return { path, stays, dist };
   }
   // 머문 곳 이름: 등록한 장소나 맛집 근처면 그 이름
   function stayName(st) {
     let best = null, bd = Infinity;
+    if (st.pl) return st.pl;
     for (const pl of S.places || []) { const d = distM(st, pl); if (d < Math.max(80, pl.radius || 0) && d < bd) { bd = d; best = pl.name; } }
     for (const e of E.list || []) { const d = distM(st, e); if (d < 60 && d < bd) { bd = d; best = e.name; } }
     return best;
@@ -1911,13 +1930,22 @@
       const tl = [];
       const cl = t.clean || { stays: [] };
       if (r.points.length) tl.push({ t: r.points[0].t, txt: "기록 시작" });
-      r.events.forEach((e) => tl.push({ t: e.t, txt: `${e.place} ${e.inside ? "도착" : "떠남"}`, ev: e.inside ? "in" : "out" }));
-      cl.stays.forEach((st) => tl.push({ t: st.t0, txt: `${stayName(st) || "한곳"}에 ${durTxt(st.t1 - st.t0)} 머묾`, ev: "stay", lat: st.lat, lon: st.lon }));
+      // 머문 동안 같은 장소에서 생긴 도착/떠남은 GPS 흔들림이라 숨김, 머문 곳은 도착~떠남으로 한 줄
+      const names = cl.stays.map((st) => stayName(st));
+      r.events.forEach((e) => {
+        const dup = cl.stays.some((st, k) => names[k] === e.place && e.t >= st.t0 - 15 * 60000 && e.t <= st.t1 + 15 * 60000);
+        if (!dup) tl.push({ t: e.t, txt: `${e.place} ${e.inside ? "도착" : "떠남"}`, ev: e.inside ? "in" : "out" });
+      });
+      const lastT = r.points.length ? r.points[r.points.length - 1].t : 0;
+      cl.stays.forEach((st, k) => {
+        const now = t.day === 0 && lastT - st.t1 < 10 * 60000;
+        tl.push({ t: st.t0, txt: `${names[k] || "한곳"}에 ${durTxt(st.t1 - st.t0)} ${now ? "있는 중" : "머묾"}`, sub: now ? `${hm(st.t0)}부터` : `${hm(st.t0)}~${hm(st.t1)}`, ev: "stay", lat: st.lat, lon: st.lon });
+      });
       if (r.points.length > 1) tl.push({ t: r.points[r.points.length - 1].t, txt: t.day === 0 ? "마지막 위치" : "기록 끝" });
       tl.sort((x, y) => x.t - y.t);
       body = r.points.length
         ? `<div class="tr-sum"><b>${fmtDist(t.dist)}</b><span>움직인 거리</span></div>
-           <div class="tr-tl">${tl.map((x) => x.lat ? `<button class="tr-i ${x.ev || ""}" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}</b></button>` : `<div class="tr-i ${x.ev || ""}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}</b></div>`).join("")}</div>`
+           <div class="tr-tl">${tl.map((x) => x.lat ? `<button class="tr-i ${x.ev || ""}" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}${x.sub ? `<small>${x.sub}</small>` : ""}</b></button>` : `<div class="tr-i ${x.ev || ""}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}</b></div>`).join("")}</div>`
         : `<div class="empty" style="padding:18px 0">이날 기록이 없어요<br><small>사이트나 OwnTracks가 켜져 있을 때 기록돼요</small></div>`;
     }
     $("#mapCard").innerHTML = `

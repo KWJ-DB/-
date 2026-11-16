@@ -6,6 +6,7 @@ import {
   parseBasic, fromB64, checkPlaces, distM,
 } from "../_lib.js";
 import { getVapid, sendPush } from "../_push.js";
+const IG_V = "v26.0"; // 인스타 API 버전 (2026년 7월 최신)
 
 const REACTS = ["heart", "sparkle", "star", "fire", "like", "hug", "laugh", "wow", "sad"];
 const CHOICE_SLOTS = ["c", "c1", "c2", "c3", "c4"];
@@ -572,12 +573,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
         return json(OK);
       }
       // 네이버 검색 API 키 연결 (키는 서버에만 저장)
-      // ----- 인스타 자동 게시 -----
+      // ----- 인스타 자동 게시 ----- (API 버전은 IG_V 한 곳에서만 바꾸면 됨)
       case "POST igkey": {
         const b = await body(request);
         const tok = str(b.token, 600);
         if (!tok) { await setSettings(env, { ig_token: "", ig_uid: "", ig_name: "", ig_who: "", ig_ref: "" }); return json(OK); }
-        const r = await fetch(`https://graph.instagram.com/v22.0/me?fields=user_id,username&access_token=${encodeURIComponent(tok)}`);
+        const r = await fetch(`https://graph.instagram.com/${IG_V}/me?fields=user_id,username&access_token=${encodeURIComponent(tok)}`);
         const d = await r.json().catch(() => ({}));
         if (!r.ok || !d.user_id) return err(400, "토큰이 올바르지 않아요" + (d.error && d.error.message ? ` (${d.error.message})` : ""));
         await setSettings(env, { ig_token: tok, ig_uid: String(d.user_id), ig_name: d.username || "", ig_who: who, ig_ref: Date.now() });
@@ -597,7 +598,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
             if (dd.access_token) { tok = dd.access_token; await setSettings(env, { ig_token: tok, ig_ref: Date.now() }); }
           } catch {}
         }
-        const G = "https://graph.instagram.com/v22.0", uid = st.ig_uid || "me";
+        const G = `https://graph.instagram.com/${IG_V}`, uid = st.ig_uid || "me";
         const call = async (path, params) => {
           const u = new URLSearchParams({ ...params, access_token: tok });
           const r = await fetch(`${G}/${path}`, { method: "POST", body: u });

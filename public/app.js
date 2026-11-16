@@ -335,6 +335,7 @@
            ["lettersOpen", "msg", "편지", lt.unread ? "새 편지" : ""], ["couponOpen", "gift", "사랑 쿠폰"], ["notesOpen", "star", "알아두기"], ["statsOpen", "list", "우리 기록"]]
           .map(([a, i, l, b]) => `<button data-act="${a}"><span>${ic(i)}${b ? `<em>${b}</em>` : ""}</span>${l}</button>`).join("")}
       </div>`;
+    heroRoll();
   }
 
   // ---------- 서로 알아두기 (좋아하는 것, 싫어하는 것 등 메모) ----------
@@ -2833,7 +2834,21 @@
     if (S.silentSheet) {
       // 자동 새로고침: 통째로 갈지 않고 바뀐 곳만 (애니메이션 다시 안 나오게)
       if (S.sheetHtml !== html) { S.sheetHtml = html; const t = document.createElement("template"); t.innerHTML = html; S.quiet = true; try { morphKids(b, t.content); } finally { S.quiet = false; } }
-    } else { S.sheetHtml = html; b.innerHTML = html; }
+    } else {
+      // 같은 창 안에서 탭·체크 등으로 다시 그릴 땐 바뀐 곳만 고쳐서, 탭 알약이 미끄러지고 체크가 튀는 모션이 살아 있게
+      const t = document.createElement("template"); t.innerHTML = html;
+      const oh = b.querySelector("h2"), nh = t.content.querySelector("h2");
+      const same = was && oh && nh && oh.textContent === nh.textContent;
+      S.sheetHtml = html;
+      if (same) {
+        const nf = [...t.content.querySelectorAll("input:not([type=file]), textarea, select")].map((x) => x.type === "checkbox" || x.type === "radio" ? x.hasAttribute("checked") : x.nodeName === "TEXTAREA" ? x.textContent : x.getAttribute("value") || "");
+        morphKids(b, t.content);
+        // 입력칸은 예전처럼 새 내용 기준으로 맞춤
+        b.querySelectorAll("input:not([type=file]), textarea, select").forEach((x, k) => { if (k >= nf.length) return; if (x.type === "checkbox" || x.type === "radio") x.checked = nf[k]; else if (x.nodeName !== "SELECT") x.value = nf[k]; });
+        sh.hidden = false; S.sheetAt = Date.now(); return;
+      }
+      b.innerHTML = html;
+    }
     sh.hidden = false;
     if (S.silentSheet) { b.scrollTop = sc; return; }            // 조용히 새로고침: 스크롤 유지, 애니메이션 없음
     // 이미 열려 있으면 내용만 부드럽게 바꿈
@@ -4352,6 +4367,33 @@
   setInterval(() => { if (!document.hidden) pulse(); }, 10000);
 
   // 둘이 동시에 수정해도 바로바로 보이게: 열려 있는 탭을 조용히 다시 불러옴
+  // 하트 누르면 터지는 모션 (Like burst)
+  function likeBurst(el) {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const box = document.createElement("div");
+    box.className = "lburst"; box.style.left = cx + "px"; box.style.top = cy + "px";
+    let h = `<i class="lb-ring"></i>`;
+    for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2 + Math.random() * 0.3, d = 26 + Math.random() * 18; h += `<i class="lb-dot" style="--x:${(Math.cos(a) * d).toFixed(1)}px;--y:${(Math.sin(a) * d).toFixed(1)}px;--d:${(Math.random() * 60) | 0}ms"></i>`; }
+    box.innerHTML = h; document.body.appendChild(box);
+    el.classList.remove("lb-pop"); void el.offsetWidth; el.classList.add("lb-pop");
+    setTimeout(() => { box.remove(); el.classList.remove("lb-pop"); }, 800);
+  }
+  document.addEventListener("click", (e) => {
+    const h = e.target.closest && e.target.closest('[data-act="missYou"], [data-act="eatWant"], [data-act="tapHeart"], [data-act="rxHeart"]');
+    if (h) likeBurst(h);
+  }, true);
+  // 처음 열 때 함께한 날 숫자가 굴러 올라감 (Word roll)
+  function heroRoll() {
+    if (S.heroRolled || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const el = document.querySelector(".hero .dday"); if (!el) return;
+    const tn = el.firstChild; if (!tn || tn.nodeType !== 3) return;
+    const to = parseInt(tn.textContent, 10); if (!(to > 0)) return;
+    S.heroRolled = true;
+    const t0 = performance.now(), dur = 900;
+    const step = (now) => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 4); if (el.firstChild === tn) tn.textContent = String(Math.round(to * e)); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
   async function liveRefresh() {
     if (document.hidden || !S.who || S.liveBusy || S.uploading) return;
     S.liveBusy = true; S.quiet = true;

@@ -1907,3 +1907,54 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 .ed-ck { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 500; }
 .ed-ck input { width: 20px; height: 20px; accent-color: var(--accent, #E5406A); }
 .letter .lt-ed { right: 44px; }
+
+/* =========================================================
+   모션 (designbookmark motion 참고): 미끄러지는 탭, 하트 버스트, 체크, 스프링
+   ========================================================= */
+:root { --spring2: cubic-bezier(.34,1.56,.64,1); }
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --spring2: linear(0, .009, .035 2.1%, .141, .281 6.7%, .723 12.9%, .938 16.7%, 1.017, 1.077 22.2%, 1.121 25%, 1.112 27.4%, 1.071 32%, 1.006 39.3%, .983 43.5%, .978 48.1%, 1.001 63.6%, 1.002 74.5%, 1); }
+}
+/* 세그먼트: 흰 알약이 미끄러져 이동 (Segmented control) */
+.seg { position: relative; isolation: isolate; --n: 1; --i: 0; }
+.seg:has(> button:nth-child(2)) { --n: 2; }
+.seg:has(> button:nth-child(3)) { --n: 3; }
+.seg:has(> button:nth-child(4)) { --n: 4; }
+.seg:has(> button:nth-child(2).on) { --i: 1; }
+.seg:has(> button:nth-child(3).on) { --i: 2; }
+.seg:has(> button:nth-child(4).on) { --i: 3; }
+.seg::before { content: ""; position: absolute; z-index: -1; top: 4px; bottom: 4px; left: 4px; border-radius: 12px; background: #fff; box-shadow: 0 2px 8px rgba(120,60,90,.12);
+  width: calc((100% - 8px - (var(--n) - 1) * 4px) / var(--n)); transform: translateX(calc(var(--i) * (100% + 4px)));
+  transition: transform .5s var(--spring2); }
+.seg:not(:has(> button.on))::before { opacity: 0; }
+.seg button.on { background: transparent !important; box-shadow: none !important; }
+.seg button { transition: color .25s, transform .18s var(--ease) !important; }
+.seg button:active { transform: scale(.95); }
+/* 하트 버스트 (Like burst) */
+.lburst { position: fixed; z-index: 400; width: 0; height: 0; pointer-events: none; }
+.lburst i { position: absolute; left: 0; top: 0; }
+.lb-ring { width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; border: 2px solid #F06292; animation: lbRing .5s ease-out forwards; }
+.lb-dot { width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #F06292; animation: lbDot .62s cubic-bezier(.2,.8,.3,1) var(--d) forwards; }
+.lb-dot:nth-child(3n) { background: #FFB2C8; } .lb-dot:nth-child(4n) { background: #B79CFF; }
+@keyframes lbRing { from { transform: scale(.4); opacity: 1; } to { transform: scale(6); opacity: 0; border-width: .5px; } }
+@keyframes lbDot { 0% { transform: translate(0,0) scale(.6); opacity: 1; } 70% { opacity: 1; } 100% { transform: translate(var(--x), var(--y)) scale(.2); opacity: 0; } }
+.lb-pop { animation: lbPop .45s var(--spring2); }
+@keyframes lbPop { 0% { transform: scale(1); } 30% { transform: scale(.82); } 100% { transform: scale(1); } }
+/* 버킷 체크 (Checkbox list): 체크가 그려지면서 톡 */
+.bk .ck { transition: background-color .2s, border-color .2s, transform .3s var(--spring2) !important; }
+.bk .ck:active { transform: scale(.85); }
+.bk.done .ck svg.i { stroke-dasharray: 24; animation: ckDraw .32s .05s ease-out both; }
+.bk.done .ck { animation: ckPop .42s var(--spring2); }
+@keyframes ckDraw { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+@keyframes ckPop { 0% { transform: scale(.8); } 100% { transform: scale(1); } }
+.bk .tt b { transition: color .25s; }
+/* 알림 토스트: 위에서 스프링으로 (Notification stack) */
+#toast { animation: toastIn .5s var(--spring2) both !important; }
+/* 탭 알약 스프링 통일 */
+.tab-pill { transition: transform .55s var(--spring2), width .4s var(--ease) !important; }
+/* 시트: 아래에서 스프링으로 올라옴 */
+.sheet-box { transition-timing-function: var(--spring2); }
+@media (prefers-reduced-motion: reduce) {
+  .seg::before, .tab-pill { transition: none !important; }
+  .bk.done .ck, .bk.done .ck svg.i, .lb-pop, #toast { animation: none !important; }
+}

@@ -334,13 +334,13 @@
   // ---------- 서로 알아두기 (좋아하는 것, 싫어하는 것 등 메모) ----------
   const NOTE_CATS = ["좋아해", "싫어해", "갖고 싶어", "사이즈", "기억할 것"];
   async function notesSheet(about) {
-    S.pendingRefresh = () => notesSheet(about);
+    const sx = sheetCtx(() => notesSheet(about));
     about = about || S.notesAbout || other();
     S.notesAbout = about;
     const { notes } = await api("notes");
     const mine = notes.filter((n) => n.about === about);
     const groups = NOTE_CATS.map((c) => [c, mine.filter((n) => (n.cat || "기억할 것") === c)]).filter(([, l]) => l.length);
-    openSheet(`
+    sheetOpen(sx, `
       <h2>${ic("star")}서로 알아두기</h2>
       <div class="seg" style="margin-top:8px">${["a", "b"].map((w) => `<button class="${w === about ? "on" : ""}" data-act="notesAbout" data-w="${w}">${esc(nm(w))}</button>`).join("")}</div>
       ${groups.map(([c, l]) => `<div class="sec-t"><span>${c}</span></div>${l.map((n) => `<div class="ev"><span class="tt">${esc(n.text)}</span><button class="x" data-act="noteDel" data-id="${n.id}" aria-label="삭제">${ic("x")}</button></div>`).join("")}`).join("")
@@ -394,7 +394,7 @@
 
   // ---------- 오늘의 한 장 ----------
   async function dailySheet() {
-    S.pendingRefresh = () => dailySheet();
+    const sx = sheetCtx(() => dailySheet());
     const t = today();
     const { days } = await api(`daily?date=${t}`);
     const td = days.find((d) => d.date === t) || { date: t, mine: false, partner: false, open: false };
@@ -414,7 +414,7 @@
       return `<button class="df" data-act="dailyView" data-i="${gi(d, w)}"><img src="/api/dailyimg?date=${d.date}&w=${w}&thumb=1&v=${v}" alt="" loading="lazy"></button>`;
     };
     const past = days.filter((d) => d.date !== t && (d.mine || d.partner));
-    openSheet(`
+    sheetOpen(sx, `
       <h2>오늘의 한 장</h2>
       <p>하루에 한 장씩 지금 모습을 올려요. 둘 다 올리면 서로 보여요.</p>
       <div class="dpair">
@@ -431,11 +431,11 @@
   const COUPON_PRESETS = ["소원 들어주기권", "떡볶이 쏘기권", "화 풀기권", "1시간 통화권", "사진 찍어주기권", "데이트 코스 정하기권"];
   async function couponSheet(tab) {
     tab = tab || S.couponTab || "got";
-    S.pendingRefresh = () => couponSheet(S.couponTab);
+    const sx = sheetCtx(() => couponSheet(S.couponTab));
     S.couponTab = tab;
     const { coupons } = await api("coupons");
     const list = coupons.filter((c) => (tab === "got" ? c.from_who !== S.who : c.from_who === S.who));
-    openSheet(`
+    sheetOpen(sx, `
       <h2>사랑 쿠폰</h2>
       <div class="seg" style="margin-top:8px"><button class="${tab === "got" ? "on" : ""}" data-act="couponTab" data-t="got">받은 쿠폰</button><button class="${tab === "gave" ? "on" : ""}" data-act="couponTab" data-t="gave">준 쿠폰</button></div>
       ${list.map((c) => `
@@ -854,11 +854,11 @@
 
   // ---------- 버킷리스트 (홈에서 여는 시트) ----------
   async function bucketSheet() {
-    S.pendingRefresh = () => bucketSheet();
+    const sx = sheetCtx(() => bucketSheet());
     const { bucket } = await api("bucket");
     const done = bucket.filter((b) => b.done).length;
     const keep = $("#bkTitle") ? $("#bkTitle").value : "";
-    openSheet(`
+    sheetOpen(sx, `
       <h2>${ic("list")}우리의 버킷리스트</h2>
       <p>${bucket.length ? `${bucket.length}개 중 ${done}개 이뤘어요` : "같이 하고 싶은 걸 적고 하나씩 이뤄봐요"}</p>
       <div class="progress" style="margin:4px 0 14px"><i style="width:${bucket.length ? (done / bucket.length) * 100 : 0}%"></i></div>
@@ -1049,9 +1049,9 @@
   }
   const ownerLabel = (o) => (o === "a" || o === "b" ? nm(o) : "둘 다");
   function placesSheet() {
-    S.pendingRefresh = () => placesSheet();
+    const sx = sheetCtx(() => placesSheet());
     const insideOf = (pid) => (S.placeState || []).filter((x) => x.place_id === pid && x.inside).map((x) => x.who);
-    openSheet(`
+    sheetOpen(sx, `
       <h2>${ic("pin")}우리 장소</h2>
       <p>등록한 장소에 도착하거나 떠나면 상대에게 알림이 가요. 화면이 꺼져 있을 때도 받으려면 OwnTracks 연결과 알림 켜기가 필요해요.</p>
       ${(S.places || []).map((p) => {
@@ -2711,9 +2711,25 @@
   }
 
   // ---------- 시트 ----------
+  // 자동 새로고침과 사용자가 연 창이 섞이지 않게: 새로고침 도중 다른 창을 열면 그 새로고침 결과는 버림
+  function sheetCtx(fn) {
+    const silent = !!S.silentSheet;
+    if (!silent) S.pendingRefresh = fn;
+    return { silent, gen: S.sheetGen || 0 };
+  }
+  function sheetOpen(sx, html, refresher) {
+    if (sx.silent) {
+      if (sx.gen !== (S.sheetGen || 0) || $("#sheet").hidden) return;
+      S.silentSheet = true;
+      try { openSheet(html, refresher); } finally { S.silentSheet = false; }
+      return;
+    }
+    openSheet(html, refresher);
+  }
   function openSheet(html, refresher) {
     const b = $("#sheetBox"), sc = b.scrollTop;
-    if (!S.silentSheet) { S.sheetAt = Date.now(); S.sheetRefresh = S.pendingRefresh || null; S.pendingRefresh = null; }
+    if (!S.silentSheet) { S.sheetGen = (S.sheetGen || 0) + 1; S.sheetAt = Date.now(); S.sheetRefresh = S.pendingRefresh || null; }
+    S.pendingRefresh = null;
     if (refresher) S.sheetRefresh = refresher;
     const sh = $("#sheet"), was = !sh.hidden && !sh.classList.contains("closing");
     sh.classList.remove("closing");
@@ -2726,7 +2742,7 @@
   function closeSheet() {
     const sh = $("#sheet");
     if (sh.hidden || sh.classList.contains("closing")) return;
-    S.sheetRefresh = null;
+    S.sheetRefresh = null; S.pendingRefresh = null; S.sheetGen = (S.sheetGen || 0) + 1;
     sh.classList.add("closing");
     setTimeout(() => { sh.hidden = true; sh.classList.remove("closing"); }, 220);
   }
@@ -4212,7 +4228,9 @@
       const a = document.activeElement;
       const typing = a && a.closest && a.closest("#sheetBox input, #sheetBox textarea");
       if (S.sheetRefresh && !typing) {
-        try { S.silentSheet = true; await S.sheetRefresh(); } catch {} finally { S.silentSheet = false; }
+        let pr;
+        try { S.silentSheet = true; pr = S.sheetRefresh(); } catch {} finally { S.silentSheet = false; }
+        try { await pr; } catch {}
       }
       return;
     }

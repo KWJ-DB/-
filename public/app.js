@@ -1517,8 +1517,17 @@
   }
   // ---------- 인스타 자동 게시 ----------
   const igShareMode = () => { try { return localStorage.getItem("wooju_igshare") === "1"; } catch { return false; } };
-  const igMine = () => (S.ig && S.ig.who === S.who) || (!S.ig && igShareMode());
+  const igAuto = () => (S.ig && S.ig.who === S.who) || (!S.ig && S.make && S.make.who === S.who);
+  const igMine = () => igAuto() || (!S.ig && !S.make && igShareMode());
   function igSheet() {
+    if (!S.ig && S.make) {
+      openSheet(`
+        <h2>${ic("camera")}인스타 자동 게시</h2>
+        <p class="sheet-sub"><b>Make</b>로 연결돼 있어요 (${esc(nm(S.make.who))} 폰). ${igAuto() ? "사진을 올리면 인스타에도 올릴지 물어보고, 고른 사진이 Make를 거쳐 자동으로 올라가요." : `${esc(nm(S.make.who))}님이 사진을 올릴 때만 물어봐요.`}</p>
+        <p class="sheet-sub">나중에 Meta 토큰을 연결하면 토큰 쪽으로 바로 올라가요.</p>
+        <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="makeOff">Make 연결 끊기</button><button class="btn primary" data-act="igTokenView">토큰 연결하기</button></div>`);
+      return;
+    }
     if (S.ig) {
       openSheet(`
         <h2>${ic("camera")}인스타 자동 게시</h2>
@@ -1534,7 +1543,21 @@
         <span>설정 없이 돼요. 사진을 올리면 고른 사진을 인스타 앱으로 넘겨주고, 캡션은 복사해둬요. 인스타에서 게시만 누르면 끝.</span>
         <button class="btn ${igShareMode() ? "gray" : "primary"}" data-act="igShareTog">${igShareMode() ? "끄기" : "켜기"}</button>
       </div>
-      <p class="sheet-sub" style="margin-top:14px"><b>완전 자동</b>으로 하려면 아래처럼 연결해요.</p>
+      <div class="ig-quick" style="background:#F2EEFF">
+        <b>${ic("layers")}개발자 가입 없이 자동: Make</b>
+        <span>Make(무료)가 대신 인스타에 올려줘요. 인스타가 페이스북 페이지에 연결돼 있어야 해요.</span>
+        <ol class="nv-steps ig-steps" style="margin:6px 0 0">
+          <li><b>인스타를 페이스북 페이지에 연결</b><br>인스타 앱 → 프로필 편집 → <b>페이지</b> → 페이지 연결 (없으면 새로 만들기). 계정은 프로페셔널이어야 해요.</li>
+          <li><b>Make 가입</b><br><a href="https://www.make.com/en/register" target="_blank" rel="noopener">make.com</a>에서 무료 가입 (Free 플랜).</li>
+          <li><b>웹훅 만들기</b><br><b>Create a new scenario</b> → 가운데 <b>+</b> → <b>Webhooks</b> → <b>Custom webhook</b> → <b>Add</b> → 이름(우주) → <b>Save</b> → 나온 주소 <b>Copy address to clipboard</b>.</li>
+          <li><b>우주에 붙여넣고 연결</b><br>아래 칸에 붙여넣고 <b>Make 연결</b>을 누르면 예시 데이터가 가서 Make 화면에 <b>Successfully determined</b>가 떠요.</li>
+          <li><b>인스타 게시 모듈 붙이기</b><br>웹훅 오른쪽 <b>+</b> → <b>Flow Control</b> → <b>Router</b>.<br>위쪽 길: 연결선 클릭해 필터 <b>count</b> 같음(Numeric: Equal to) <b>1</b> → <b>Instagram for Business</b> → <b>Create a Photo Post</b> → Photo URL에 <b>image_url</b>, Caption에 <b>caption</b>.<br>아래쪽 길: 필터 <b>count</b> 큼(Greater than) <b>1</b> → <b>Instagram for Business</b> → <b>Create a Carousel Post</b> → Files에서 <b>Map</b> 켜고 <b>images</b> 배열, Media type 이미지, URL은 <b>url</b>, Caption에 <b>caption</b>.<br>처음 넣을 때 <b>Create a connection</b>으로 페이스북 로그인 → 내 인스타 계정 선택.</li>
+          <li><b>켜기</b><br>웹훅 모듈 시계 아이콘에서 <b>Immediately as data arrives</b> 켜고 → 아래 <b>Save</b> → 왼쪽 아래 스위치 <b>ON</b>. 웹훅 바로 뒤에 필터 <b>test</b> 같음 <b>false</b>를 걸면 연결 테스트가 게시되지 않아요.</li>
+        </ol>
+        <input type="text" id="mkHook" placeholder="https://hook.eu2.make.com/..." autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+        <button class="btn primary" data-act="makeSave">Make 연결</button>
+      </div>
+      <p class="sheet-sub" style="margin-top:14px"><b>Meta 토큰</b>으로 직접 연결하려면 아래처럼 해요. (둘 다 연결하면 토큰이 먼저예요)</p>
       <ol class="nv-steps ig-steps">
         <li><b>인스타를 프로페셔널 계정으로</b><br>인스타 앱 → 프로필 → 오른쪽 위 메뉴 → <b>설정 및 활동</b> → <b>계정 유형 및 도구</b> → <b>프로페셔널 계정으로 전환</b> → <b>크리에이터</b>. 무료예요. 계정이 <b>공개</b>여야 토큰이 나와요.</li>
         <li><b>Meta 개발자 가입</b><br><a href="https://developers.facebook.com/" target="_blank" rel="noopener">developers.facebook.com</a>에서 페이스북으로 로그인 → <b>시작하기</b>. 휴대폰 인증까지 마쳐요.</li>
@@ -1556,7 +1579,7 @@
   }
   function igAskDraw() {
     const g = S.igPick; if (!g) return;
-    const share = !S.ig;
+    const share = !igAuto();
     if (share && !g.files) {
       // 공유 버튼 누를 때 바로 넘길 수 있게 미리 받아둠
       g.files = {};
@@ -1564,7 +1587,7 @@
     }
     openSheet(`
       <h2>${ic("camera")}인스타에도 올릴까요?</h2>
-      <p class="sheet-sub">${share ? "고른 사진을 인스타 앱으로 넘겨요. 캡션은 복사돼 있으니 인스타에서 붙여넣기만 하면 돼요." : `@${esc(S.ig.user)} 게시물로 올라가요.`} 올릴 사진만 골라요${g.ids.length > 1 ? " (여러 장은 한 게시물로 묶여요, 최대 10장)" : ""}.</p>
+      <p class="sheet-sub">${share ? "고른 사진을 인스타 앱으로 넘겨요. 캡션은 복사돼 있으니 인스타에서 붙여넣기만 하면 돼요." : S.ig ? `@${esc(S.ig.user)} 게시물로 올라가요.` : "Make를 거쳐 인스타에 자동으로 올라가요."} 올릴 사진만 골라요${g.ids.length > 1 ? " (여러 장은 한 게시물로 묶여요, 최대 10장)" : ""}.</p>
       <div class="ig-pick">${g.ids.map((id) => `<button class="${g.on.has(id) ? "on" : ""}" data-act="igToggle" data-id="${id}"><img src="/api/photo/${id}?thumb=1" alt=""><i>${ic("check")}</i></button>`).join("")}</div>
       <textarea id="igCap" rows="3" maxlength="2000" placeholder="캡션 (비워도 돼요)" style="margin-top:12px;width:100%"></textarea>
       <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="igSkip">안 올릴래요</button><button class="btn primary" data-act="${share ? "igShare" : "igPost"}">${ic("send")}${share ? "인스타로 넘기기" : "올리기"}</button></div>`);
@@ -3016,7 +3039,7 @@
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
-        ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : igShareMode() ? "인스타 앱으로 넘기기 켜짐" : "사진 올릴 때 인스타에도 같이")}
+        ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : S.make ? "Make로 연결됨" : igShareMode() ? "인스타 앱으로 넘기기 켜짐" : "사진 올릴 때 인스타에도 같이")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>
@@ -3960,6 +3983,17 @@
       el.classList.toggle("on", g.on.has(id));
     },
     igSkip() { S.igPick = null; closeSheet(); },
+    async makeSave() {
+      const url = $("#mkHook").value.trim();
+      if (!url) return toast("Make 웹훅 주소를 붙여넣어 주세요");
+      try { await api("makehook", { method: "POST", body: { url } }); S.make = { who: S.who }; toast("Make에 연결했어요. Make 화면을 확인하세요"); igSheet(); }
+      catch (e) { toast(e.message); }
+    },
+    async makeOff() {
+      if (!confirm("Make 연결을 끊을까요?")) return;
+      await api("makehook", { method: "POST", body: { url: "" } }); S.make = null; toast("Make 연결을 끊었어요"); igSheet();
+    },
+    igTokenView() { const m = S.make; S.make = null; igSheet(); S.make = m; },
     igShareTog() { try { localStorage.setItem("wooju_igshare", igShareMode() ? "0" : "1"); } catch {} toast(igShareMode() ? "사진 올릴 때 인스타로 넘길지 물어볼게요" : "껐어요"); igSheet(); },
     igShare() {
       const g = S.igPick; if (!g) return;
@@ -3979,7 +4013,7 @@
       el.disabled = true; el.classList.add("busy"); toast("인스타에 올리는 중이에요");
       try {
         const d = await api("igpost", { method: "POST", body: { ids, caption: $("#igCap").value.trim() } });
-        S.igPick = null; closeSheet(); toast("인스타에 올렸어요");
+        S.igPick = null; closeSheet(); toast(d.via === "make" ? "Make로 보냈어요. 1분 안에 인스타에 올라가요" : "인스타에 올렸어요");
         if (d.link) S.igLast = d.link;
       } catch (e) { el.disabled = false; el.classList.remove("busy"); toast(e.message); }
     },
@@ -4460,7 +4494,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {}; S.ig = me.ig || null;
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {}; S.ig = me.ig || null; S.make = me.make || null;
       setBrand();
       await loadAnniv();
       showOnly("app");

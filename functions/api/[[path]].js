@@ -237,7 +237,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" }, ig: st.ig_token ? { user: st.ig_name || "", who: st.ig_who || "" } : null });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" }, ig: st.ig_token ? { user: st.ig_name || "", who: st.ig_who || "" } : null, make: st.make_hook ? { who: st.make_who || "" } : null });
       }
       case "POST meet": {
         const b = await body(request);
@@ -584,11 +584,34 @@ export async function onRequest({ request, env, params, waitUntil }) {
         await setSettings(env, { ig_token: tok, ig_uid: String(d.user_id), ig_name: d.username || "", ig_who: who, ig_ref: Date.now() });
         return json({ ok: true, user: d.username || "" });
       }
+      case "POST makehook": {
+        const b = await body(request);
+        const u = str(b.url, 300);
+        if (!u) { await setSettings(env, { make_hook: "", make_who: "" }); return json(OK); }
+        if (!/^https:\/\/hook\.[a-z0-9.-]+\.make\.com\/[A-Za-z0-9_-]+$/.test(u)) return err(400, "Make 웹훅 주소가 아니에요 (https://hook....make.com/... 형식)");
+        // Make가 받을 데이터 모양을 알 수 있게 예시 한 번 보냄 (시나리오가 꺼져 있으면 게시 안 됨)
+        const exp = Date.now() + 30 * 60000;
+        const sample = { test: true, caption: "우주 연결 테스트", count: 2, image_url: `${url.origin}/icon-512.png`, images: [{ url: `${url.origin}/icon-512.png` }, { url: `${url.origin}/icon-512.png` }], expires: exp };
+        const r = await fetch(u, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sample) }).catch(() => null);
+        if (!r || !r.ok) return err(400, "웹훅에 보내지 못했어요. 주소를 다시 확인해주세요" + (r ? ` (${r.status})` : ""));
+        await setSettings(env, { make_hook: u, make_who: who });
+        return json(OK);
+      }
       case "POST igpost": {
         const b = await body(request);
-        if (!st.ig_token) return err(400, "인스타가 연결되어 있지 않아요");
+        if (!st.ig_token && !st.make_hook) return err(400, "인스타가 연결되어 있지 않아요");
         const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter((x) => x > 0).slice(0, 10);
         if (!ids.length) return err(400, "올릴 사진을 골라주세요");
+        if (!st.ig_token && st.make_hook) {
+          // Make 경유: 사진 주소(30분 유효)와 캡션을 웹훅으로 보내면 Make가 인스타에 게시
+          const exp = Date.now() + 30 * 60000;
+          const images = [];
+          for (const pid of ids) images.push({ url: `${url.origin}/api/igimg/${pid}-${exp}-${await igSig(pid, exp)}.jpg` });
+          const payload = { test: false, caption: str(b.caption, 2000) || "", count: images.length, image_url: images[0].url, images, expires: exp };
+          const r = await fetch(st.make_hook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }).catch(() => null);
+          if (!r || !r.ok) return err(400, "Make로 보내지 못했어요" + (r ? ` (${r.status})` : ""));
+          return json({ ok: true, via: "make" });
+        }
         let tok = st.ig_token;
         // 장기 토큰은 60일짜리라 일주일 넘으면 새로 고침
         if (Date.now() - (Number(st.ig_ref) || 0) > 7 * 86400000) {

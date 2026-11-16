@@ -268,6 +268,13 @@ export async function checkPlaces(DB, who, lat, lon, acc, t) {
     }
     if (inside !== was) {
       if (ps.t && now - ps.t < 20 * 60000) continue; // 20분 안에는 다시 안 바꿈
+      if (inside) {
+        // 도착도 지나가다 스친 걸로 판단하지 않음: 최근 몇 분 동안 계속 안에 있어야 도착
+        const { results: rec } = await DB.prepare("SELECT lat, lon, acc, t FROM loc_hist WHERE who = ?1 AND t > ?2 ORDER BY t DESC LIMIT 4").bind(who, now - 10 * 60000).all();
+        const pts = rec || [];
+        const ins = pts.filter((q) => distM(q, p) <= p.radius + Math.min(40, Number(q.acc) || 0));
+        if (pts.length < 2 || ins.length < pts.length || pts[0].t - pts[pts.length - 1].t < 3 * 60000) continue;
+      }
       if (!inside) {
         // 떠남은 한 번 튄 점으로 판단하지 않음: 최근 몇 분의 기록이 전부 밖이어야 떠남
         const { results: rec } = await DB.prepare("SELECT lat, lon, acc, t FROM loc_hist WHERE who = ?1 AND t > ?2 ORDER BY t DESC LIMIT 4").bind(who, now - 8 * 60000).all();

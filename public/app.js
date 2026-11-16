@@ -1863,10 +1863,19 @@
   function cleanTrail(raw) {
     let p = raw.filter((x) => x.acc == null || x.acc <= 80).map((x) => ({ ...x }));
     // 등록한 장소(집·학교 등) 안에서 흔들린 점은 그 장소 한가운데로 모음 (실내 GPS 튐 방지)
-    for (const x of p) {
+    // 단, 지나가기만 한 점은 건드리지 않음: 그 장소 안에 연달아 5분 넘게 있었던 구간만 모음
+    const inPl = p.map((x) => {
       let best = null, bd = Infinity;
-      for (const pl of S.places || []) { const d = distM(x, pl); if (d <= (pl.radius || 80) + Math.min(Math.max(40, x.acc || 0), 80) && d < bd) { bd = d; best = pl; } }
-      if (best) { x.lat = best.lat; x.lon = best.lon; x.pl = best.name; }
+      for (const pl of S.places || []) { const d = distM(x, pl); if (d <= (pl.radius || 80) + Math.min(Math.max(25, x.acc || 0), 40) && d < bd) { bd = d; best = pl; } }
+      return best;
+    });
+    for (let i = 0; i < p.length;) {
+      const pl = inPl[i];
+      if (!pl) { i++; continue; }
+      let j = i;
+      while (j + 1 < p.length && inPl[j + 1] === pl) j++;
+      if (p[j].t - p[i].t >= 5 * 60000) for (let k = i; k <= j; k++) { p[k].lat = pl.lat; p[k].lon = pl.lon; p[k].pl = pl.name; }
+      i = j + 1;
     }
     // 앞뒤는 가까운데 혼자 멀리 튄 점 제거
     for (let pass = 0; pass < 3; pass++) {

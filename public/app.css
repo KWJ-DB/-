@@ -1879,11 +1879,14 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 
 /* 맛집: 위로 끌면 큰 목록 화면 */
 .tall-card .eat2-list { height: calc(100dvh - var(--tab-h) - var(--safe-b) - env(safe-area-inset-top) - 132px); max-height: none; }
-.tall-card .eat2-list .eat-li { padding: 11px 6px; gap: 12px; }
-.tall-card .eat2-list .eat-th, .tall-card .eat2-list .eat-dot { width: 52px; height: 52px; border-radius: 14px; }
-.tall-card .eat2-list .eat-t b { font-size: 16px; }
-.tall-card .eat2-list .eat-find { margin-top: 10px; }
+.tall-card .eat2-list .eat-li { padding: 6px 4px; gap: 10px; }
+.tall-card .eat2-list .eat-th, .tall-card .eat2-list .eat-dot { width: 40px; height: 40px; border-radius: 11px; }
+.tall-card .eat2-list .eat-t b { font-size: 15px; }
+.tall-card .eat2-list .eat-t span { font-size: 12.5px; }
+.tall-card .eat2-list .eat-find { margin-top: 8px; }
 .tall-card .eat2-list .eat-find input { font-size: 16px; }
+.tall-card .eat2-list .eat-sort { margin-top: 6px; }
+.tall-card .eat2-list .eat-chips { margin-top: 6px; }
 .map-card.grow { animation: mcGrow .42s cubic-bezier(.2,.9,.3,1); }
 @keyframes mcGrow { from { transform: translateY(40px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .map-card.grow { animation: none; } }

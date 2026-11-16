@@ -1317,10 +1317,10 @@
         <div class="eat2-head">
           <button class="eat2-ib" data-act="eatView" data-v="cards" aria-label="카드로 보기">${ic("left")}</button>
           <div class="eat2-t"><b>${TK().name} 목록</b><span>${E.list.length}곳</span></div>
+          ${E.list.length ? `<button class="eat2-ib" data-act="eatStats" aria-label="통계">${ic("list")}</button>` : ""}
           <button class="eat2-add" data-act="eatAdd">${ic("plus")}추가</button>
           <button class="eat2-ib" data-act="eatClose" aria-label="닫기">${ic("x")}</button>
         </div>
-        ${E.list.length ? `<button class="eat-statbtn" data-act="eatStats">${ic("list")}<span><b>우리 ${TK().name} 통계</b><em>많이 간 곳, 별점 순위, 취향 차이</em></span>${ic("right")}</button>` : ""}
         <div class="eat-find">
           ${ic("search")}<input type="text" id="eatFind" value="${esc(E.q)}" placeholder="${TK().find}" maxlength="30" autocomplete="off" enterkeyhint="search">
           ${E.q ? `<button class="eat-find-x" data-act="eatFindClear" aria-label="지우기">${ic("x")}</button>` : ""}

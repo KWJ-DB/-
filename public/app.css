@@ -1993,3 +1993,13 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 .dm-drop svg.i { width: 34px; height: 34px; }
 .dm-drop b { font-size: 16px; }
 #chatWrap.dropping .dm-drop { opacity: 1; transform: none; }
+
+/* 디엠 사진 전송 진행 막대 (아이메시지처럼) */
+.dm-prog { position: relative; height: 3px; margin: 0 0 -3px; z-index: 6; overflow: hidden; opacity: 0; transition: opacity .25s; pointer-events: none; }
+.dm-prog.on { opacity: 1; }
+.dm-prog i { position: absolute; inset: 0; background: linear-gradient(90deg, #2F80FF, #4FA3FF); transform-origin: left center; transform: scaleX(0); transition: transform .35s cubic-bezier(.2,.8,.3,1); border-radius: 0 2px 2px 0; }
+.dm-prog.done { transition: opacity .3s .15s; opacity: 0; }
+
+/* 디엠 꾹 누를 때 파란 글자 선택·확대경 안 뜨게 */
+#chatWrap .dm-list, #chatWrap .dm-list *, #chatWrap .dm-head, #chatWrap .dm-head * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
+#chatWrap .dm-list img { -webkit-user-drag: none; }

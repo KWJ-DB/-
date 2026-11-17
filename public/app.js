@@ -58,6 +58,23 @@
     toast.t = setTimeout(() => { t.classList.add("out"); toast.t2 = setTimeout(() => { t.hidden = true; t.classList.remove("out"); }, 220); }, 2200);
   }
 
+  // 진동: 안드로이드는 vibrate, 아이폰(iOS 18+)은 스위치 토글 트릭으로 햅틱
+  const haptic = (() => {
+    let lb = null;
+    return (pat) => {
+      try { if (navigator.vibrate && navigator.vibrate(pat || 10)) return; } catch {}
+      try {
+        if (!lb) {
+          lb = document.createElement("label");
+          lb.setAttribute("aria-hidden", "true");
+          lb.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none";
+          lb.innerHTML = '<input type="checkbox" switch>';
+          document.body.appendChild(lb);
+        }
+        lb.click();
+      } catch {}
+    };
+  })();
   async function api(path, { method = "GET", body } = {}) {
     const opt = { method, headers: {}, credentials: "same-origin" };
     if (body !== undefined) { opt.headers["content-type"] = "application/json"; opt.body = JSON.stringify(body); }
@@ -1783,10 +1800,10 @@
     strip.style.transition = "transform 2.6s cubic-bezier(.12,.75,.15,1)";
     strip.style.transform = `translateY(${-h * N}px)`;
     let ticks = 0;
-    const buzz = setInterval(() => { try { navigator.vibrate && navigator.vibrate(4); } catch {} if (++ticks > 14) clearInterval(buzz); }, 120);
+    const buzz = setInterval(() => { try { haptic(4); } catch {} if (++ticks > 14) clearInterval(buzz); }, 120);
     setTimeout(() => {
       clearInterval(buzz);
-      try { navigator.vibrate && navigator.vibrate([25, 50, 25]); } catch {}
+      try { haptic([25, 50, 25]); } catch {}
       $("#rlReel").classList.add("won");
       setTimeout(() => $("#rlReel") && $("#rlReel").classList.remove("won"), 700);
       const me = S.locs[S.who], rt = avgRate(pick);
@@ -2398,7 +2415,7 @@
   function sendHeart() {
     const tmp = { id: "tmp" + Date.now(), who: S.who, text: "", kind: "heart", reacts: {}, t: Date.now() };
     S.chat.msgs.push(tmp); drawChat(true);
-    try { navigator.vibrate && navigator.vibrate(15); } catch {}
+    try { haptic(15); } catch {}
     postMsg({ kind: "heart" }, tmp);
   }
   async function sendMyLoc() {
@@ -2421,18 +2438,61 @@
     setTimeout(() => drawChat(), bub ? 600 : 0);
     try { const res = await api(`messages/${id}/react`, { method: "POST", body: { r } }); if (m) m.reacts = res.reacts; } catch (e) { toast(e.message); }
   }
+  // 올리는 진행률을 알 수 있는 요청 (사진 전송용)
+  function apiUp(path, body, onProg) {
+    return new Promise((res, rej) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", "/api/" + path);
+      x.setRequestHeader("content-type", "application/json");
+      x.upload.onprogress = (e) => { if (e.lengthComputable) onProg(e.loaded / e.total); };
+      x.onload = () => {
+        let d = null; try { d = JSON.parse(x.responseText); } catch {}
+        if (x.status >= 200 && x.status < 300) res(d);
+        else { const e = new Error((d && d.error) || "오류 " + x.status); e.status = x.status; rej(e); }
+      };
+      x.onerror = () => rej(new Error("인터넷 연결을 확인해주세요"));
+      x.send(JSON.stringify(body));
+    });
+  }
+  // 아이메시지처럼 위쪽에 파란 진행 막대
+  const dmProg = {
+    set(v) {
+      const el = $("#dmProg"); if (!el) return;
+      clearTimeout(this.t);
+      el.classList.add("on"); el.classList.remove("done");
+      el.firstChild.style.transform = `scaleX(${Math.max(0.04, Math.min(1, v))})`;
+    },
+    end() {
+      const el = $("#dmProg"); if (!el) return;
+      el.firstChild.style.transform = "scaleX(1)"; el.classList.add("done");
+      this.t = setTimeout(() => { el.classList.remove("on", "done"); el.firstChild.style.transform = "scaleX(0)"; }, 450);
+    },
+  };
   async function sendChatPhotos(files) {
-    for (const f of files) {
-      const local = URL.createObjectURL(f);
-      const tmp = { id: "tmp" + Date.now() + Math.random(), who: S.who, text: "", reacts: {}, t: Date.now(), local, w: 4, h: 3 };
-      S.chat.msgs.push(tmp); drawChat(true);
+    const n = files.length;
+    const tmps = files.map((f) => {
+      const tmp = { id: "tmp" + Date.now() + Math.random(), who: S.who, text: "", reacts: {}, t: Date.now(), local: URL.createObjectURL(f), w: 4, h: 3, sending: true };
+      S.chat.msgs.push(tmp); return tmp;
+    });
+    drawChat(true);
+    dmProg.set(0.04);
+    for (let i = 0; i < n; i++) {
+      const tmp = tmps[i], base = i / n, part = 1 / n;
+      let shown = base;
+      const show = (v) => { shown = Math.max(shown, base + part * v); dmProg.set(shown * 0.97); };
+      // 서버 처리 기다리는 동안에도 조금씩 차오르게
+      const trickle = setInterval(() => show(Math.min(0.95, (shown - base) / part + 0.03)), 300);
       try {
-        const p = await prepPhoto(f, 720);
-        tmp.w = p.w; tmp.h = p.h;
-        const r = await api("messages", { method: "POST", body: { img: p } });
+        const p = await prepPhoto(files[i], 720);
+        tmp.w = p.w; tmp.h = p.h; show(0.2);
+        const r = await apiUp("messages", { img: p }, (v) => show(0.2 + v * 0.7));
+        show(1);
         if (r && r.id) cidOf[r.id] = String(tmp.id);
       } catch (e) { tmp.failed = true; toast("사진 전송 실패: " + e.message); }
+      clearInterval(trickle);
+      tmp.sending = false;
     }
+    dmProg.end();
     refreshChat(true);
   }
   function setReply(m) {
@@ -2570,7 +2630,7 @@
       sw.dx = d;
       sw.row.style.transform = `translateX(${d}px)`;
       sw.row.style.setProperty("--sw", Math.min(1, Math.abs(d) / 50));
-      if (Math.abs(d) >= 50 && !sw.buzz) { sw.buzz = true; try { navigator.vibrate && navigator.vibrate(8); } catch {} }
+      if (Math.abs(d) >= 50 && !sw.buzz) { sw.buzz = true; try { haptic(8); } catch {} }
     }, { passive: false });
     L.addEventListener("touchend", () => {
       if (!sw) return;
@@ -2587,7 +2647,7 @@
     L.addEventListener("touchstart", (e) => {
       const bub = e.target.closest(".dm-bub");
       if (!bub) return;
-      pressT = setTimeout(() => { pressT = null; opened = true; try { navigator.vibrate && navigator.vibrate(10); } catch {} openRx(bub); }, 420);
+      pressT = setTimeout(() => { pressT = null; opened = true; try { haptic(10); } catch {} openRx(bub); }, 420);
     }, { passive: true });
     const cancel = () => { if (pressT) { clearTimeout(pressT); pressT = null; } };
     L.addEventListener("touchend", cancel); L.addEventListener("touchmove", cancel, { passive: true });
@@ -2595,6 +2655,8 @@
     L.addEventListener("scroll", () => { if (L.scrollHeight - L.scrollTop - L.clientHeight < 80) $("#dmJump").hidden = true; }, { passive: true });
   })();
   $("#dmFile").addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) sendChatPhotos(f); });
+  $("#dmList").addEventListener("selectstart", (e) => e.preventDefault());
+  $("#dmList").addEventListener("contextmenu", (e) => e.preventDefault());
   // 사진을 끌어다 놓거나 붙여넣으면 바로 디엠 전송
   (() => {
     const wrap = $("#chatWrap"); let depth = 0;
@@ -2698,7 +2760,7 @@
       <div class="fx-text"><b>${S.fxKind === "meet" ? "우리 만났어요" : S.fxKind === "tap" ? "마음이 통했어요" : "우리 지금 닿았어요"}</b><span>${esc(nm("a"))} ${ic("heart")} ${esc(nm("b"))}</span></div>`;
     fx.hidden = false;
     fx.classList.remove("out");
-    try { navigator.vibrate && navigator.vibrate([30, 80, 30]); } catch {}
+    try { haptic([30, 80, 30]); } catch {}
     clearTimeout(playFx.t); clearTimeout(playFx.t2);
     const close = () => { fx.classList.add("out"); playFx.t2 = setTimeout(() => (fx.hidden = true), 500); };
     playFx.t = setTimeout(close, 4200);
@@ -3206,7 +3268,7 @@
       <div class="cam-ask"><b>${esc(nm(other()))}님이 영상을 보고 싶어해요</b><p>영상통화로 바꿀까요?</p>
         <div class="row2"><button class="btn gray" data-act="camNo">지금은 안 할래</button><button class="btn primary" data-act="camYes">영상 켜기</button></div></div>`;
     box.hidden = false;
-    try { navigator.vibrate && navigator.vibrate([30, 60, 30]); } catch {}
+    try { haptic([30, 60, 30]); } catch {}
   }
   async function answerCam(ok) {
     $("#rx").hidden = true;
@@ -3241,7 +3303,7 @@
       fx.appendChild(h);
       setTimeout(() => h.remove(), 2600 + i * 70);
     }
-    try { navigator.vibrate && navigator.vibrate(fromPeer ? [20, 40, 20] : 10); } catch {}
+    try { haptic(fromPeer ? [20, 40, 20] : 10); } catch {}
   }
   // 상대 목소리 크기에 맞춰 사진 테두리가 퍼짐
   function watchLevel(stream) {
@@ -3388,7 +3450,7 @@
     K.seen = c.id; K.id = c.id; K.kind = c.kind; K.incoming = c; K.t0 = 0;
     callUI(c.kind, c.caller); setCall("incoming");
     ringTone(true);
-    try { navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 400]); } catch {}
+    try { haptic([400, 200, 400, 200, 400]); } catch {}
     // 안 받으면 40초 뒤 닫힘
     K.poll = setInterval(async () => {
       try { const { call } = await api(`call/${c.id}`); if (call.state !== "ringing" && K.state === "incoming") { toast("부재중 전화"); endCall(false); } } catch {}
@@ -3524,7 +3586,7 @@
           E.view = "list"; mc.innerHTML = ""; renderMapCard();
           mc.classList.remove("grow"); void mc.offsetWidth; mc.classList.add("grow");
           setTimeout(() => mc.classList.remove("grow"), 450);
-          try { navigator.vibrate && navigator.vibrate(6); } catch {}
+          try { haptic(6); } catch {}
         }
         return;
       }
@@ -3532,7 +3594,7 @@
       if (!min && (dy > 70 || (fast && dy > 25))) {
         if (S.eatOn && E.view === "list") { E.view = "cards"; mc.innerHTML = ""; renderMapCard(); }
         else mc.classList.add("mc-min");
-        try { navigator.vibrate && navigator.vibrate(6); } catch {}
+        try { haptic(6); } catch {}
       } else if (min && (dy < -40 || (fast && dy < -15))) {
         mc.classList.remove("mc-min");
       }
@@ -3573,7 +3635,7 @@
       }
       e.preventDefault();
       st.d = Math.min(130, (dy - 8) * 0.5);
-      if (st.d >= TH && !st.buzz) { st.buzz = true; try { navigator.vibrate && navigator.vibrate(8); } catch {} }
+      if (st.d >= TH && !st.buzz) { st.buzz = true; try { haptic(8); } catch {} }
       if (st.d < TH) st.buzz = false;
       place(st.d);
     }, { passive: false });
@@ -3705,7 +3767,7 @@
     async moodClear() { await api("mood", { method: "POST", body: { m: null } }); S.mood[S.who] = null; closeSheet(); render(true); },
     async missYou(el) {
       el.classList.remove("sent"); void el.offsetWidth; el.classList.add("sent");
-      try { navigator.vibrate && navigator.vibrate(20); } catch {}
+      try { haptic(20); } catch {}
       const r = await api("miss", { method: "POST", body: {} });
       toast(r.throttled ? "방금 보냈어요" : `${nm(other())}님에게 보고싶다고 전했어요`);
     },
@@ -3716,7 +3778,7 @@
     nfcSheet: () => nfcSheet(),
     async tapHeart(el) {
       el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");
-      try { navigator.vibrate && navigator.vibrate(15); } catch {}
+      try { haptic(15); } catch {}
       const sent = Date.now();
       try {
         const r = await timedApi("touch", { method: "POST", body: { kind: "tap" } });
@@ -3869,7 +3931,7 @@
     eatSetSt(el) { eatUpdate({ status: el.dataset.v }); },
     eatRate(el) {
       const e = E.list.find((x) => x.id === S.eatCur), v = Number(el.dataset.v), off = e && e["r" + S.who] === v;
-      try { navigator.vibrate && navigator.vibrate(8); } catch {}
+      try { haptic(8); } catch {}
       eatUpdate({ rate: off ? 0 : v }).then(() => toast(off ? "별점을 지웠어요" : `별점 ${v}점을 줬어요`));
     },
     eatFly() { const e = E.list.find((x) => x.id === S.eatCur); closeSheet(); if (S.tab !== "map") setTab("map"); if (!S.eatOn) setEatOn(true); setTimeout(() => map.flyTo({ center: [e.lon, e.lat], zoom: 17 }), 300); },
@@ -3887,7 +3949,7 @@
     eatWant() {
       const id = S.eatCur, e = E.list.find((x) => x.id === id);
       if (e) { e["w" + S.who] = e["w" + S.who] ? 0 : 1; eatDetail(e); drawEatMarkers(); }
-      try { navigator.vibrate && navigator.vibrate(10); } catch {}
+      try { haptic(10); } catch {}
       api(`eats/${id}/want`, { method: "POST", body: {} }).then((r) => { if (r.on && e && e["w" + other()]) toast("둘 다 가고 싶은 곳이에요"); loadEats(); }).catch((er) => toast(er.message));
     },
     eatPhoto() { $("#eatFile").click(); },

@@ -2274,7 +2274,7 @@
       const src = ms.find((x) => x.id === m.reply);
       rq = `<span class="rq" data-goto="${m.reply}"><b>${src ? esc(nm(src.who)) : "이전 메시지"}</b>${src ? esc(src.text || "사진") : ""}</span>`;
     }
-    const imgHtml = m.img || m.local ? `<img class="dm-img" src="${m.local || `/api/chatimg/${m.img}?thumb=1`}" style="aspect-ratio:${m.w || 4}/${m.h || 3}" data-img="${m.img || ""}" alt="">` : "";
+    const imgHtml = m.img || m.local ? `<img class="dm-img" draggable="false" src="${m.local || `/api/chatimg/${m.img}?thumb=1`}" style="aspect-ratio:${m.w || 4}/${m.h || 3}" data-img="${m.img || ""}" alt="">` : "";
     return `${rq}${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}`;
   }
   // 화면 전체를 다시 그리지 않고 바뀐 줄만 바꿔서 깜빡임 없이 (인스타처럼)
@@ -2599,7 +2599,7 @@
         return;
       }
       lastTap = { id: bub.dataset.mid, t: now };
-      const im = e.target.closest(".dm-img");
+      const im = e.target.closest(".dm-img") || (bub.classList.contains("has-img") && !e.target.closest(".tx") ? bub.querySelector(".dm-img") : null);
       if (im && im.dataset.img) {
         clearTimeout(tapTimer);
         tapTimer = setTimeout(() => {
@@ -2644,13 +2644,17 @@
         if (m && !String(m.id).startsWith("tmp")) setReply(m);
       }
     });
+    let pressXY = null;
     L.addEventListener("touchstart", (e) => {
       const bub = e.target.closest(".dm-bub");
       if (!bub) return;
+      pressXY = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       pressT = setTimeout(() => { pressT = null; opened = true; try { haptic(10); } catch {} openRx(bub); }, 420);
     }, { passive: true });
     const cancel = () => { if (pressT) { clearTimeout(pressT); pressT = null; } };
-    L.addEventListener("touchend", cancel); L.addEventListener("touchmove", cancel, { passive: true });
+    L.addEventListener("touchend", cancel); L.addEventListener("touchcancel", cancel);
+    // 손가락이 살짝 떨리는 건 무시, 10px 넘게 움직여야 꾹 누르기 취소
+    L.addEventListener("touchmove", (e) => { if (!pressT || !pressXY) return; const t = e.touches[0]; if (Math.hypot(t.clientX - pressXY.x, t.clientY - pressXY.y) > 10) cancel(); }, { passive: true });
     L.addEventListener("contextmenu", (e) => { const bub = e.target.closest(".dm-bub"); if (bub) { e.preventDefault(); openRx(bub); } });
     L.addEventListener("scroll", () => { if (L.scrollHeight - L.scrollTop - L.clientHeight < 80) $("#dmJump").hidden = true; }, { passive: true });
   })();

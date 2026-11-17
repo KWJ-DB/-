@@ -2003,3 +2003,5 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 /* 디엠 꾹 누를 때 파란 글자 선택·확대경 안 뜨게 */
 #chatWrap .dm-list, #chatWrap .dm-list *, #chatWrap .dm-head, #chatWrap .dm-head * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
 #chatWrap .dm-list img { -webkit-user-drag: none; }
+/* 사진 꾹 누르기: 아이폰이 사진을 들어올리며(드래그) 터치를 취소하지 않게 사진은 터치를 말풍선으로 넘김 */
+#chatWrap .dm-img { pointer-events: none; }

@@ -225,6 +225,24 @@ export async function onRequest({ request, env, params, waitUntil }) {
       return st.gd_at;
     };
     const gRedirect = () => `${url.origin}/api/gdrive/callback`;
+    // 사진 한 장을 드라이브 우주 폴더에 백업
+    const gBackupPhoto = async (pid) => {
+      const r = await DB.prepare("SELECT id, date, data, gbk FROM photos WHERE id = ?1").bind(pid).first();
+      if (!r || r.gbk || !r.data) return false;
+      const at = await gAccess();
+      const bnd = "wooju" + Math.random().toString(36).slice(2);
+      const meta = JSON.stringify({ name: `우주-${r.date}-${r.id}.jpg`, mimeType: "image/jpeg", ...(st.gd_folder ? { parents: [st.gd_folder] } : {}) });
+      const img = fromB64(r.data);
+      const head = new TextEncoder().encode(`--${bnd}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${bnd}\r\ncontent-type: image/jpeg\r\n\r\n`);
+      const tail = new TextEncoder().encode(`\r\n--${bnd}--`);
+      const bodyBytes = new Uint8Array(head.length + img.length + tail.length);
+      bodyBytes.set(head, 0); bodyBytes.set(img, head.length); bodyBytes.set(tail, head.length + img.length);
+      const up = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", { method: "POST", headers: { authorization: `Bearer ${at}`, "content-type": `multipart/related; boundary=${bnd}` }, body: bodyBytes });
+      const d = await up.json().catch(() => ({}));
+      if (!d.id) throw new Error("드라이브 백업 실패" + (d.error && d.error.message ? ` (${d.error.message})` : ""));
+      await DB.prepare("UPDATE photos SET gbk = ?1 WHERE id = ?2").bind(d.id, pid).run();
+      return true;
+    };
 
     // 구글 로그인 후 돌아오는 곳: 아이폰 홈 화면 앱은 구글 창이 따로 떠서 쿠키가 없을 수 있어 state 서명으로 사람 확인
     if (p0 === "gdrive" && p1 === "callback" && m === "GET") {
@@ -971,7 +989,22 @@ export async function onRequest({ request, env, params, waitUntil }) {
         }
         const r = await DB.prepare("INSERT INTO photos (date, caption, who, w, h, t, thumb, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
           .bind(b.date, str(b.caption, 100) || null, who, Number(b.w) || null, Number(b.h) || null, Date.now(), thumb, data).run();
+        // 드라이브가 연결돼 있으면 새 사진은 바로 백업 (응답은 기다리지 않음)
+        if (st.gd_refresh && r.meta?.last_row_id) { const job = gBackupPhoto(r.meta.last_row_id).catch(() => {}); if (waitUntil) waitUntil(job); }
         return json({ ok: true, id: r.meta?.last_row_id });
+      }
+      // 사진 드라이브 백업: GET은 남은 수, POST는 몇 장씩 백업
+      case "GET gdbackup": {
+        const c = await DB.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN gbk IS NULL THEN 1 ELSE 0 END) AS left FROM photos WHERE kind IS NULL OR kind != 'video'").first();
+        return json({ total: c ? c.n : 0, left: c ? c.left || 0 : 0 });
+      }
+      case "POST gdbackup": {
+        if (!st.gd_refresh) return err(400, "구글 드라이브가 연결되어 있지 않아요");
+        const { results } = await DB.prepare("SELECT id FROM photos WHERE gbk IS NULL AND (kind IS NULL OR kind != 'video') ORDER BY id LIMIT 4").all();
+        let done = 0;
+        for (const r of results || []) { if (await gBackupPhoto(r.id)) done++; }
+        const c = await DB.prepare("SELECT COUNT(*) AS n FROM photos WHERE gbk IS NULL AND (kind IS NULL OR kind != 'video')").first();
+        return json({ done, left: c ? c.n : 0 });
       }
       case "POST gdone": {
         // 브라우저가 드라이브에 다 올린 뒤 알려줌 → 확인하고 영상 준비 완료
@@ -986,8 +1019,10 @@ export async function onRequest({ request, env, params, waitUntil }) {
         return json(OK);
       }
       case "DELETE photos": {
-        const dv = await DB.prepare("SELECT drive_id FROM photos WHERE id = ?1").bind(id).first();
-        if (dv && dv.drive_id && st.gd_refresh) { try { const at = await gAccess(); await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(dv.drive_id)}`, { method: "DELETE", headers: { authorization: `Bearer ${at}` } }); } catch {} }
+        const dv = await DB.prepare("SELECT drive_id, gbk FROM photos WHERE id = ?1").bind(id).first();
+        for (const fid of [dv && dv.drive_id, dv && dv.gbk]) {
+          if (fid && st.gd_refresh) { try { const at = await gAccess(); await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fid)}`, { method: "DELETE", headers: { authorization: `Bearer ${at}` } }); } catch {} }
+        }
         await DB.prepare("DELETE FROM photos WHERE id = ?1").bind(id).run();
         await DB.prepare("DELETE FROM vchunks WHERE vid = ?1").bind(id).run();
         return json(OK);

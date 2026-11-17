@@ -1657,8 +1657,14 @@
       openSheet(`
         <h2>${ic("film")}구글 드라이브</h2>
         <p class="sheet-sub"><b>${esc(g.email)}</b> 드라이브에 연결돼 있어요. 이제 올리는 영상은 드라이브의 <b>우주</b> 폴더에 저장되고, 우주에서 그대로 재생돼요. 한 개에 2GB까지 돼요.</p>
-        <p class="sheet-sub">사진은 지금처럼 우주에 저장돼요. 연결을 끊어도 드라이브에 있는 영상은 지워지지 않지만, 우주에서는 재생이 안 돼요.</p>
+        <div class="ig-quick" style="background:#EEF5FF">
+          <b>${ic("download")}사진 백업</b>
+          <span id="gdBkInfo">확인 중...</span>
+          <button class="btn primary" data-act="gdBackup" id="gdBkBtn">지금 백업하기</button>
+        </div>
+        <p class="sheet-sub" style="margin-top:12px">새로 올리는 사진은 드라이브에도 자동으로 백업돼요. 우주에서 지우면 드라이브 백업도 같이 지워져요. 연결을 끊어도 드라이브에 있는 파일은 그대로 남아요.</p>
         <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="gdOff">연결 끊기</button><button class="btn primary" data-act="close">확인</button></div>`);
+      api("gdbackup").then((d) => { const el = $("#gdBkInfo"); if (!el) return; el.textContent = d.left ? `사진 ${d.total}장 중 ${d.left}장이 아직 백업 안 됐어요. 드라이브 우주 폴더에 저장돼요.` : `사진 ${d.total}장 모두 드라이브에 백업돼 있어요.`; if (!d.left) $("#gdBkBtn").hidden = true; }).catch(() => {});
       return;
     }
     const redir = `${location.origin}/api/gdrive/callback`;
@@ -4209,6 +4215,24 @@
     turnSheet: () => turnSheet(),
     igSheet: () => igSheet(),
     gdSheet: () => gdSheet(),
+    async gdBackup(el) {
+      if (S.gdBk) return;
+      S.gdBk = true; el.disabled = true;
+      try {
+        const st0 = await api("gdbackup"); let left = st0.left; const all = left;
+        while (left > 0) {
+          upProg.show("드라이브에 백업 중", (all - left) / all);
+          const d = await api("gdbackup", { method: "POST" });
+          if (!d.done && d.left >= left) throw new Error("더 진행되지 않아요");
+          left = d.left;
+          const info = $("#gdBkInfo"); if (info) info.textContent = `${all - left} / ${all}장 백업했어요`;
+        }
+        toast(all ? `사진 ${all}장을 드라이브에 백업했어요` : "이미 다 백업돼 있어요");
+        const info = $("#gdBkInfo"); if (info) info.textContent = "사진이 모두 드라이브에 백업돼 있어요.";
+        el.hidden = true;
+      } catch (e) { toast(e.message); el.disabled = false; }
+      finally { S.gdBk = false; upProg.hide(); }
+    },
     gdCopy(el) { try { navigator.clipboard.writeText(el.dataset.v); toast("복사했어요"); } catch { toast(el.dataset.v); } },
     async gdSave() {
       const cid = $("#gdCid").value.trim(), secret = $("#gdSec").value.trim();

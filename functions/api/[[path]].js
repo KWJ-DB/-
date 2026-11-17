@@ -86,24 +86,27 @@ export async function onRequest({ request, env, params, waitUntil }) {
     const later = (job) => { if (waitUntil) waitUntil(job); else return job; };
     // 가보고 싶던 맛집·갈 곳 근처(120m)에 가면 알려줌 (같은 곳은 12시간에 한 번)
     const eatNearby = async (who, lat, lon, acc) => {
-      lat = Number(lat); lon = Number(lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon) || Number(acc) > 80) return;
-      const d = 0.0015;
+      lat = Number(lat); lon = Number(lon); acc = Number(acc) || 30;
+      // 진짜 가까울 때만: 위치가 정확(오차 35m 이내)하고 가게에서 40m 안쪽일 때, 제일 가까운 한 곳만
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || acc > 35) return;
+      const d = 0.0006;
       const { results } = await env.DB.prepare("SELECT id, name, kind, wa, wb, lat, lon FROM eats WHERE status != 'been' AND lat BETWEEN ?1 AND ?2 AND lon BETWEEN ?3 AND ?4")
         .bind(lat - d, lat + d, lon - d * 1.3, lon + d * 1.3).all();
+      const lim = Math.min(40, 25 + acc * 0.4);
+      const near = (results || []).map((e) => ({ e, m: distM({ lat, lon }, e) })).filter((x) => x.m <= lim).sort((a, b) => a.m - b.m)[0];
+      if (!near) return;
+      const { e, m } = near;
       const st2 = await getSettings(env);
-      for (const e of results || []) {
-        const m = distM({ lat, lon }, e);
-        if (m > 120) continue;
-        const key = `eatnear_${who}_${e.id}`;
-        if (Date.now() - (Number(st2[key]) || 0) < 12 * 3600e3) continue;
-        await setSettings(env, { [key]: Date.now() });
-        const both = e.wa && e.wb;
-        await sendPush(env, st2, setSettings, who, {
-          title: both ? "둘 다 찜한 곳이 바로 근처예요" : e.kind === "place" ? "가보고 싶던 곳이 근처예요" : "가보고 싶던 맛집이 근처예요",
-          body: `${e.name}이(가) ${Math.round(m / 10) * 10}m 거리에 있어요`, url: "/#map", tag: "eatnear" + e.id,
-        });
-      }
+      const key = `eatnear_${who}_${e.id}`;
+      if (Date.now() - (Number(st2[key]) || 0) < 24 * 3600e3) return;
+      // 다른 가게 알림도 10분에 한 번까지만
+      if (Date.now() - (Number(st2["eatnear_last_" + who]) || 0) < 10 * 60000) return;
+      await setSettings(env, { [key]: Date.now(), ["eatnear_last_" + who]: Date.now() });
+      const both = e.wa && e.wb;
+      await sendPush(env, st2, setSettings, who, {
+        title: both ? "둘 다 찜한 곳이 바로 앞이에요" : e.kind === "place" ? "가보고 싶던 곳이 바로 앞이에요" : "가보고 싶던 맛집이 바로 앞이에요",
+        body: `${e.name}이(가) ${Math.max(10, Math.round(m / 10) * 10)}m 앞에 있어요`, url: "/#map", tag: "eatnear" + e.id,
+      });
     };
 
     // ---------- 로그인 없이 쓰는 것 ----------

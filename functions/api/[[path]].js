@@ -6,6 +6,8 @@ import {
   parseBasic, fromB64, checkPlaces, distM,
 } from "../_lib.js";
 import { getVapid, sendPush } from "../_push.js";
+const VCHUNK = 1800000; // 영상 조각 크기 (D1 한 칸 2MB 제한 아래)
+const VMAX = 100 * 1048576; // 영상 최대 100MB
 const IG_V = "v26.0"; // 인스타 API 버전 (2026년 7월 최신)
 
 const REACTS = ["heart", "sparkle", "star", "fire", "like", "hug", "laugh", "wow", "sad"];
@@ -814,7 +816,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!isDate(from) || !isDate(to)) return err(400, "기간이 올바르지 않아요");
         const [ev, ph] = await DB.batch([
           DB.prepare("SELECT id, date, time, title, memo, who FROM events WHERE date BETWEEN ?1 AND ?2 ORDER BY date, time IS NULL, time, id").bind(from, to),
-          DB.prepare("SELECT id, date, caption, who, w, h, t FROM photos WHERE date BETWEEN ?1 AND ?2 ORDER BY date, id").bind(from, to),
+          DB.prepare("SELECT id, date, caption, who, w, h, t, kind, dur, vready FROM photos WHERE date BETWEEN ?1 AND ?2 ORDER BY date, id").bind(from, to),
         ]);
         return json({ events: ev.results || [], photos: ph.results || [] });
       }
@@ -863,12 +865,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
       // ----- 사진 -----
       case "GET photos": {
         const n = Math.min(Math.max(Number(q("recent")) || 12, 1), 60);
-        const { results } = await DB.prepare("SELECT id, date, caption, who, w, h, t FROM photos ORDER BY date DESC, id DESC LIMIT ?1").bind(n).all();
+        const { results } = await DB.prepare("SELECT id, date, caption, who, w, h, t, kind, dur, vready FROM photos ORDER BY date DESC, id DESC LIMIT ?1").bind(n).all();
         return json({ photos: results || [] });
       }
       case "GET album": {
         const offset = Math.max(0, Number(q("offset")) || 0);
-        const { results } = await DB.prepare("SELECT id, date, caption, who, w, h, t FROM photos ORDER BY date DESC, id DESC LIMIT 60 OFFSET ?1").bind(offset).all();
+        const { results } = await DB.prepare("SELECT id, date, caption, who, w, h, t, kind, dur, vready FROM photos ORDER BY date DESC, id DESC LIMIT 60 OFFSET ?1").bind(offset).all();
         const c = await DB.prepare("SELECT COUNT(*) AS n FROM photos").first();
         return json({ photos: results || [], total: c ? c.n : 0 });
       }
@@ -885,13 +887,66 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!data || !thumb) return err(400, "사진이 없어요");
         if (data.length > 1500000 || thumb.length > 200000) return err(413, "사진이 너무 커요");
         if (!/^[A-Za-z0-9+/=]+$/.test(data.slice(0, 200))) return err(400, "사진 형식이 올바르지 않아요");
+        if (b.kind === "video") {
+          const size = Number(b.size) || 0;
+          if (!(size > 0) || size > VMAX) return err(413, `영상은 ${VMAX / 1048576}MB까지 올릴 수 있어요`);
+          const mime = /^video\/[a-z0-9.+-]+$/i.test(b.mime || "") ? b.mime : "video/mp4";
+          const vn = Math.ceil(size / VCHUNK);
+          const r = await DB.prepare("INSERT INTO photos (date, caption, who, w, h, t, thumb, data, kind, dur, vsize, vmime, vn, vready) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'video', ?9, ?10, ?11, ?12, 0)")
+            .bind(b.date, str(b.caption, 100) || null, who, Number(b.w) || null, Number(b.h) || null, Date.now(), thumb, data, Number(b.dur) || null, size, mime, vn).run();
+          return json({ ok: true, id: r.meta?.last_row_id, chunk: VCHUNK, n: vn });
+        }
         const r = await DB.prepare("INSERT INTO photos (date, caption, who, w, h, t, thumb, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
           .bind(b.date, str(b.caption, 100) || null, who, Number(b.w) || null, Number(b.h) || null, Date.now(), thumb, data).run();
         return json({ ok: true, id: r.meta?.last_row_id });
       }
       case "DELETE photos":
         await DB.prepare("DELETE FROM photos WHERE id = ?1").bind(id).run();
+        await DB.prepare("DELETE FROM vchunks WHERE vid = ?1").bind(id).run();
         return json(OK);
+      // 영상 조각 올리기: PUT /api/vchunk/:id/:idx (본문은 그대로 바이너리)
+      case "PUT vchunk": {
+        const idx = Number(p2);
+        const v = await DB.prepare("SELECT vn, vsize, vready FROM photos WHERE id = ?1 AND kind = 'video'").bind(id).first();
+        if (!v || !(idx >= 0) || idx >= v.vn) return err(400, "잘못된 조각이에요");
+        const buf = await request.arrayBuffer();
+        const want = idx === v.vn - 1 ? v.vsize - idx * VCHUNK : VCHUNK;
+        if (buf.byteLength !== want) return err(400, "조각 크기가 맞지 않아요");
+        await DB.prepare("INSERT INTO vchunks (vid, idx, data) VALUES (?1, ?2, ?3) ON CONFLICT(vid, idx) DO UPDATE SET data = ?3").bind(id, idx, buf).run();
+        if (idx === v.vn - 1) {
+          const c = await DB.prepare("SELECT COUNT(*) AS n FROM vchunks WHERE vid = ?1").bind(id).first();
+          if (c && c.n === v.vn) await DB.prepare("UPDATE photos SET vready = 1 WHERE id = ?1").bind(id).run();
+        }
+        return json(OK);
+      }
+      // 영상 보기 (아이폰 재생에 필요한 Range 요청 지원)
+      case "GET video": {
+        const v = await DB.prepare("SELECT vn, vsize, vmime, vready FROM photos WHERE id = ?1 AND kind = 'video'").bind(id).first();
+        if (!v || !v.vready) return err(404, "영상이 아직 없어요");
+        const size = v.vsize;
+        let start = 0, end = size - 1, partial = false;
+        const rg = /bytes=(\d*)-(\d*)/.exec(request.headers.get("range") || "");
+        if (rg) {
+          partial = true;
+          if (rg[1] === "") { start = Math.max(0, size - Number(rg[2])); }
+          else { start = Number(rg[1]); if (rg[2] !== "") end = Math.min(size - 1, Number(rg[2])); }
+          // 한 번에 너무 많이 읽지 않게 최대 4조각
+          end = Math.min(end, start + VCHUNK * 4 - 1);
+          if (start >= size || start > end) return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+        } else end = Math.min(end, VCHUNK * 4 - 1), partial = size > VCHUNK * 4;
+        const a = Math.floor(start / VCHUNK), z = Math.floor(end / VCHUNK);
+        const { results } = await DB.prepare("SELECT idx, data FROM vchunks WHERE vid = ?1 AND idx BETWEEN ?2 AND ?3 ORDER BY idx").bind(id, a, z).all();
+        const out = new Uint8Array(end - start + 1);
+        for (const r of results || []) {
+          const bytes = new Uint8Array(r.data);
+          const cs = r.idx * VCHUNK;
+          const from = Math.max(start, cs), to = Math.min(end, cs + bytes.length - 1);
+          if (to >= from) out.set(bytes.subarray(from - cs, to - cs + 1), from - start);
+        }
+        const h = { "content-type": v.vmime || "video/mp4", "accept-ranges": "bytes", "content-length": String(out.length), "cache-control": "private, max-age=31536000, immutable" };
+        if (partial) h["content-range"] = `bytes ${start}-${end}/${size}`;
+        return new Response(out, { status: partial ? 206 : 200, headers: h });
+      }
       case "GET photo": {
         const col = q("thumb") ? "thumb" : "data";
         const r = await DB.prepare(`SELECT ${col} AS img FROM photos WHERE id = ?1`).bind(id).first();

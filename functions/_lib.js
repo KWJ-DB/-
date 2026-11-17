@@ -108,6 +108,12 @@ export async function ensureSchema(env) {
     try { await env.DB.prepare("ALTER TABLE eats ADD COLUMN price INTEGER").run(); } catch {}
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '9') ON CONFLICT(k) DO UPDATE SET v = '9'").run();
   }
+  if (!v || Number(v.v) < 10) {
+    // 영상: photos 한 줄(첫 화면 사진) + 조각들
+    for (const c of ["kind TEXT", "dur REAL", "vsize INTEGER", "vmime TEXT", "vn INTEGER", "vready INTEGER"]) { try { await env.DB.prepare(`ALTER TABLE photos ADD COLUMN ${c}`).run(); } catch {} }
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS vchunks (vid INTEGER NOT NULL, idx INTEGER NOT NULL, data BLOB, PRIMARY KEY (vid, idx))").run();
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '10') ON CONFLICT(k) DO UPDATE SET v = '10'").run();
+  }
   ready = true;
 }
 

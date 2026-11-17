@@ -756,22 +756,22 @@
         const dw = "일월화수목금토"[new Date(p.date + "T00:00:00").getDay()];
         html += `<section class="al-day"><div class="al-day-h"><b>${+p.date.slice(5, 7)}월 ${+p.date.slice(8)}일 ${dw}요일</b><span>우리 ${dplus(p.date)}일째 · ${cnt[p.date]}장</span></div><div class="al-grid">`;
       }
-      html += `<button data-act="openAlbum" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""></button>`;
+      html += `<button data-act="openAlbum" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt="">${p.kind === "video" ? `<span class="vbadge">${ic("play")}${p.dur ? fmtDur(p.dur) : ""}</span>` : ""}</button>`;
     });
     if (curD) html += `</div></section>`;
     view.innerHTML = `
       ${segHtml()}
       <div class="al-head">
         <div><h2>우리 앨범</h2><span>${S.album.total}장의 추억</span></div>
-        <button class="btn primary sm" data-act="albumUp">${ic("plus")}사진 올리기</button>
+        <button class="btn primary sm" data-act="albumUp">${ic("plus")}올리기</button>
       </div>
-      <input type="file" id="alInput" accept="image/*" multiple hidden>
+      <input type="file" id="alInput" accept="image/*,video/*" multiple hidden>
       ${ph.length ? html : `<div class="card empty">${ic("image")}<br>아직 사진이 없어요<br>같이 찍은 사진을 올려보세요</div>`}
       ${ph.length < S.album.total ? `<button class="btn gray block" data-act="albumMore" style="margin-top:12px">더 보기</button>` : ""}`;
   }
   async function albumUpload(files) {
     const date = today();
-    const ids = await uploadMany(files, async (b) => { const p = await prepPhoto(b); return (await api("photos", { method: "POST", body: { date, ...p } })).id; });
+    const ids = await uploadMany(files, async (b, lab) => { if (/^video\//.test(b.type)) return uploadVideo(b, date, lab); const p = await prepPhoto(b); return (await api("photos", { method: "POST", body: { date, ...p } })).id; });
     S.album = null; S.calData = null;
     await render(true);
     igAsk(ids);
@@ -847,10 +847,10 @@
 
         <div class="sec-t"><span>사진</span><span>${sPh.length ? sPh.length + "장" : ""}</span></div>
         <div class="photos">
-          ${sPh.map((p, i) => `<button data-act="openDayPhoto" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt=""></button>`).join("")}
+          ${sPh.map((p, i) => `<button data-act="openDayPhoto" data-i="${i}"><img loading="lazy" src="/api/photo/${p.id}?thumb=1" alt="">${p.kind === "video" ? `<span class="vbadge">${ic("play")}${p.dur ? fmtDur(p.dur) : ""}</span>` : ""}</button>`).join("")}
           <button class="up" data-act="upPhoto">${ic("plus")}사진 추가</button>
         </div>
-        <input type="file" id="phInput" accept="image/*" multiple hidden>
+        <input type="file" id="phInput" accept="image/*,video/*" multiple hidden>
       </div>`;
     S.dayPhotos = sPh;
   }
@@ -883,6 +883,57 @@
     const th = draw(im, thumbMax, 0.74);
     return { data: f.b64, thumb: th.b64, w: f.w, h: f.h };
   }
+  // ---------- 영상 ----------
+  const fmtDur = (sec) => { sec = Math.round(sec || 0); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`; };
+  async function fetchVideo(id) {
+    const parts = []; let pos = 0, total = Infinity, type = "video/mp4";
+    while (pos < total) {
+      const r = await fetch(`/api/video/${id}`, { headers: { range: `bytes=${pos}-` }, credentials: "same-origin" });
+      if (!r.ok) throw new Error("영상을 받지 못했어요");
+      type = r.headers.get("content-type") || type;
+      const cr = /\/(\d+)$/.exec(r.headers.get("content-range") || "");
+      const b = await r.arrayBuffer();
+      parts.push(b); pos += b.byteLength;
+      total = cr ? Number(cr[1]) : pos;
+      if (!b.byteLength) break;
+    }
+    return new Blob(parts, { type });
+  }
+  // 영상 첫 화면을 사진으로 뽑기 (앨범 썸네일용)
+  function videoPoster(file) {
+    return new Promise((res, rej) => {
+      const v = document.createElement("video"), url = URL.createObjectURL(file);
+      v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+      const fail = setTimeout(() => { URL.revokeObjectURL(url); rej(new Error("영상을 열 수 없어요")); }, 20000);
+      v.onloadedmetadata = () => { try { v.currentTime = Math.min(0.5, (v.duration || 1) / 3); } catch {} };
+      v.onseeked = () => {
+        const w = v.videoWidth, h = v.videoHeight, sc = Math.min(1, 1280 / Math.max(w, h));
+        const c = document.createElement("canvas"); c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+        c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+        c.toBlob((b) => { clearTimeout(fail); URL.revokeObjectURL(url); if (!b) return rej(new Error("영상을 열 수 없어요")); res({ blob: b, dur: v.duration || 0 }); }, "image/jpeg", 0.85);
+      };
+      v.onerror = () => { clearTimeout(fail); URL.revokeObjectURL(url); rej(new Error("이 영상 형식은 못 열어요")); };
+    });
+  }
+  async function uploadVideo(file, date, label) {
+    if (file.size > 100 * 1048576) throw new Error("영상은 100MB까지 올릴 수 있어요");
+    const { blob, dur } = await videoPoster(file);
+    const p = await prepPhoto(blob);
+    const r = await api("photos", { method: "POST", body: { date, ...p, kind: "video", mime: file.type || "video/mp4", size: file.size, dur } });
+    for (let i = 0; i < r.n; i++) {
+      toast(`${label} ${Math.round((i / r.n) * 100)}%`);
+      const part = file.slice(i * r.chunk, Math.min(file.size, (i + 1) * r.chunk));
+      let ok = false, last;
+      for (let k = 0; k < 3 && !ok; k++) {
+        try {
+          const x = await fetch(`/api/vchunk/${r.id}/${i}`, { method: "PUT", body: part, credentials: "same-origin", headers: { "content-type": "application/octet-stream" } });
+          if (x.ok) ok = true; else last = (await x.json().catch(() => ({}))).error || "오류 " + x.status;
+        } catch (e) { last = e.message; }
+      }
+      if (!ok) { api(`photos/${r.id}`, { method: "DELETE" }).catch(() => {}); throw new Error(last || "영상 올리기 실패"); }
+    }
+    return -r.id; // 음수 = 영상 (인스타 묻기에서 빼려고)
+  }
   // 여러 장 올리기 공통: 먼저 전부 메모리에 복사(아이폰은 화면이 바뀌면 원본을 못 읽기도 함), 올리는 동안 자동 새로고침 멈춤
   async function uploadMany(files, send) {
     S.uploading = true;
@@ -891,23 +942,24 @@
     try {
       const blobs = await Promise.all(files.map((f) => f.arrayBuffer().then((b) => new Blob([b], { type: f.type || "image/jpeg" })).catch(() => null)));
       for (let i = 0; i < blobs.length; i++) {
-        toast(`사진 올리는 중 ${i + 1}/${blobs.length}`);
+        const lab = `${blobs[i] && /^video\//.test(blobs[i].type) ? "영상" : "사진"} 올리는 중 ${i + 1}/${blobs.length}`;
+        toast(lab);
         try {
           if (!blobs[i]) throw new Error("사진을 열 수 없어요");
-          out.push(await send(blobs[i]));
+          out.push(await send(blobs[i], lab));
           ok++;
         } catch (e) { fail++; lastErr = e.message; }
       }
     } finally { S.uploading = false; }
     document.querySelectorAll('input[type="file"]').forEach((x) => { try { x.value = ""; } catch {} });
-    toast(fail ? `${ok}장 올렸고 ${fail}장은 실패했어요 (${lastErr})` : `사진 ${ok}장을 올렸어요`);
+    toast(fail ? `${ok}개 올렸고 ${fail}개는 실패했어요 (${lastErr})` : `${ok}개 올렸어요`);
     return out;
   }
   async function uploadPhotos(files) {
     const date = S.cal.sel;
     const btn = $(".photos .up");
     if (btn) btn.classList.add("busy");
-    const ids = await uploadMany(files, async (b) => { const p = await prepPhoto(b); return (await api("photos", { method: "POST", body: { date, ...p } })).id; });
+    const ids = await uploadMany(files, async (b, lab) => { if (/^video\//.test(b.type)) return uploadVideo(b, date, lab); const p = await prepPhoto(b); return (await api("photos", { method: "POST", body: { date, ...p } })).id; });
     S.calData = null; S.album = null;
     await render(true);
     igAsk(ids);
@@ -926,7 +978,7 @@
         <span class="lb-acts"><button class="icon-btn" data-act="lbSave" aria-label="저장">${ic("download")}</button>${p.chat ? "" : `${igMine() && !p.daily ? `<button class="icon-btn" data-act="lbIg" aria-label="인스타에 올리기">${ic("camera")}</button>` : ""}<button class="icon-btn" data-act="lbEdit" aria-label="고치기">${ic("pen")}</button><button class="icon-btn" data-act="lbDel" aria-label="삭제">${ic("trash")}</button>`}</span>
       </div>
       <div class="lb-img">
-        <img src="${p.src || `/api/photo/${p.id}`}" alt="">
+        ${p.kind === "video" ? (p.vready ? `<video src="/api/video/${p.id}" poster="/api/photo/${p.id}" controls playsinline preload="metadata"></video>` : `<img src="/api/photo/${p.id}" alt=""><span class="lb-wait">영상 올리는 중이에요</span>`) : `<img src="${p.src || `/api/photo/${p.id}`}" alt="">`}
         ${S.lbIdx > 0 ? `<button class="nav l" data-act="lbNav" data-d="-1">${ic("left")}</button>` : ""}
         ${S.lbIdx < S.lbList.length - 1 ? `<button class="nav r" data-act="lbNav" data-d="1">${ic("right")}</button>` : ""}
       </div>
@@ -1592,7 +1644,7 @@
   }
   // 사진 올린 뒤 인스타에도 올릴지 묻기
   function igAsk(ids) {
-    ids = (ids || []).filter(Boolean);
+    ids = (ids || []).filter((x) => x > 0); // 영상(음수)은 빼고 사진만
     if (!ids.length || !igMine()) return;
     S.igPick = { ids, on: new Set(ids.slice(0, 10)) };
     igAskDraw();
@@ -3825,8 +3877,8 @@
       const p = S.lbList[S.lbIdx]; if (!p) return;
       const url = p.src || `/api/photo/${p.id}`;
       try {
-        toast("사진 준비 중...");
-        const blob = await (await fetch(url, { credentials: "same-origin" })).blob();
+        toast(p.kind === "video" ? "영상 준비 중..." : "사진 준비 중...");
+        const blob = p.kind === "video" ? await fetchVideo(p.id) : await (await fetch(url, { credentials: "same-origin" })).blob();
         const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
         const file = new File([blob], `wooju-${(p.date || ymd(new Date(p.t || Date.now()))).replace(/-/g, "")}-${p.id}.${ext}`, { type: blob.type || "image/jpeg" });
         // 아이폰: 공유 창에서 '이미지 저장'을 누르면 사진 앱에 저장

@@ -1935,7 +1935,7 @@
   }
   const speedTxt = (l) => { if (!l || l.vel == null || S.locNow - l.t > 10 * 60000) return ""; const v = Number(l.vel); return v >= 4 ? `이동 중 ${v}km/h` : "멈춰 있음"; };
   // 서버가 "함께"라고 해도 지금 위치가 멀면 함께 아님
-  function isTogether() { const la = S.locs.a, lb = S.locs.b; return !!(S.together && (!la || !lb || distM(la, lb) < 200)); }
+  function isTogether() { const la = S.locs.a, lb = S.locs.b; return !!(S.together && (!la || !lb || distM(la, lb) < 80)); }
   function renderMapCard() {
     const mc = $("#mapCard");
     if (!$("#pick") && mc.hidden) mc.hidden = false;

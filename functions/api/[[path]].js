@@ -60,11 +60,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const R = 6371000, rad = Math.PI / 180;
         const x = Math.sin(((L.b.lat - L.a.lat) * rad) / 2) ** 2 + Math.cos(L.a.lat * rad) * Math.cos(L.b.lat * rad) * Math.sin(((L.b.lon - L.a.lon) * rad) / 2) ** 2;
         const d = 2 * R * Math.asin(Math.sqrt(x));
-        const accSum = Math.min((L.a.acc || 25) + (L.b.acc || 25), 80);
+        const accSum = (L.a.acc || 25) + (L.b.acc || 25);
         const was = st.together === "1";
-        const near = !stale && d <= Math.max(35, accSum);
+        // 정말 붙어 있을 때만: 20m 안 (위치 오차가 크면 최대 35m까지만 봐줌), 둘 다 위치가 꽤 정확할 때
+        const near = !stale && (L.a.acc || 25) <= 50 && (L.b.acc || 25) <= 50 && d <= 20 + Math.min(15, accSum * 0.2);
         // 한쪽 위치가 오래 안 들어와도 멀어졌거나 30분 넘게 소식 없으면 "함께" 끝
-        const far = d > 150 || now - Math.min(L.a.t, L.b.t) > 30 * 60000;
+        const far = d > 80 || now - Math.min(L.a.t, L.b.t) > 30 * 60000;
         if (!was && near) {
           const upd = { together: "1", together_since: now };
           // 만남 애니메이션은 30분에 한 번만

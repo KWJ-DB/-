@@ -2595,6 +2595,25 @@
     L.addEventListener("scroll", () => { if (L.scrollHeight - L.scrollTop - L.clientHeight < 80) $("#dmJump").hidden = true; }, { passive: true });
   })();
   $("#dmFile").addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) sendChatPhotos(f); });
+  // 사진을 끌어다 놓거나 붙여넣으면 바로 디엠 전송
+  (() => {
+    const wrap = $("#chatWrap"); let depth = 0;
+    const imgs = (dt) => [...(dt && dt.files ? dt.files : [])].filter((f) => /^image\//.test(f.type));
+    const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files");
+    wrap.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; wrap.classList.add("dropping"); });
+    wrap.addEventListener("dragover", (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+    wrap.addEventListener("dragleave", () => { depth = Math.max(0, depth - 1); if (!depth) wrap.classList.remove("dropping"); });
+    wrap.addEventListener("drop", (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault(); depth = 0; wrap.classList.remove("dropping");
+      const f = imgs(e.dataTransfer);
+      if (f.length) sendChatPhotos(f.slice(0, 10)); else toast("사진만 보낼 수 있어요");
+    });
+    $("#dmText").addEventListener("paste", (e) => {
+      const f = [...(e.clipboardData ? e.clipboardData.items : [])].filter((it) => it.kind === "file" && /^image\//.test(it.type)).map((it) => it.getAsFile()).filter(Boolean);
+      if (f.length) { e.preventDefault(); sendChatPhotos(f.slice(0, 10)); }
+    });
+  })();
   // 보내기 버튼을 눌러도 키보드가 내려가지 않게
   ["pointerdown", "mousedown"].forEach((ev) => $("#dmSend").addEventListener(ev, (e) => e.preventDefault()));
   $("#dmText").addEventListener("keydown", (e) => {

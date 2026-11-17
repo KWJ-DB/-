@@ -916,10 +916,31 @@
     });
   }
   async function uploadVideo(file, date, label) {
-    if (file.size > 100 * 1048576) throw new Error("영상은 100MB까지 올릴 수 있어요");
+    if (file.size > (S.gdrive && S.gdrive.email ? 2048 : 100) * 1048576) throw new Error(S.gdrive && S.gdrive.email ? "영상은 2GB까지 올릴 수 있어요" : "영상은 100MB까지 올릴 수 있어요");
     const { blob, dur } = await videoPoster(file);
     const p = await prepPhoto(blob);
-    const r = await api("photos", { method: "POST", body: { date, ...p, kind: "video", mime: file.type || "video/mp4", size: file.size, dur } });
+    let r = await api("photos", { method: "POST", body: { date, ...p, kind: "video", mime: file.type || "video/mp4", size: file.size, dur } });
+    if (r.drive) {
+      // 구글 드라이브로 바로 올리기 (8MB씩 이어 올리기)
+      try {
+        const CH = 8 * 1024 * 1024; let pos = 0, fileId = "";
+        while (pos < file.size) {
+          const end = Math.min(file.size, pos + CH);
+          toast(`${label} ${Math.round((pos / file.size) * 100)}%`);
+          const x = await fetch(r.drive, { method: "PUT", body: file.slice(pos, end), headers: { "content-range": `bytes ${pos}-${end - 1}/${file.size}` } });
+          if (x.status === 308) { const rg = /-(\d+)$/.exec(x.headers.get("range") || ""); pos = rg ? Number(rg[1]) + 1 : end; continue; }
+          if (x.ok) { fileId = (await x.json()).id; pos = file.size; break; }
+          throw new Error("드라이브 업로드 실패 " + x.status);
+        }
+        await api(`gdone/${r.id}`, { method: "POST", body: { file: fileId } });
+        return -r.id;
+      } catch (e) {
+        // 드라이브로 안 되면 우주 저장 공간으로
+        await api(`photos/${r.id}`, { method: "DELETE" }).catch(() => {});
+        r = await api("photos", { method: "POST", body: { date, ...p, kind: "video", mime: file.type || "video/mp4", size: file.size, dur, noDrive: 1 } });
+      }
+    }
+    if (file.size > 100 * 1048576) throw new Error("영상은 100MB까지 올릴 수 있어요 (드라이브 연결 시 더 크게)");
     for (let i = 0; i < r.n; i++) {
       toast(`${label} ${Math.round((i / r.n) * 100)}%`);
       const part = file.slice(i * r.chunk, Math.min(file.size, (i + 1) * r.chunk));
@@ -1583,6 +1604,34 @@
       <input type="text" id="tuUser" placeholder="Username" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
       <input type="text" id="tuPass" placeholder="Password" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:block;width:100%;box-sizing:border-box;margin-top:8px">
       <div class="row2" style="margin-top:14px">${S.turn ? `<button class="btn gray" data-act="turnOff">끄기</button>` : `<button class="btn gray" data-act="close">나중에</button>`}<button class="btn primary" data-act="tuSave">켜기</button></div>`);
+  }
+  // ---------- 구글 드라이브 ----------
+  function gdSheet() {
+    const g = S.gdrive;
+    if (g && g.email) {
+      openSheet(`
+        <h2>${ic("film")}구글 드라이브</h2>
+        <p class="sheet-sub"><b>${esc(g.email)}</b> 드라이브에 연결돼 있어요. 이제 올리는 영상은 드라이브의 <b>우주</b> 폴더에 저장되고, 우주에서 그대로 재생돼요. 한 개에 2GB까지 돼요.</p>
+        <p class="sheet-sub">사진은 지금처럼 우주에 저장돼요. 연결을 끊어도 드라이브에 있는 영상은 지워지지 않지만, 우주에서는 재생이 안 돼요.</p>
+        <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="gdOff">연결 끊기</button><button class="btn primary" data-act="close">확인</button></div>`);
+      return;
+    }
+    const redir = `${location.origin}/api/gdrive/callback`;
+    openSheet(`
+      <h2>${ic("film")}구글 드라이브 연결</h2>
+      <p class="sheet-sub">영상을 구글 드라이브(무료 15GB)에 저장해요. 우주 저장 공간(5GB)을 아끼고, 긴 영상도 올릴 수 있어요. 처음 한 번만 설정하면 돼요.</p>
+      <ol class="nv-steps ig-steps">
+        <li><b>프로젝트 만들기</b><br><a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud 콘솔</a>에 구글 계정으로 로그인 → 프로젝트 이름 <b>우주</b> → <b>만들기</b>. 카드 등록은 필요 없어요.</li>
+        <li><b>드라이브 API 켜기</b><br><a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Google Drive API</a> → 위에서 우주 프로젝트가 선택됐는지 보고 <b>사용</b>.</li>
+        <li><b>동의 화면 만들기</b><br><a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google 인증 플랫폼</a> → <b>시작하기</b> → 앱 이름 <b>우주</b>, 지원 이메일은 내 메일 → 대상 <b>외부</b> → 연락처 이메일 → 동의 → <b>만들기</b>.</li>
+        <li><b>앱 게시</b><br>왼쪽 <b>대상</b> → <b>앱 게시</b> → 확인 (프로덕션). 이걸 안 하면 7일마다 다시 연결해야 해요. 우주는 자기가 만든 파일만 보는 권한이라 구글 심사 없이 돼요.</li>
+        <li><b>클라이언트 만들기</b><br>왼쪽 <b>클라이언트</b> → <b>클라이언트 만들기</b> → 유형 <b>웹 애플리케이션</b> → <b>승인된 리디렉션 URI</b>에 아래 주소 추가 → <b>만들기</b>.
+          <div class="gd-uri"><code>${esc(redir)}</code><button data-act="gdCopy" data-v="${esc(redir)}">복사</button></div></li>
+        <li><b>우주에 붙여넣기</b><br>나온 <b>클라이언트 ID</b>와 <b>클라이언트 보안 비밀번호</b>를 아래에 넣고 연결하기 → 구글 로그인 → "Google에서 확인하지 않은 앱" 화면이 나오면 <b>고급</b> → <b>우주(으)로 이동</b> → <b>계속</b>.</li>
+      </ol>
+      <input type="text" id="gdCid" placeholder="클라이언트 ID (....apps.googleusercontent.com)" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:12px">
+      <input type="text" id="gdSec" placeholder="클라이언트 보안 비밀번호 (GOCSPX-...)" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+      <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="close">나중에</button><button class="btn primary" data-act="gdSave">연결하기</button></div>`);
   }
   // ---------- 인스타 자동 게시 ----------
   const igHandle = () => { try { return localStorage.getItem("wooju_ighandle") || ""; } catch { return ""; } };
@@ -3015,7 +3064,12 @@
       if (r.active) r.active.postMessage({ type: "clearNotis" });
     } catch {}
   }
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) clearNotis(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    clearNotis();
+    // 구글 연결하러 갔다 돌아오면 연결 상태 새로 확인
+    if (S.gdWait) api("me").then((me) => { if (me.gdrive && me.gdrive.email) { S.gdWait = false; S.gdrive = me.gdrive; toast("구글 드라이브에 연결했어요"); gdSheet(); } }).catch(() => {});
+  });
   window.addEventListener("focus", clearNotis);
   async function registerSW() {
     if (!("serviceWorker" in navigator)) return;
@@ -3180,6 +3234,7 @@
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
+        ${row("gdSheet", "film", "구글 드라이브", S.gdrive && S.gdrive.email ? `${esc(S.gdrive.email)} · 영상 저장 중` : "영상을 드라이브에 저장 (용량 넉넉하게)")}
         ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : S.make ? "Make로 연결됨" : igShareMode() ? "인스타 앱으로 넘기기 켜짐" : "사진 올릴 때 인스타에도 같이")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
@@ -4108,6 +4163,18 @@
     },
     turnSheet: () => turnSheet(),
     igSheet: () => igSheet(),
+    gdSheet: () => gdSheet(),
+    gdCopy(el) { try { navigator.clipboard.writeText(el.dataset.v); toast("복사했어요"); } catch { toast(el.dataset.v); } },
+    async gdSave() {
+      const cid = $("#gdCid").value.trim(), secret = $("#gdSec").value.trim();
+      if (!cid || !secret) return toast("클라이언트 ID와 보안 비밀번호를 넣어주세요");
+      try { await api("gdkey", { method: "POST", body: { cid, secret } }); S.gdWait = true; location.href = "/api/gdrive/start"; }
+      catch (e) { toast(e.message); }
+    },
+    async gdOff() {
+      if (!confirm("구글 드라이브 연결을 끊을까요? 드라이브에 저장된 영상은 우주에서 재생이 안 돼요.")) return;
+      await api("gdkey", { method: "POST", body: { cid: "", secret: "" } }); S.gdrive = null; toast("연결을 끊었어요"); closeSheet();
+    },
     async igSave() {
       const token = $("#igTok").value.trim();
       if (!token) return toast("토큰을 붙여넣어 주세요");
@@ -4636,7 +4703,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {}; S.ig = me.ig || null; S.make = me.make || null;
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {}; S.ig = me.ig || null; S.make = me.make || null; S.gdrive = me.gdrive || null;
       setBrand();
       await loadAnniv();
       showOnly("app");
@@ -4644,6 +4711,14 @@
       S.lastSent = null; startAutoLoc();
       setTab(location.hash === "#call" ? "chat" : TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home");
       registerSW();
+      // 구글 드라이브 연결하고 돌아왔을 때
+      const gm = /^#gdrive=(.*)$/.exec(location.hash);
+      if (gm) {
+        const msg = decodeURIComponent(gm[1]);
+        history.replaceState(null, "", "/#home");
+        if (msg === "ok") { const me2 = await api("me"); S.gdrive = me2.gdrive || null; toast("구글 드라이브에 연결했어요"); gdSheet(); }
+        else if (msg !== "fail") toast(msg);
+      }
     } catch (e) {
       document.body.insertAdjacentHTML("beforeend", `<div class="gate"><div class="gate-card"><h1>연결 오류</h1><p class="muted">${esc(e.message)}</p></div></div>`);
     }

@@ -114,6 +114,10 @@ export async function ensureSchema(env) {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS vchunks (vid INTEGER NOT NULL, idx INTEGER NOT NULL, data BLOB, PRIMARY KEY (vid, idx))").run();
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '10') ON CONFLICT(k) DO UPDATE SET v = '10'").run();
   }
+  if (!v || Number(v.v) < 11) {
+    try { await env.DB.prepare("ALTER TABLE photos ADD COLUMN drive_id TEXT").run(); } catch {}
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '11') ON CONFLICT(k) DO UPDATE SET v = '11'").run();
+  }
   ready = true;
 }
 

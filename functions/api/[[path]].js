@@ -8,6 +8,7 @@ import {
 import { getVapid, sendPush } from "../_push.js";
 const VCHUNK = 1800000; // 영상 조각 크기 (D1 한 칸 2MB 제한 아래)
 const VMAX = 100 * 1048576; // 영상 최대 100MB
+const esc2 = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const IG_V = "v26.0"; // 인스타 API 버전 (2026년 7월 최신)
 
 const REACTS = ["heart", "sparkle", "star", "fire", "like", "hug", "laugh", "wow", "sad"];
@@ -212,6 +213,42 @@ export async function onRequest({ request, env, params, waitUntil }) {
       const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`ig:${pid}:${exp}`)));
       return [...sig.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
     };
+    // ---------- 구글 드라이브 ----------
+    const gAccess = async () => {
+      if (!st.gd_refresh) return null;
+      if (st.gd_at && Number(st.gd_at_exp) > Date.now() + 60000) return st.gd_at;
+      const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", body: new URLSearchParams({ client_id: st.gd_cid, client_secret: st.gd_secret, refresh_token: st.gd_refresh, grant_type: "refresh_token" }) });
+      const d = await r.json().catch(() => ({}));
+      if (!d.access_token) throw new Error("구글 드라이브 연결이 끊겼어요. 설정에서 다시 연결해주세요" + (d.error ? ` (${d.error})` : ""));
+      st.gd_at = d.access_token; st.gd_at_exp = Date.now() + (Number(d.expires_in) || 3600) * 1000;
+      await setSettings(env, { gd_at: st.gd_at, gd_at_exp: st.gd_at_exp });
+      return st.gd_at;
+    };
+    const gRedirect = () => `${url.origin}/api/gdrive/callback`;
+
+    // 구글 로그인 후 돌아오는 곳: 아이폰 홈 화면 앱은 구글 창이 따로 떠서 쿠키가 없을 수 있어 state 서명으로 사람 확인
+    if (p0 === "gdrive" && p1 === "callback" && m === "GET") {
+      const page = (ok, msg) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>우주</title><body style="font-family:-apple-system,system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0;background:#FFF9FB;color:#2a2230;text-align:center"><div style="padding:24px"><h2 style="margin:0 0 8px">${ok ? "구글 드라이브 연결 완료" : "연결하지 못했어요"}</h2><p style="color:#8a7f88;line-height:1.6">${msg}</p><p><a href="/#gdrive=${ok ? "ok" : "fail"}" style="display:inline-block;margin-top:8px;padding:12px 20px;border-radius:14px;background:#E5406A;color:#fff;text-decoration:none;font-weight:700">우주로 돌아가기</a></p></div></body>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+      if (!isSetup) return page(false, "우주 설정이 아직 안 돼 있어요");
+      const [sw, sexp, ssig] = String(q("state") || "").split(".");
+      if (!/^[ab]$/.test(sw || "") || Date.now() > Number(sexp) || !safeEq(ssig || "", await igSig("gd" + sw, sexp))) return page(false, "연결 시간이 지났어요. 우주 설정에서 다시 해주세요.");
+      if (q("error")) return page(false, "구글에서 허용하지 않았어요.");
+      const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", body: new URLSearchParams({ code: q("code") || "", client_id: st.gd_cid, client_secret: st.gd_secret, redirect_uri: gRedirect(), grant_type: "authorization_code" }) });
+      const d = await r.json().catch(() => ({}));
+      if (!d.refresh_token) return page(false, "토큰을 받지 못했어요" + (d.error_description ? `: ${esc2(d.error_description)}` : d.error ? `: ${esc2(d.error)}` : ""));
+      let email = "";
+      try { const u = await (await fetch("https://www.googleapis.com/oauth2/v2/userinfo", { headers: { authorization: `Bearer ${d.access_token}` } })).json(); email = u.email || ""; } catch {}
+      let folder = st.gd_folder || "";
+      if (!folder) {
+        try {
+          const f = await (await fetch("https://www.googleapis.com/drive/v3/files?fields=id", { method: "POST", headers: { authorization: `Bearer ${d.access_token}`, "content-type": "application/json" }, body: JSON.stringify({ name: "우주", mimeType: "application/vnd.google-apps.folder" }) })).json();
+          folder = f.id || "";
+        } catch {}
+      }
+      await setSettings(env, { gd_refresh: d.refresh_token, gd_at: d.access_token, gd_at_exp: Date.now() + (Number(d.expires_in) || 3600) * 1000, gd_email: email, gd_folder: folder, gd_who: sw });
+      return page(true, `${esc2(email)} 드라이브에 연결했어요.<br>이 창을 닫고 우주로 돌아가면 돼요.`);
+    }
+
     if (p0 === "igimg" && m === "GET") {
       const mm = /^(\d+)-(\d+)-([0-9a-f]{24})\.jpg$/.exec(p1 || "");
       if (!isSetup || !mm) return err(404, "없음");
@@ -243,7 +280,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" }, ig: st.ig_token ? { user: st.ig_name || "", who: st.ig_who || "" } : null, make: st.make_hook ? { who: st.make_who || "" } : null });
+        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" }, ig: st.ig_token ? { user: st.ig_name || "", who: st.ig_who || "" } : null, make: st.make_hook ? { who: st.make_who || "" } : null, gdrive: st.gd_refresh ? { email: st.gd_email || "", who: st.gd_who || "" } : st.gd_cid ? { setup: true } : null });
       }
       case "POST meet": {
         const b = await body(request);
@@ -579,6 +616,24 @@ export async function onRequest({ request, env, params, waitUntil }) {
         return json(OK);
       }
       // 네이버 검색 API 키 연결 (키는 서버에만 저장)
+      // ----- 구글 드라이브 연결 (영상 저장용) -----
+      case "POST gdkey": {
+        const b = await body(request);
+        const cid = str(b.cid, 200), secret = str(b.secret, 200);
+        if (!cid && !secret) { await setSettings(env, { gd_cid: "", gd_secret: "", gd_refresh: "", gd_at: "", gd_at_exp: "", gd_folder: "", gd_email: "", gd_who: "" }); return json(OK); }
+        if (!/\.apps\.googleusercontent\.com$/.test(cid) || secret.length < 10) return err(400, "클라이언트 ID나 보안 비밀이 올바르지 않아요");
+        await setSettings(env, { gd_cid: cid, gd_secret: secret });
+        return json({ ok: true, redirect: gRedirect() });
+      }
+      case "GET gdrive": {
+        if (p1 === "start") {
+          if (!st.gd_cid) return err(400, "먼저 클라이언트 ID를 넣어주세요");
+          const exp = Date.now() + 10 * 60000, state = `${who}.${exp}.${await igSig("gd" + who, exp)}`;
+          const q2 = new URLSearchParams({ client_id: st.gd_cid, redirect_uri: gRedirect(), response_type: "code", scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email", access_type: "offline", prompt: "consent", state });
+          return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${q2}`, 302);
+        }
+        return err(404, "없음");
+      }
       // ----- 인스타 자동 게시 ----- (API 버전은 IG_V 한 곳에서만 바꾸면 됨)
       case "POST igkey": {
         const b = await body(request);
@@ -894,16 +949,47 @@ export async function onRequest({ request, env, params, waitUntil }) {
           const vn = Math.ceil(size / VCHUNK);
           const r = await DB.prepare("INSERT INTO photos (date, caption, who, w, h, t, thumb, data, kind, dur, vsize, vmime, vn, vready) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'video', ?9, ?10, ?11, ?12, 0)")
             .bind(b.date, str(b.caption, 100) || null, who, Number(b.w) || null, Number(b.h) || null, Date.now(), thumb, data, Number(b.dur) || null, size, mime, vn).run();
-          return json({ ok: true, id: r.meta?.last_row_id, chunk: VCHUNK, n: vn });
+          const vid = r.meta?.last_row_id;
+          // 구글 드라이브가 연결돼 있으면 브라우저가 드라이브로 바로 올리게 업로드 주소를 만들어 줌
+          if (st.gd_refresh && !b.noDrive) {
+            try {
+              const at = await gAccess();
+              const ext = (mime.split("/")[1] || "mp4").replace("quicktime", "mov");
+              const meta = { name: `우주-${b.date}-${vid}.${ext}`, mimeType: mime, ...(st.gd_folder ? { parents: [st.gd_folder] } : {}) };
+              const sr = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,size", {
+                method: "POST",
+                headers: { authorization: `Bearer ${at}`, "content-type": "application/json; charset=UTF-8", "x-upload-content-type": mime, "x-upload-content-length": String(size), origin: url.origin },
+                body: JSON.stringify(meta),
+              });
+              const loc = sr.headers.get("location");
+              if (sr.ok && loc) return json({ ok: true, id: vid, drive: loc });
+            } catch {}
+          }
+          return json({ ok: true, id: vid, chunk: VCHUNK, n: vn });
         }
         const r = await DB.prepare("INSERT INTO photos (date, caption, who, w, h, t, thumb, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
           .bind(b.date, str(b.caption, 100) || null, who, Number(b.w) || null, Number(b.h) || null, Date.now(), thumb, data).run();
         return json({ ok: true, id: r.meta?.last_row_id });
       }
-      case "DELETE photos":
+      case "POST gdone": {
+        // 브라우저가 드라이브에 다 올린 뒤 알려줌 → 확인하고 영상 준비 완료
+        const b = await body(request);
+        const fid = str(b.file, 200);
+        const v = await DB.prepare("SELECT vsize FROM photos WHERE id = ?1 AND kind = 'video'").bind(id).first();
+        if (!v || !fid) return err(400, "잘못된 요청이에요");
+        const at = await gAccess();
+        const f = await (await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fid)}?fields=id,size`, { headers: { authorization: `Bearer ${at}` } })).json().catch(() => ({}));
+        if (!f.id || Number(f.size) !== v.vsize) return err(400, "드라이브에 올라간 영상을 확인하지 못했어요");
+        await DB.prepare("UPDATE photos SET drive_id = ?1, vready = 1 WHERE id = ?2").bind(fid, id).run();
+        return json(OK);
+      }
+      case "DELETE photos": {
+        const dv = await DB.prepare("SELECT drive_id FROM photos WHERE id = ?1").bind(id).first();
+        if (dv && dv.drive_id && st.gd_refresh) { try { const at = await gAccess(); await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(dv.drive_id)}`, { method: "DELETE", headers: { authorization: `Bearer ${at}` } }); } catch {} }
         await DB.prepare("DELETE FROM photos WHERE id = ?1").bind(id).run();
         await DB.prepare("DELETE FROM vchunks WHERE vid = ?1").bind(id).run();
         return json(OK);
+      }
       // 영상 조각 올리기: PUT /api/vchunk/:id/:idx (본문은 그대로 바이너리)
       case "PUT vchunk": {
         const idx = Number(p2);
@@ -921,8 +1007,19 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       // 영상 보기 (아이폰 재생에 필요한 Range 요청 지원)
       case "GET video": {
-        const v = await DB.prepare("SELECT vn, vsize, vmime, vready FROM photos WHERE id = ?1 AND kind = 'video'").bind(id).first();
+        const v = await DB.prepare("SELECT vn, vsize, vmime, vready, drive_id FROM photos WHERE id = ?1 AND kind = 'video'").bind(id).first();
         if (!v || !v.vready) return err(404, "영상이 아직 없어요");
+        if (v.drive_id) {
+          // 드라이브에 있는 영상은 우주가 중간에서 그대로 전달 (Range 그대로)
+          const at = await gAccess();
+          const h0 = { authorization: `Bearer ${at}` };
+          const rg = request.headers.get("range"); if (rg) h0.range = rg;
+          const dr = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(v.drive_id)}?alt=media`, { headers: h0 });
+          if (!dr.ok && dr.status !== 206) return err(dr.status === 404 ? 404 : 502, "드라이브에서 영상을 못 가져왔어요");
+          const h = { "content-type": v.vmime || "video/mp4", "accept-ranges": "bytes", "cache-control": "private, max-age=86400" };
+          for (const k of ["content-length", "content-range"]) { const x = dr.headers.get(k); if (x) h[k] = x; }
+          return new Response(dr.body, { status: dr.status, headers: h });
+        }
         const size = v.vsize;
         let start = 0, end = size - 1, partial = false;
         const rg = /bytes=(\d*)-(\d*)/.exec(request.headers.get("range") || "");

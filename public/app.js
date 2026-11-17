@@ -901,59 +901,104 @@
   }
   // 영상 첫 화면을 사진으로 뽑기 (앨범 썸네일용)
   function videoPoster(file) {
-    return new Promise((res, rej) => {
+    // 아이폰은 영상을 살짝 재생해야 첫 화면이 그려져서 음소거 재생 → 멈춤 → 캡처, 안 되면 기본 그림으로 대신
+    const fallback = (w = 1280, h = 720, dur = 0) => new Promise((res) => {
+      const c = document.createElement("canvas"); c.width = w > h ? 1280 : 720; c.height = w > h ? 720 : 1280;
+      const g = c.getContext("2d"); g.fillStyle = "#2a2230"; g.fillRect(0, 0, c.width, c.height);
+      g.fillStyle = "rgba(255,255,255,.9)"; const cx = c.width / 2, cy = c.height / 2, r = Math.min(c.width, c.height) * 0.09;
+      g.beginPath(); g.moveTo(cx - r * 0.6, cy - r); g.lineTo(cx + r, cy); g.lineTo(cx - r * 0.6, cy + r); g.closePath(); g.fill();
+      c.toBlob((b) => res({ blob: b, dur }), "image/jpeg", 0.85);
+    });
+    return new Promise((res) => {
       const v = document.createElement("video"), url = URL.createObjectURL(file);
-      v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
-      const fail = setTimeout(() => { URL.revokeObjectURL(url); rej(new Error("영상을 열 수 없어요")); }, 20000);
-      v.onloadedmetadata = () => { try { v.currentTime = Math.min(0.5, (v.duration || 1) / 3); } catch {} };
-      v.onseeked = () => {
-        const w = v.videoWidth, h = v.videoHeight, sc = Math.min(1, 1280 / Math.max(w, h));
+      let done = false;
+      const finish = (r) => { if (done) return; done = true; clearTimeout(tm); try { v.pause(); } catch {} URL.revokeObjectURL(url); res(r); };
+      const tm = setTimeout(() => fallback(v.videoWidth || 1280, v.videoHeight || 720, v.duration || 0).then(finish), 8000);
+      const grab = () => {
+        const w = v.videoWidth, h = v.videoHeight;
+        if (!w || !h) return;
+        const sc = Math.min(1, 1280 / Math.max(w, h));
         const c = document.createElement("canvas"); c.width = Math.round(w * sc); c.height = Math.round(h * sc);
-        c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
-        c.toBlob((b) => { clearTimeout(fail); URL.revokeObjectURL(url); if (!b) return rej(new Error("영상을 열 수 없어요")); res({ blob: b, dur: v.duration || 0 }); }, "image/jpeg", 0.85);
+        try { c.getContext("2d").drawImage(v, 0, 0, c.width, c.height); } catch { return; }
+        c.toBlob((b) => b ? finish({ blob: b, dur: v.duration || 0 }) : fallback(w, h, v.duration || 0).then(finish), "image/jpeg", 0.85);
       };
-      v.onerror = () => { clearTimeout(fail); URL.revokeObjectURL(url); rej(new Error("이 영상 형식은 못 열어요")); };
+      v.muted = true; v.playsInline = true; v.setAttribute("playsinline", ""); v.preload = "auto";
+      v.onloadedmetadata = () => { try { v.currentTime = Math.min(0.3, (v.duration || 1) / 3); } catch {} const pp = v.play(); if (pp && pp.catch) pp.catch(() => {}); };
+      v.onseeked = grab;
+      v.ontimeupdate = () => { if (v.currentTime > 0.05) grab(); };
+      v.onerror = () => fallback().then(finish);
+      v.src = url;
+    });
+  }
+  // 올리는 동안 계속 보이는 진행 표시 (위쪽 알약)
+  const upProg = {
+    show(label, f) {
+      let el = $("#upProg");
+      if (!el) { el = document.createElement("div"); el.id = "upProg"; el.innerHTML = `<span></span><i><b></b></i>`; document.body.appendChild(el); }
+      el.hidden = false; el.classList.add("on");
+      el.firstChild.textContent = f == null ? label : `${label} ${Math.round(f * 100)}%`;
+      el.querySelector("b").style.transform = `scaleX(${f == null ? 0.05 : Math.max(0.03, Math.min(1, f))})`;
+    },
+    hide() { const el = $("#upProg"); if (el) { el.classList.remove("on"); setTimeout(() => { if (!el.classList.contains("on")) el.hidden = true; }, 300); } },
+  };
+  // 진행률이 보이는 PUT
+  function putProg(url, body, headers, onProg, withCred) {
+    return new Promise((res, rej) => {
+      const x = new XMLHttpRequest();
+      x.open("PUT", url);
+      if (withCred) x.withCredentials = true;
+      for (const k in headers) x.setRequestHeader(k, headers[k]);
+      x.upload.onprogress = (e) => { if (e.lengthComputable) onProg(e.loaded); };
+      x.onload = () => res({ status: x.status, text: x.responseText, range: x.getResponseHeader("range") });
+      x.onerror = () => rej(new Error("연결이 끊겼어요"));
+      x.ontimeout = () => rej(new Error("시간이 너무 오래 걸려요"));
+      x.timeout = 180000;
+      x.send(body);
     });
   }
   async function uploadVideo(file, date, label) {
-    if (file.size > (S.gdrive && S.gdrive.email ? 2048 : 100) * 1048576) throw new Error(S.gdrive && S.gdrive.email ? "영상은 2GB까지 올릴 수 있어요" : "영상은 100MB까지 올릴 수 있어요");
-    const { blob, dur } = await videoPoster(file);
-    const p = await prepPhoto(blob);
-    let r = await api("photos", { method: "POST", body: { date, ...p, kind: "video", mime: file.type || "video/mp4", size: file.size, dur } });
-    if (r.drive) {
-      // 구글 드라이브로 바로 올리기 (8MB씩 이어 올리기)
-      try {
-        const CH = 8 * 1024 * 1024; let pos = 0, fileId = "";
-        while (pos < file.size) {
-          const end = Math.min(file.size, pos + CH);
-          toast(`${label} ${Math.round((pos / file.size) * 100)}%`);
-          const x = await fetch(r.drive, { method: "PUT", body: file.slice(pos, end), headers: { "content-range": `bytes ${pos}-${end - 1}/${file.size}` } });
-          if (x.status === 308) { const rg = /-(\d+)$/.exec(x.headers.get("range") || ""); pos = rg ? Number(rg[1]) + 1 : end; continue; }
-          if (x.ok) { fileId = (await x.json()).id; pos = file.size; break; }
-          throw new Error("드라이브 업로드 실패 " + x.status);
-        }
-        await api(`gdone/${r.id}`, { method: "POST", body: { file: fileId } });
-        return -r.id;
-      } catch (e) {
-        // 드라이브로 안 되면 우주 저장 공간으로
-        await api(`photos/${r.id}`, { method: "DELETE" }).catch(() => {});
-        r = await api("photos", { method: "POST", body: { date, ...p, kind: "video", mime: file.type || "video/mp4", size: file.size, dur, noDrive: 1 } });
-      }
-    }
-    if (file.size > 100 * 1048576) throw new Error("영상은 100MB까지 올릴 수 있어요 (드라이브 연결 시 더 크게)");
-    for (let i = 0; i < r.n; i++) {
-      toast(`${label} ${Math.round((i / r.n) * 100)}%`);
-      const part = file.slice(i * r.chunk, Math.min(file.size, (i + 1) * r.chunk));
-      let ok = false, last;
-      for (let k = 0; k < 3 && !ok; k++) {
+    const big = S.gdrive && S.gdrive.email;
+    if (file.size > (big ? 2048 : 100) * 1048576) throw new Error(big ? "영상은 2GB까지 올릴 수 있어요" : "영상은 100MB까지 올릴 수 있어요");
+    upProg.show(`${label} 준비 중`);
+    try {
+      const { blob, dur } = await videoPoster(file);
+      const p = await prepPhoto(blob);
+      let r = await api("photos", { method: "POST", body: { date, ...p, kind: "video", mime: file.type || "video/mp4", size: file.size, dur } });
+      if (r.drive) {
+        // 구글 드라이브로 바로 올리기 (8MB씩 이어 올리기)
         try {
-          const x = await fetch(`/api/vchunk/${r.id}/${i}`, { method: "PUT", body: part, credentials: "same-origin", headers: { "content-type": "application/octet-stream" } });
-          if (x.ok) ok = true; else last = (await x.json().catch(() => ({}))).error || "오류 " + x.status;
-        } catch (e) { last = e.message; }
+          const CH = 8 * 1024 * 1024; let pos = 0, fileId = "";
+          while (pos < file.size) {
+            const end = Math.min(file.size, pos + CH);
+            const x = await putProg(r.drive, file.slice(pos, end), { "content-range": `bytes ${pos}-${end - 1}/${file.size}` }, (n) => upProg.show(label, (pos + n) / file.size));
+            if (x.status === 308) { const rg = /-(\d+)$/.exec(x.range || ""); pos = rg ? Number(rg[1]) + 1 : end; continue; }
+            if (x.status >= 200 && x.status < 300) { fileId = JSON.parse(x.text || "{}").id; pos = file.size; break; }
+            throw new Error("드라이브 업로드 실패 " + x.status);
+          }
+          upProg.show(`${label} 마무리 중`, 1);
+          await api(`gdone/${r.id}`, { method: "POST", body: { file: fileId } });
+          return -r.id;
+        } catch (e) {
+          // 드라이브로 안 되면 우주 저장 공간으로
+          await api(`photos/${r.id}`, { method: "DELETE" }).catch(() => {});
+          if (file.size > 100 * 1048576) throw new Error("드라이브로 올리지 못했어요 (" + e.message + ")");
+          r = await api("photos", { method: "POST", body: { date, ...p, kind: "video", mime: file.type || "video/mp4", size: file.size, dur, noDrive: 1 } });
+        }
       }
-      if (!ok) { api(`photos/${r.id}`, { method: "DELETE" }).catch(() => {}); throw new Error(last || "영상 올리기 실패"); }
-    }
-    return -r.id; // 음수 = 영상 (인스타 묻기에서 빼려고)
+      if (file.size > 100 * 1048576) throw new Error("영상은 100MB까지 올릴 수 있어요 (드라이브 연결 시 더 크게)");
+      for (let i = 0; i < r.n; i++) {
+        const st0 = i * r.chunk, part = file.slice(st0, Math.min(file.size, (i + 1) * r.chunk));
+        let ok = false, last;
+        for (let k = 0; k < 3 && !ok; k++) {
+          try {
+            const x = await putProg(`/api/vchunk/${r.id}/${i}`, part, { "content-type": "application/octet-stream" }, (n) => upProg.show(label, (st0 + n) / file.size), true);
+            if (x.status >= 200 && x.status < 300) ok = true; else { try { last = JSON.parse(x.text).error; } catch { last = "오류 " + x.status; } }
+          } catch (e) { last = e.message; }
+        }
+        if (!ok) { api(`photos/${r.id}`, { method: "DELETE" }).catch(() => {}); throw new Error(last || "영상 올리기 실패"); }
+      }
+      return -r.id; // 음수 = 영상 (인스타 묻기에서 빼려고)
+    } finally { upProg.hide(); }
   }
   // 여러 장 올리기 공통: 먼저 전부 메모리에 복사(아이폰은 화면이 바뀌면 원본을 못 읽기도 함), 올리는 동안 자동 새로고침 멈춤
   async function uploadMany(files, send) {

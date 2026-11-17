@@ -229,6 +229,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
     // 구글 로그인 후 돌아오는 곳: 아이폰 홈 화면 앱은 구글 창이 따로 떠서 쿠키가 없을 수 있어 state 서명으로 사람 확인
     if (p0 === "gdrive" && p1 === "callback" && m === "GET") {
       const page = (ok, msg) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>우주</title><body style="font-family:-apple-system,system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0;background:#FFF9FB;color:#2a2230;text-align:center"><div style="padding:24px"><h2 style="margin:0 0 8px">${ok ? "구글 드라이브 연결 완료" : "연결하지 못했어요"}</h2><p style="color:#8a7f88;line-height:1.6">${msg}</p><p><a href="/#gdrive=${ok ? "ok" : "fail"}" style="display:inline-block;margin-top:8px;padding:12px 20px;border-radius:14px;background:#E5406A;color:#fff;text-decoration:none;font-weight:700">우주로 돌아가기</a></p></div></body>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+      try {
       if (!isSetup) return page(false, "우주 설정이 아직 안 돼 있어요");
       const [sw, sexp, ssig] = String(q("state") || "").split(".");
       if (!/^[ab]$/.test(sw || "") || Date.now() > Number(sexp) || !safeEq(ssig || "", await igSig("gd" + sw, sexp))) return page(false, "연결 시간이 지났어요. 우주 설정에서 다시 해주세요.");
@@ -247,6 +248,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       await setSettings(env, { gd_refresh: d.refresh_token, gd_at: d.access_token, gd_at_exp: Date.now() + (Number(d.expires_in) || 3600) * 1000, gd_email: email, gd_folder: folder, gd_who: sw });
       return page(true, `${esc2(email)} 드라이브에 연결했어요.<br>이 창을 닫고 우주로 돌아가면 돼요.`);
+      } catch (e) { return page(false, "연결 중 오류: " + esc2(e && e.message || e)); }
     }
 
     if (p0 === "igimg" && m === "GET") {

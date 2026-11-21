@@ -2362,6 +2362,7 @@
     $("#dmName").textContent = nm(other());
     if (!S.chat) { S.chat = { msgs: [], read: { a: 0, b: 0 }, readT: {}, more: true, first: true }; $("#dmList").innerHTML = skelChat(); $("#dmList")._map = null; }
     drawPresence();
+    loadSched();
     await refreshChat(true);
   }
   const skelChat = () => `<div class="sk-chat">${[60, 40, 70, 50, 65].map((w, i) => `<i class="sk ${i % 2 ? "me" : ""}" style="width:${w}%"></i>`).join("")}</div>`;
@@ -2395,7 +2396,8 @@
       S.chat.read = d.read; S.chat.readT = d.readT || {}; S.chat.seen = d.seen; S.chat.pin = d.pin;
       S.chat.typingOn = !!(d.typing && d.now - d.typing < 6000);
       if (S.chat.first) { S.chat.more = d.messages.length >= 40; S.chat.first = false; }
-      S.chat.sig = JSON.stringify([d.messages.map((m) => [m.id, m.text, m.reacts, m.pinned, m.edited]), d.read, S.chat.typingOn]);
+      S.chat.sig = JSON.stringify([d.messages.map((m) => [m.id, m.text, m.reacts, m.pinned, m.edited, m.meta && (m.meta.votes || m.meta.link) ? m.meta : 0]), d.read, S.chat.typingOn]);
+      chatFx(d.messages);
       if (stick || before !== S.chat.sig || !$("#dmList .dm-row, #dmList .dm-empty")) drawChat(stick);
       drawPresence(); drawPin();
       const last = d.messages[d.messages.length - 1];
@@ -2425,13 +2427,53 @@
       return `<span class="loc-card eat-card" data-eat="${m.meta.eat}" data-ek="${m.meta.ek || "food"}" data-lat="${m.meta.lat}" data-lon="${m.meta.lon}"><span class="eat-dot" style="--c:${catCol(m.meta.cat)}">${ic(catIc(m.meta.cat))}</span><span><b>${esc(m.meta.name)}</b><em>${k}${m.meta.cat ? " · " + esc(m.meta.cat) : ""} · 눌러서 보기</em></span></span>`;
     }
     if (m.kind === "loc" && m.meta) return `<span class="loc-card" data-lat="${m.meta.lat}" data-lon="${m.meta.lon}">${ic("pin")}<span><b>${m.meta.name ? esc(m.meta.name) : m.who === S.who ? "내 위치" : esc(nm(m.who)) + "님 위치"}</b><em>지도에서 보기</em></span></span>`;
+    if (m.kind === "voice") {
+      const wv = (m.meta && m.meta.wave && m.meta.wave.length ? m.meta.wave : Array.from({ length: 28 }, (_, i) => 0.3 + 0.5 * Math.abs(Math.sin(i * 1.7)))).slice(0, 36);
+      return `<span class="vm" data-vid="${m.id}" data-src="${m.local || `/api/chataud/${m.id}`}"><button class="vm-play" data-act="vmPlay" aria-label="재생">${ic("play")}</button><span class="vm-wave">${wv.map((v) => `<i style="height:${Math.round(18 + v * 82)}%"></i>`).join("")}</span><em>${fmtDur(m.meta ? m.meta.dur : 0)}</em></span>`;
+    }
+    if (m.kind === "poll" && m.meta) {
+      const P = m.meta, votes = P.votes || {}, total = Object.keys(votes).length;
+      return `<span class="poll"><span class="poll-q">${ic("list")}<b>${esc(P.q)}</b></span>${P.opts.map((o, i) => {
+        const who = Object.keys(votes).filter((w) => votes[w] === i), pct = total ? Math.round((who.length / total) * 100) : 0;
+        return `<button class="poll-o${votes[S.who] === i ? " on" : ""}" data-act="pollVote" data-id="${m.id}" data-i="${i}" style="--p:${pct}%"><span>${esc(o)}</span><em>${who.map((w) => `<i class="pv ${w}">${esc([...nm(w)][0] || "")}</i>`).join("")}</em></button>`;
+      }).join("")}<span class="poll-f">${total === 2 ? "둘 다 투표했어요" : total === 1 ? (votes[S.who] != null ? `${esc(nm(other()))}님 기다리는 중` : "내 차례예요") : "눌러서 투표"}</span></span>`;
+    }
     let rq = "";
     if (m.reply) {
       const src = ms.find((x) => x.id === m.reply);
       rq = `<span class="rq" data-goto="${m.reply}"><b>${src ? esc(nm(src.who)) : "이전 메시지"}</b>${src ? esc(src.text || "사진") : ""}</span>`;
     }
     const imgHtml = m.img || m.local ? `<img class="dm-img" draggable="false" src="${m.local || `/api/chatimg/${m.img}?thumb=1`}" style="aspect-ratio:${m.w || 4}/${m.h || 3}" data-img="${m.img || ""}" alt="">` : "";
-    return `${rq}${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}`;
+    const lp = m.meta && m.meta.link ? m.meta.link : null;
+    const lpHtml = lp ? `<a class="lp" href="${esc(lp.url)}" target="_blank" rel="noopener">${lp.img ? `<img src="${esc(lp.img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span><em>${esc(lp.site || "")}</em><b>${esc(lp.title || lp.url)}</b>${lp.desc ? `<small>${esc(lp.desc)}</small>` : ""}</span></a>` : "";
+    return `${rq}${imgHtml}${m.text ? `<span class="tx">${linkify(esc(m.text))}</span>` : ""}${lpHtml}`;
+  }
+  // ---------- 보내기 효과 (아이메시지처럼) ----------
+  const FX_NAME = { confetti: "축하", hearts: "하트 비", fireworks: "불꽃놀이", slam: "쿵", loud: "크게", gentle: "살며시" };
+  const autoFx = (t) => /생일\s*축하/.test(t) ? "fireworks" : /축하/.test(t) ? "confetti" : /사랑해|좋아해|보고\s*싶/.test(t) ? "hearts" : null;
+  function screenFx(kind) {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const box = document.createElement("div"); box.className = "sfx sfx-" + kind; document.body.appendChild(box);
+    const W = innerWidth, H = innerHeight; let h = "";
+    if (kind === "confetti") for (let i = 0; i < 70; i++) h += `<i style="left:${Math.random() * 100}%;--d:${(Math.random() * 0.8).toFixed(2)}s;--x:${((Math.random() - 0.5) * 160) | 0}px;--r:${(Math.random() * 720 - 360) | 0}deg;--c:${["#F2668B", "#FFC94D", "#6FCF97", "#56A8F5", "#B48CF2"][i % 5]};--s:${(6 + Math.random() * 6) | 0}px"></i>`;
+    if (kind === "hearts") for (let i = 0; i < 28; i++) h += `<i style="left:${Math.random() * 100}%;--d:${(Math.random() * 1.2).toFixed(2)}s;--x:${((Math.random() - 0.5) * 80) | 0}px;--s:${(18 + Math.random() * 26) | 0}px">${HEART}</i>`;
+    if (kind === "fireworks") for (let b = 0; b < 4; b++) { const cx = 15 + Math.random() * 70, cy = 15 + Math.random() * 45, col = ["#FFC94D", "#F2668B", "#56A8F5", "#B48CF2"][b]; for (let i = 0; i < 22; i++) { const a = (i / 22) * Math.PI * 2, d = 60 + Math.random() * 50; h += `<i style="left:${cx}%;top:${cy}%;--x:${(Math.cos(a) * d) | 0}px;--y:${(Math.sin(a) * d) | 0}px;--d:${(b * 0.45).toFixed(2)}s;--c:${col}"></i>`; } }
+    box.innerHTML = h;
+    try { haptic(20); } catch {}
+    setTimeout(() => box.remove(), 4200);
+  }
+  // 새로 온 메시지 중 화면 효과가 있는 것 한 번만 재생
+  function chatFx(msgs) {
+    let seen = 0; try { seen = Number(localStorage.getItem("wooju_fxseen")) || 0; } catch {}
+    if (!S.chat.fxInit) { S.chat.fxInit = true; const mx = msgs.length ? msgs[msgs.length - 1].id : 0; if (mx > seen) try { localStorage.setItem("wooju_fxseen", String(mx)); } catch {} return; }
+    let top = seen;
+    for (const m of msgs) {
+      if (m.id <= seen) continue;
+      top = Math.max(top, m.id);
+      const fx = m.meta && m.meta.fx;
+      if (fx && ["confetti", "hearts", "fireworks"].includes(fx) && Date.now() + (S.clockOff || 0) - m.t < 120000 && m.who !== S.who) screenFx(fx);
+    }
+    if (top > seen) try { localStorage.setItem("wooju_fxseen", String(top)); } catch {}
   }
   // 화면 전체를 다시 그리지 않고 바뀐 줄만 바꿔서 깜빡임 없이 (인스타처럼)
   const cidOf = {};
@@ -2457,7 +2499,7 @@
       out.push([keyOf(m), `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${rx.length ? " liked" : ""}${tmp ? " sending" : ""}" id="m${m.id}">
         ${mine ? "" : last ? av(m.who) : '<span class="av-sp"></span>'}
         ${mine ? `<span class="dm-side">${unread}${meta}</span>` : ""}
-        <div class="dm-bub${cls}${m.img || m.local ? " has-img" : ""}${(m.img || m.local) && !m.text ? " only-img" : ""}" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${bubbleInner(m, ms)}${rxHtml}</div>
+        <div class="dm-bub${cls}${m.meta && m.meta.fx ? " fx-" + m.meta.fx : ""}${m.kind === "voice" ? " voice" : ""}${m.kind === "poll" ? " pollm" : ""}${m.img || m.local ? " has-img" : ""}${(m.img || m.local) && !m.text ? " only-img" : ""}" data-mid="${m.id}" data-mine="${mine ? 1 : 0}">${bubbleInner(m, ms)}${rxHtml}</div>
         ${mine ? "" : `<span class="dm-side">${meta}</span>`}
       </div>`, !mine || tmp]);
     });
@@ -2542,6 +2584,7 @@
     b.classList.toggle("has", has);
     b.innerHTML = has ? ic("up") : ic("heart");
     b.setAttribute("aria-label", has ? "보내기" : "하트 보내기");
+    const mic = $("#dmMic"); if (mic) mic.hidden = has;
   }
   function autosize() { const t = $("#dmText"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 120) + "px"; }
   async function postMsg(body, tmp) {
@@ -2549,9 +2592,15 @@
     catch (e) { tmp.failed = true; tmp.body = body; drawChat(); toast("전송 실패: 다시 보내기를 눌러주세요"); }
     refreshChat();
   }
-  async function sendChat() {
+  async function sendChat(opt = {}) {
     const inp = $("#dmText");
     const text = inp.value.trim();
+    if (opt.sendAt) {
+      if (!text) return toast("보낼 말을 먼저 적어주세요");
+      try { await api("messages", { method: "POST", body: { text, sendAt: opt.sendAt, fx: autoFx(text) || undefined } }); inp.value = ""; autosize(); updateSendBtn(); toast(`${fmtTime(opt.sendAt)}에 보낼게요`); loadSched(); }
+      catch (e) { toast(e.message); }
+      return;
+    }
     if (C.editing) {
       if (!text) return;
       const id = C.editing; setEdit(null); inp.value = ""; autosize(); updateSendBtn();
@@ -2562,11 +2611,13 @@
     if (!text) return sendHeart();
     inp.value = ""; autosize(); updateSendBtn();
     const reply = S.replyTo ? S.replyTo.id : null;
-    const tmp = { id: "tmp" + Date.now(), who: S.who, text, reacts: {}, t: Date.now(), reply };
+    const fx = opt.fx || autoFx(text);
+    const tmp = { id: "tmp" + Date.now(), who: S.who, text, reacts: {}, t: Date.now(), reply, meta: fx ? { fx } : null };
     S.chat.msgs.push(tmp);
     setReply(null);
     drawChat(true);
-    postMsg({ text, reply }, tmp);
+    if (fx && ["confetti", "hearts", "fireworks"].includes(fx)) setTimeout(() => screenFx(fx), 150);
+    postMsg({ text, reply, fx: fx || undefined }, tmp);
   }
   function sendHeart() {
     const tmp = { id: "tmp" + Date.now(), who: S.who, text: "", kind: "heart", reacts: {}, t: Date.now() };
@@ -2584,6 +2635,130 @@
       postMsg(body, tmp);
       sendPos(p).catch(() => {});
     } catch (e) { toast(e.code ? geoMsg(e) : e.message); }
+  }
+  // ---------- 음성 메시지 ----------
+  const VR = { rec: null, chunks: [], t0: 0, timer: null, stream: null, wave: [], an: null, ctx: null, raf: 0 };
+  async function vmStart() {
+    if (!navigator.mediaDevices || !window.MediaRecorder) return toast("이 브라우저는 녹음을 못 해요");
+    try {
+      VR.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch { return toast("마이크 권한을 허용해주세요"); }
+    const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+    VR.rec = new MediaRecorder(VR.stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);
+    VR.chunks = []; VR.wave = []; VR.t0 = Date.now();
+    VR.rec.ondataavailable = (e) => { if (e.data && e.data.size) VR.chunks.push(e.data); };
+    VR.rec.start(250);
+    try {
+      VR.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = VR.ctx.createMediaStreamSource(VR.stream); VR.an = VR.ctx.createAnalyser(); VR.an.fftSize = 256; src.connect(VR.an);
+    } catch {}
+    const pill = $(".dm-pill"); pill.classList.add("rec");
+    pill.insertAdjacentHTML("beforeend", `<div class="vm-rec" id="vmRec"><button data-act="vmCancel" aria-label="취소">${ic("x")}</button><span class="vm-dot"></span><b id="vmT">0:00</b><span class="vm-live" id="vmLive"></span><button class="vm-send" data-act="vmSend" aria-label="보내기">${ic("up")}</button></div>`);
+    try { haptic(10); } catch {}
+    const buf = new Uint8Array(128); let lastPush = 0;
+    const tick = () => {
+      const sec = (Date.now() - VR.t0) / 1000;
+      const el = $("#vmT"); if (el) el.textContent = fmtDur(sec);
+      if (VR.an) {
+        VR.an.getByteTimeDomainData(buf); let pk = 0; for (const v of buf) pk = Math.max(pk, Math.abs(v - 128) / 128);
+        if (Date.now() - lastPush > 120) { lastPush = Date.now(); VR.wave.push(Math.min(1, pk * 2.2)); const lv = $("#vmLive"); if (lv) lv.innerHTML = VR.wave.slice(-26).map((v) => `<i style="height:${Math.round(15 + v * 85)}%"></i>`).join(""); }
+      }
+      if (sec >= 180) return vmStop(true);
+      VR.raf = requestAnimationFrame(tick);
+    };
+    VR.raf = requestAnimationFrame(tick);
+  }
+  function vmCleanup() {
+    cancelAnimationFrame(VR.raf);
+    try { VR.stream && VR.stream.getTracks().forEach((t) => t.stop()); } catch {}
+    try { VR.ctx && VR.ctx.close(); } catch {}
+    const r = $("#vmRec"); if (r) r.remove();
+    $(".dm-pill").classList.remove("rec");
+  }
+  function vmStop(send) {
+    const rec = VR.rec; if (!rec) return;
+    VR.rec = null;
+    const dur = (Date.now() - VR.t0) / 1000;
+    rec.onstop = async () => {
+      vmCleanup();
+      if (!send) return;
+      if (dur < 0.8) return toast("너무 짧아요. 길게 말해보세요");
+      const blob = new Blob(VR.chunks, { type: rec.mimeType || "audio/mp4" });
+      if (blob.size > 1000000) return toast("음성이 너무 길어요 (약 2분까지)");
+      // 파형을 36칸으로 줄이기
+      const w = VR.wave, n = 36, wave = Array.from({ length: n }, (_, i) => { const a = Math.floor((i / n) * w.length), b = Math.max(a + 1, Math.floor(((i + 1) / n) * w.length)); return w.length ? Math.max(...w.slice(a, b)) : 0.3; });
+      const tmp = { id: "tmp" + Date.now(), who: S.who, text: "", kind: "voice", meta: { dur, wave }, local: URL.createObjectURL(blob), reacts: {}, t: Date.now() };
+      S.chat.msgs.push(tmp); drawChat(true);
+      const b64 = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1] || ""); fr.readAsDataURL(blob); });
+      postMsg({ kind: "voice", aud: b64, dur: Math.round(dur * 10) / 10, mime: blob.type, wave: wave.map((v) => Math.round(v * 100) / 100) }, tmp);
+    };
+    try { rec.stop(); } catch { vmCleanup(); }
+  }
+  const VP = { a: null, el: null };
+  function vmPlay(btn) {
+    const vm = btn.closest(".vm"); if (!vm) return;
+    if (VP.el === vm && VP.a && !VP.a.paused) { VP.a.pause(); return; }
+    if (VP.a) { VP.a.pause(); if (VP.el) { VP.el.classList.remove("on"); VP.el.style.removeProperty("--p"); } }
+    const a = new Audio(vm.dataset.src); a.preload = "auto";
+    VP.a = a; VP.el = vm; vm.classList.add("on");
+    const setIc = (play) => { const b = vm.querySelector(".vm-play"); if (b) b.innerHTML = ic(play ? "play" : "pause"); };
+    a.ontimeupdate = () => { if (a.duration) vm.style.setProperty("--p", (a.currentTime / a.duration) * 100 + "%"); };
+    a.onplay = () => setIc(false); a.onpause = () => setIc(true);
+    a.onended = () => { setIc(true); vm.classList.remove("on"); vm.style.removeProperty("--p"); };
+    a.play().catch(() => toast("재생하지 못했어요"));
+  }
+  // ---------- 예약 메시지 ----------
+  async function loadSched() {
+    try { const d = await api("sched"); S.chat.sched = d.sched || []; } catch { S.chat.sched = []; }
+    const el = $("#dmSched"); if (!el) return;
+    el.hidden = !S.chat.sched.length;
+    el.innerHTML = `${ic("clock")}예약된 메시지 ${S.chat.sched.length}개`;
+  }
+  function schedSheet() {
+    const L = S.chat.sched || [];
+    openSheet(`<h2>${ic("clock")}예약된 메시지</h2>
+      ${L.length ? `<div class="list" style="margin-top:10px">${L.map((x) => `<div class="li"><span class="li-t"><b>${esc(x.text || "메시지")}</b><span>${fmtTime(x.at)}에 보내요</span></span><button class="x" data-act="schedDel" data-id="${x.id}" aria-label="취소">${ic("x")}</button></div>`).join("")}</div>` : `<div class="empty">예약된 메시지가 없어요</div>`}`);
+  }
+  // 보내기 버튼 꾹: 효과·나중에 보내기
+  function sendOpts() {
+    const text = $("#dmText").value.trim();
+    if (!text) return toast("보낼 말을 먼저 적어주세요");
+    const d = new Date(), pad = (n) => String(n).padStart(2, "0");
+    const local = (x) => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}T${pad(x.getHours())}:${pad(x.getMinutes())}`;
+    const tonight = new Date(); tonight.setHours(21, 0, 0, 0); if (tonight < d) tonight.setDate(tonight.getDate() + 1);
+    const morning = new Date(); morning.setDate(morning.getDate() + 1); morning.setHours(8, 0, 0, 0);
+    const midnight = new Date(); midnight.setHours(24, 0, 0, 0);
+    openSheet(`<h2>${ic("send")}보내기 옵션</h2>
+      <p class="sheet-sub">"${esc(text.length > 30 ? text.slice(0, 30) + "..." : text)}"</p>
+      <label class="fl">효과와 함께 보내기</label>
+      <div class="fx-grid">${Object.entries(FX_NAME).map(([k, v]) => `<button data-act="sendFx" data-fx="${k}"><span class="fx-ic fx-ic-${k}">${ic(k === "hearts" ? "heart" : k === "confetti" ? "sparkle" : k === "fireworks" ? "star" : "send")}</span>${v}</button>`).join("")}</div>
+      <label class="fl" style="margin-top:14px">나중에 보내기</label>
+      <div class="chips">
+        <button class="chip-sel" data-act="schedQuick" data-t="${Date.now() + 3600e3}">1시간 뒤</button>
+        <button class="chip-sel" data-act="schedQuick" data-t="${midnight.getTime()}">오늘 밤 12시</button>
+        <button class="chip-sel" data-act="schedQuick" data-t="${tonight.getTime()}">${tonight.getDate() === d.getDate() ? "오늘" : "내일"} 밤 9시</button>
+        <button class="chip-sel" data-act="schedQuick" data-t="${morning.getTime()}">내일 아침 8시</button>
+      </div>
+      <div class="add-row" style="margin-top:10px"><input type="datetime-local" id="schedAt" value="${local(new Date(Date.now() + 3600e3))}" min="${local(d)}"><button class="btn primary" data-act="schedGo">예약</button></div>`);
+  }
+  // ---------- 투표 ----------
+  function pollSheet() {
+    openSheet(`<h2>${ic("list")}투표 만들기</h2>
+      <div class="ed" style="margin-top:12px">
+        <label class="ed-f"><span>질문</span><input type="text" id="pollQ" maxlength="100" placeholder="예: 이번 주말 뭐 먹을까?"></label>
+        ${[0, 1, 2, 3].map((i) => `<label class="ed-f"><span>선택 ${i + 1}${i > 1 ? " (선택)" : ""}</span><input type="text" class="pollO" maxlength="40" placeholder="${["파스타", "초밥", "고기", "떡볶이"][i]}"></label>`).join("")}
+      </div>
+      <div class="row2"><button class="btn gray" data-act="close">취소</button><button class="btn primary" data-act="pollSend">${ic("send")}보내기</button></div>`);
+    setTimeout(() => $("#pollQ") && $("#pollQ").focus(), 300);
+  }
+  // ---------- 모아보기 (사진·링크) ----------
+  async function mediaSheet(tab = "photo") {
+    const d = S.chat.media || (S.chat.media = await api("chatmedia"));
+    openSheet(`<h2>${ic("layers")}모아보기</h2>
+      <div class="seg" style="margin:10px 0 12px"><button class="${tab === "photo" ? "on" : ""}" data-act="mediaTab" data-t="photo">사진 ${d.photos.length}</button><button class="${tab === "link" ? "on" : ""}" data-act="mediaTab" data-t="link">링크 ${d.links.length}</button></div>
+      ${tab === "photo"
+        ? (d.photos.length ? `<div class="al-grid">${d.photos.map((p, i) => `<button data-act="mediaPhoto" data-i="${i}"><img loading="lazy" src="/api/chatimg/${p.img}?thumb=1" alt=""></button>`).join("")}</div>` : `<div class="empty">주고받은 사진이 없어요</div>`)
+        : (d.links.length ? `<div class="list">${d.links.map((l) => `<a class="li lk" href="${esc(l.url)}" target="_blank" rel="noopener">${l.img ? `<img src="${esc(l.img)}" alt="" referrerpolicy="no-referrer">` : `<span class="li-ic">${ic("send")}</span>`}<span class="li-t"><b>${esc(l.title || l.url)}</b><span>${esc(l.site || new URL(l.url).hostname)} · ${fmtTime(l.t)}</span></span></a>`).join("")}</div>` : `<div class="empty">주고받은 링크가 없어요</div>`)}`);
   }
   const RX = ["heart", "sparkle", "star", "fire", "like", "hug"];
   async function reactMsg(id, r, bub) {
@@ -2838,6 +3013,16 @@
   })();
   // 보내기 버튼을 눌러도 키보드가 내려가지 않게
   ["pointerdown", "mousedown"].forEach((ev) => $("#dmSend").addEventListener(ev, (e) => e.preventDefault()));
+  // 보내기 버튼 꾹 누르면 효과·예약 메뉴
+  (() => {
+    const b = $("#dmSend"); let t = null, longed = false;
+    b.addEventListener("touchstart", () => { longed = false; t = setTimeout(() => { longed = true; t = null; try { haptic(12); } catch {} sendOpts(); }, 480); }, { passive: true });
+    const cl = () => { if (t) { clearTimeout(t); t = null; } };
+    b.addEventListener("touchend", (e) => { cl(); if (longed) { e.preventDefault(); e.stopPropagation(); } }, { capture: true });
+    b.addEventListener("touchmove", cl, { passive: true });
+    b.addEventListener("contextmenu", (e) => { e.preventDefault(); sendOpts(); });
+    b.addEventListener("click", (e) => { if (longed) { longed = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+  })();
   $("#dmText").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.isComposing && !e.shiftKey) { e.preventDefault(); sendChat(); }
   });
@@ -4400,6 +4585,35 @@
     },
     dmLoc() { $("#dmPlusMenu").hidden = true; sendMyLoc(); },
     dmHeart() { $("#dmPlusMenu").hidden = true; sendHeart(); },
+    dmPoll() { $("#dmPlusMenu").hidden = true; pollSheet(); },
+    dmMedia() { S.chat.media = null; mediaSheet("photo"); },
+    mediaTab(el) { mediaSheet(el.dataset.t); },
+    mediaPhoto(el) { const L = S.chat.media.photos.map((p) => ({ id: p.img, src: `/api/chatimg/${p.img}`, chat: true, who: p.who, t: p.t })); openLightbox(L, +el.dataset.i); },
+    async pollSend() {
+      const q = $("#pollQ").value.trim(), opts = [...document.querySelectorAll(".pollO")].map((x) => x.value.trim()).filter(Boolean);
+      if (!q || opts.length < 2) return toast("질문과 선택지를 2개 이상 적어주세요");
+      closeSheet();
+      const tmp = { id: "tmp" + Date.now(), who: S.who, text: "", kind: "poll", meta: { q, opts, votes: {} }, reacts: {}, t: Date.now() };
+      S.chat.msgs.push(tmp); drawChat(true);
+      postMsg({ kind: "poll", q, opts }, tmp);
+    },
+    async pollVote(el) {
+      const id = el.dataset.id; if (String(id).startsWith("tmp")) return;
+      const m = S.chat.msgs.find((x) => String(x.id) === String(id)), i = +el.dataset.i;
+      if (m && m.meta) { const v = { ...(m.meta.votes || {}) }; if (v[S.who] === i) delete v[S.who]; else v[S.who] = i; m.meta = { ...m.meta, votes: v }; drawChat(); }
+      try { haptic(8); } catch {}
+      try { const r = await api(`messages/${id}/vote`, { method: "POST", body: { i } }); if (m) m.meta.votes = r.votes; } catch (e) { toast(e.message); }
+      refreshChat();
+    },
+    vmRec() { vmStart(); },
+    vmCancel() { vmStop(false); },
+    vmSend() { vmStop(true); },
+    vmPlay(el) { vmPlay(el); },
+    sendFx(el) { closeSheet(); sendChat({ fx: el.dataset.fx }); },
+    schedQuick(el) { closeSheet(); sendChat({ sendAt: Number(el.dataset.t) }); },
+    schedGo() { const v = $("#schedAt").value; const t = v ? new Date(v).getTime() : 0; if (!(t > Date.now() + 30000)) return toast("지금보다 뒤 시간을 골라주세요"); closeSheet(); sendChat({ sendAt: t }); },
+    schedOpen() { schedSheet(); },
+    async schedDel(el) { await api(`sched/${el.dataset.id}`, { method: "DELETE" }); toast("예약을 취소했어요"); await loadSched(); schedSheet(); },
     dmRetry(el) {
       const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id);
       if (!m) return;

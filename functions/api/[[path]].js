@@ -52,6 +52,70 @@ export async function onRequest({ request, env, params, waitUntil }) {
         }
       } catch {}
     };
+
+    // 메시지 하나 넣기 (바로 보내기·예약 전송 공용)
+    const FX = ["confetti", "hearts", "fireworks", "slam", "gentle", "loud"];
+    const insertMsg = async (who, b) => {
+      const text = str(b.text, 2000);
+      let imgId = null, w = null, h = null;
+      if (b.img && typeof b.img.data === "string" && typeof b.img.thumb === "string") {
+        if (b.img.data.length > 1500000 || b.img.thumb.length > 300000) return { error: "사진이 너무 커요", status: 413 };
+        w = Number(b.img.w) || null; h = Number(b.img.h) || null;
+        const ir = await DB.prepare("INSERT INTO chat_imgs (w, h, thumb, data, t) VALUES (?1, ?2, ?3, ?4, ?5)").bind(w, h, b.img.thumb, b.img.data, Date.now()).run();
+        imgId = ir.meta?.last_row_id || null;
+      }
+      const kind = ["heart", "loc", "event", "voice", "poll"].includes(b.kind) ? b.kind : "text";
+      let meta = null, aud = null;
+      if (kind === "loc") {
+        const la = Number(b.lat), lo = Number(b.lon);
+        if (!Number.isFinite(la) || !Number.isFinite(lo)) return { error: "위치가 없어요" };
+        meta = { lat: la, lon: lo, name: str(b.name, 40) || undefined, eat: Number(b.eat) > 0 ? Number(b.eat) : undefined, cat: str(b.cat, 10) || undefined, ek: b.ek === "place" ? "place" : b.eat ? "food" : undefined };
+      }
+      if (kind === "event") {
+        const e = b.ev || {};
+        if (!isDate(e.date) || !str(e.title, 100)) return { error: "일정이 없어요" };
+        meta = { date: e.date, time: isTime(e.time) ? e.time : "", title: str(e.title, 100) };
+      }
+      if (kind === "voice") {
+        if (typeof b.aud !== "string" || !b.aud || b.aud.length > 1400000 || !/^[A-Za-z0-9+/=]+$/.test(b.aud.slice(0, 100))) return { error: "음성이 너무 길거나 올바르지 않아요", status: 413 };
+        aud = b.aud;
+        meta = { dur: Math.max(0, Math.min(600, Number(b.dur) || 0)), mime: /^audio\/[a-z0-9.+;=\- ]+$/i.test(b.mime || "") ? b.mime : "audio/mp4", wave: Array.isArray(b.wave) ? b.wave.slice(0, 48).map((x) => Math.max(0, Math.min(1, Number(x) || 0))) : undefined };
+      }
+      if (kind === "poll") {
+        const opts = (Array.isArray(b.opts) ? b.opts : []).map((x) => str(x, 40)).filter(Boolean).slice(0, 4);
+        const qq = str(b.q, 100);
+        if (!qq || opts.length < 2) return { error: "질문과 선택지를 2개 이상 적어주세요" };
+        meta = { q: qq, opts, votes: {} };
+      }
+      if (FX.includes(b.fx)) meta = { ...(meta || {}), fx: b.fx };
+      if (!text && !imgId && kind === "text") return { error: "메시지를 입력하세요" };
+      const replyTo = Number(b.reply) || null;
+      const r = await DB.prepare("INSERT INTO messages (who, text, likes, reacts, img, w, h, t, reply_to, kind, meta, aud) VALUES (?1, ?2, '', NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")
+        .bind(who, text, imgId, w, h, Date.now(), replyTo, kind, meta ? JSON.stringify(meta) : null, aud).run();
+      const newId = r.meta?.last_row_id;
+      if (newId) await setSettings(env, { ["read_" + who]: newId, ["typing_" + who]: 0 });
+      const other = who === "a" ? "b" : "a";
+      const name = who === "a" ? st.a_name : st.b_name;
+      const pushBody = kind === "heart" ? "하트를 보냈어요" : kind === "loc" ? "위치를 보냈어요" : kind === "event" ? `일정: ${meta.title}` : kind === "voice" ? "음성 메시지를 보냈어요" : kind === "poll" ? `투표: ${meta.q}` : text || "사진을 보냈어요";
+      const job = sendPush(env, st, setSettings, other, { title: name, body: pushBody, url: "/#chat", tag: "dm" }).catch(() => {});
+      if (waitUntil) waitUntil(job); else await job;
+      // 링크가 있으면 미리보기 카드 정보 가져오기 (응답은 안 기다림)
+      const um = kind === "text" && text ? /https?:\/\/[^\s<>"']+/i.exec(text) : null;
+      if (um && newId) { const lj = linkPreview(um[0]).then(async (lp) => { if (!lp) return; const cur = await DB.prepare("SELECT meta FROM messages WHERE id = ?1").bind(newId).first(); let mm = {}; try { mm = cur && cur.meta ? JSON.parse(cur.meta) : {}; } catch {} mm.link = lp; await DB.prepare("UPDATE messages SET meta = ?1 WHERE id = ?2").bind(JSON.stringify(mm), newId).run(); }).catch(() => {}); if (waitUntil) waitUntil(lj); }
+      return { id: newId };
+    };
+    // 예약해둔 메시지 중 때가 된 것 보내기 (누가 접속하든 그때 처리)
+    const deliverDue = async () => {
+      try {
+        const { results } = await DB.prepare("SELECT id, who, body FROM sched_msgs WHERE at <= ?1 ORDER BY at LIMIT 5").bind(Date.now()).all();
+        for (const r of results || []) {
+          const del = await DB.prepare("DELETE FROM sched_msgs WHERE id = ?1").bind(r.id).run();
+          if (!del.meta?.changes) continue; // 다른 요청이 이미 보냄
+          let bb = {}; try { bb = JSON.parse(r.body); } catch {}
+          await insertMsg(r.who, bb);
+        }
+      } catch {}
+    };
     // 둘 다 최근 위치가 있고 아주 가까우면 "함께 있음" — 만나는 순간 애니메이션 + 알림
     const togetherCheck = async () => {
       try {
@@ -173,6 +237,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
           if (Number.isFinite(Number(b.lat)) && Number.isFinite(Number(b.lon))) await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, t: t0, src: "app" }).catch(() => {});
         } catch {}
       }
+      later(deliverDue());
       const other = who === "a" ? "b" : "a";
       const out = [];
       const r = await DB.prepare("SELECT * FROM couple_locs WHERE who = ?1").bind(other).first();
@@ -1115,6 +1180,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // ----- DM 채팅 -----
       case "GET messages": {
+        await deliverDue();
         const before = Number(q("before")) || 0;
         const limit = Math.min(Math.max(Number(q("limit")) || 40, 1), 100);
         const cols = "id, who, text, likes, reacts, img, w, h, t, reply_to, pinned, edited, kind, meta";
@@ -1158,6 +1224,16 @@ export async function onRequest({ request, env, params, waitUntil }) {
           await DB.prepare("UPDATE messages SET text = ?1, edited = 1 WHERE id = ?2").bind(nt, id).run();
           return json(OK);
         }
+        if (id && p2 === "vote") {
+          const r = await DB.prepare("SELECT meta FROM messages WHERE id = ?1 AND kind = 'poll'").bind(id).first();
+          if (!r) return err(404, "투표가 없어요");
+          let mm = {}; try { mm = JSON.parse(r.meta || "{}"); } catch {}
+          const i = Number(b.i);
+          mm.votes = mm.votes || {};
+          if (!(i >= 0 && i < (mm.opts || []).length) || mm.votes[who] === i) delete mm.votes[who]; else mm.votes[who] = i;
+          await DB.prepare("UPDATE messages SET meta = ?1 WHERE id = ?2").bind(JSON.stringify(mm), id).run();
+          return json({ ok: true, votes: mm.votes });
+        }
         if (id && p2 === "react") {
           const r = await DB.prepare("SELECT likes, reacts FROM messages WHERE id = ?1").bind(id).first();
           if (!r) return err(404, "메시지가 없어요");
@@ -1169,37 +1245,18 @@ export async function onRequest({ request, env, params, waitUntil }) {
           await DB.prepare("UPDATE messages SET reacts = ?1, likes = '' WHERE id = ?2").bind(JSON.stringify(reacts), id).run();
           return json({ ok: true, reacts });
         }
-        const text = str(b.text, 2000);
-        let imgId = null, w = null, h = null;
-        if (b.img && typeof b.img.data === "string" && typeof b.img.thumb === "string") {
-          if (b.img.data.length > 1500000 || b.img.thumb.length > 300000) return err(413, "사진이 너무 커요");
-          w = Number(b.img.w) || null; h = Number(b.img.h) || null;
-          const ir = await DB.prepare("INSERT INTO chat_imgs (w, h, thumb, data, t) VALUES (?1, ?2, ?3, ?4, ?5)").bind(w, h, b.img.thumb, b.img.data, Date.now()).run();
-          imgId = ir.meta?.last_row_id || null;
+        // 나중에 보내기 (예약)
+        const at = Number(b.sendAt);
+        if (Number.isFinite(at) && at > Date.now() + 30000) {
+          if (at > Date.now() + 31 * 864e5) return err(400, "한 달 안으로만 예약할 수 있어요");
+          const bb = { ...b }; delete bb.sendAt;
+          if (!str(bb.text, 2000) && !bb.img) return err(400, "메시지를 입력하세요");
+          const r = await DB.prepare("INSERT INTO sched_msgs (who, body, at, t) VALUES (?1, ?2, ?3, ?4)").bind(who, JSON.stringify(bb), at, Date.now()).run();
+          return json({ ok: true, sched: r.meta?.last_row_id });
         }
-        const kind = ["heart", "loc", "event"].includes(b.kind) ? b.kind : "text";
-        let meta = null;
-        if (kind === "loc") {
-          const la = Number(b.lat), lo = Number(b.lon);
-          if (!Number.isFinite(la) || !Number.isFinite(lo)) return err(400, "위치가 없어요");
-          meta = JSON.stringify({ lat: la, lon: lo, name: str(b.name, 40) || undefined, eat: Number(b.eat) > 0 ? Number(b.eat) : undefined, cat: str(b.cat, 10) || undefined, ek: b.ek === "place" ? "place" : b.eat ? "food" : undefined });
-        }
-        if (kind === "event") {
-          const e = b.ev || {};
-          if (!isDate(e.date) || !str(e.title, 100)) return err(400, "일정이 없어요");
-          meta = JSON.stringify({ date: e.date, time: isTime(e.time) ? e.time : "", title: str(e.title, 100) });
-        }
-        if (!text && !imgId && kind === "text") return err(400, "메시지를 입력하세요");
-        const replyTo = Number(b.reply) || null;
-        const r = await DB.prepare("INSERT INTO messages (who, text, likes, reacts, img, w, h, t, reply_to, kind, meta) VALUES (?1, ?2, '', NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
-          .bind(who, text, imgId, w, h, Date.now(), replyTo, kind, meta).run();
-        const newId = r.meta?.last_row_id;
-        if (newId) await setSettings(env, { ["read_" + who]: newId, ["typing_" + who]: 0 });
-        const other = who === "a" ? "b" : "a";
-        const name = who === "a" ? st.a_name : st.b_name;
-        const pushBody = kind === "heart" ? "하트를 보냈어요" : kind === "loc" ? "위치를 보냈어요" : kind === "event" ? `일정: ${JSON.parse(meta).title}` : text || "사진을 보냈어요";
-        const job = sendPush(env, st, setSettings, other, { title: name, body: pushBody, url: "/#chat", tag: "dm" });
-        if (waitUntil) waitUntil(job); else await job;
+        const res = await insertMsg(who, b);
+        if (res.error) return err(res.status || 400, res.error);
+        const newId = res.id;
         return json({ ok: true, id: newId });
       }
       case "DELETE messages": {
@@ -1442,7 +1499,45 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
 
       // 탭 배지 등 가벼운 상태 확인
+      // 예약 메시지 목록·취소 (내가 예약한 것만)
+      case "GET sched": {
+        const { results } = await DB.prepare("SELECT id, body, at FROM sched_msgs WHERE who = ?1 ORDER BY at").bind(who).all();
+        return json({ sched: (results || []).map((r) => { let bb = {}; try { bb = JSON.parse(r.body); } catch {} return { id: r.id, at: r.at, text: bb.text || (bb.img ? "사진" : bb.kind === "heart" ? "하트" : "") }; }) });
+      }
+      case "DELETE sched":
+        await DB.prepare("DELETE FROM sched_msgs WHERE id = ?1 AND who = ?2").bind(id, who).run();
+        return json(OK);
+      case "GET chataud": {
+        const r = await DB.prepare("SELECT aud, meta FROM messages WHERE id = ?1 AND kind = 'voice'").bind(id).first();
+        if (!r || !r.aud) return err(404, "음성이 없어요");
+        let mm = {}; try { mm = JSON.parse(r.meta || "{}"); } catch {}
+        const bytes = fromB64(r.aud), size = bytes.length;
+        const h = { "content-type": (mm.mime || "audio/mp4").split(";")[0], "accept-ranges": "bytes", "cache-control": "private, max-age=31536000, immutable" };
+        const rg = /bytes=(\d*)-(\d*)/.exec(request.headers.get("range") || "");
+        if (rg) {
+          const st0 = rg[1] === "" ? Math.max(0, size - Number(rg[2])) : Number(rg[1]);
+          const en = rg[1] !== "" && rg[2] !== "" ? Math.min(size - 1, Number(rg[2])) : size - 1;
+          if (st0 >= size) return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+          return new Response(bytes.slice(st0, en + 1), { status: 206, headers: { ...h, "content-range": `bytes ${st0}-${en}/${size}`, "content-length": String(en - st0 + 1) } });
+        }
+        return new Response(bytes, { headers: { ...h, "content-length": String(size) } });
+      }
+      // 채팅 모아보기: 사진·링크
+      case "GET chatmedia": {
+        const [im, lk] = await DB.batch([
+          DB.prepare("SELECT id, img, w, h, t, who FROM messages WHERE img IS NOT NULL ORDER BY id DESC LIMIT 300"),
+          DB.prepare("SELECT id, text, meta, t, who FROM messages WHERE text LIKE '%http%' ORDER BY id DESC LIMIT 200"),
+        ]);
+        const links = [];
+        for (const r of lk.results || []) {
+          const mt = /https?:\/\/[^\s<>"']+/i.exec(r.text || ""); if (!mt) continue;
+          let mm = {}; try { mm = JSON.parse(r.meta || "{}"); } catch {}
+          links.push({ id: r.id, url: mt[0], t: r.t, who: r.who, title: mm.link ? mm.link.title : "", img: mm.link ? mm.link.img : "", site: mm.link ? mm.link.site : "" });
+        }
+        return json({ photos: im.results || [], links });
+      }
       case "GET pulse": {
+        await deliverDue();
         const ring = await DB.prepare("SELECT id, caller, kind, t FROM calls WHERE state = 'ringing' AND caller != ?1 AND t > ?2 ORDER BY id DESC LIMIT 1").bind(who, Date.now() - 60000).first();
         const last = await DB.prepare("SELECT id, who, substr(text, 1, 60) AS text, img FROM messages ORDER BY id DESC LIMIT 1").first();
         let place = null;
@@ -1603,4 +1698,23 @@ async function kakaoLocal(query, key, lat, lon, sort) {
   } catch (e) {
     return { ok: false, msg: "카카오에 연결하지 못했어요", items: [] };
   }
+}
+
+
+// 링크 미리보기: 페이지의 제목·설명·대표 이미지 (og 태그)
+async function linkPreview(u) {
+  try {
+    const r = await fetch(u, { headers: { "user-agent": "Mozilla/5.0 (compatible; wooju-link/1.0)", accept: "text/html" }, redirect: "follow", cf: { cacheTtl: 3600 } });
+    if (!r.ok || !/text\/html/i.test(r.headers.get("content-type") || "")) return null;
+    const html = (await r.text()).slice(0, 300000);
+    const meta = (k) => { const m = new RegExp(`<meta[^>]+(?:property|name)=["']${k}["'][^>]*content=["']([^"']+)["']`, "i").exec(html) || new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]*(?:property|name)=["']${k}["']`, "i").exec(html); return m ? m[1] : ""; };
+    const dec = (t) => String(t || "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+    let title = dec(meta("og:title") || (/<title[^>]*>([^<]+)<\/title>/i.exec(html) || [])[1] || "");
+    const desc = dec(meta("og:description") || meta("description"));
+    let img = dec(meta("og:image") || meta("twitter:image"));
+    if (img && !/^https?:/i.test(img)) { try { img = new URL(img, r.url || u).href; } catch { img = ""; } }
+    const site = dec(meta("og:site_name")) || new URL(r.url || u).hostname.replace(/^www\./, "");
+    if (!title && !img) return null;
+    return { url: u, title: title.slice(0, 120), desc: desc.slice(0, 200), img: /^https:/i.test(img) ? img.slice(0, 500) : "", site: site.slice(0, 60) };
+  } catch { return null; }
 }

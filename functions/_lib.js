@@ -122,6 +122,12 @@ export async function ensureSchema(env) {
     try { await env.DB.prepare("ALTER TABLE photos ADD COLUMN gbk TEXT").run(); } catch {}
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '12') ON CONFLICT(k) DO UPDATE SET v = '12'").run();
   }
+  if (!v || Number(v.v) < 13) {
+    // 채팅: 음성 메시지, 예약 전송
+    try { await env.DB.prepare("ALTER TABLE messages ADD COLUMN aud TEXT").run(); } catch {}
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS sched_msgs (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, body TEXT NOT NULL, at INTEGER NOT NULL, t INTEGER)").run();
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '13') ON CONFLICT(k) DO UPDATE SET v = '13'").run();
+  }
   ready = true;
 }
 

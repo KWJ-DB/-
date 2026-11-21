@@ -747,9 +747,9 @@ svg.i.arr { width: 13px; height: 13px; vertical-align: -2px; margin: 0 1px; stro
 .dm-reply span { display: block; font-size: 13px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dm-reply button { color: #C9BEC6; display: flex; }
 .dm-reply button svg.i { width: 18px; height: 18px; }
-.typing .dm-bub { display: flex; gap: 4px; padding: 12px 14px; }
-.typing .dm-bub i { width: 7px; height: 7px; border-radius: 50%; background: #B5A9B3; animation: tdot 1.2s infinite; }
-.typing .dm-bub i:nth-child(2) { animation-delay: .15s; } .typing .dm-bub i:nth-child(3) { animation-delay: .3s; }
+.dm-row.typing .dm-bub { display: flex; gap: 4px; padding: 12px 14px; }
+.dm-row.typing .dm-bub i { width: 7px; height: 7px; border-radius: 50%; background: #B5A9B3; animation: tdot 1.2s infinite; }
+.dm-row.typing .dm-bub i:nth-child(2) { animation-delay: .15s; } .dm-row.typing .dm-bub i:nth-child(3) { animation-delay: .3s; }
 @keyframes tdot { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 .rx-menu { position: absolute; left: 50%; transform: translateX(-50%); min-width: 200px; background: #fff; border-radius: 18px; box-shadow: 0 12px 34px rgba(0,0,0,.18); overflow: hidden; animation: fade .2s; }
 .rx-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px 18px; font-size: 15px; font-weight: 650; border-top: 1px solid #F3EDEC; }
@@ -2131,3 +2131,5 @@ body.typing #chatWrap { will-change: height, transform; }
 .dm-row.me .dm-bub.only-img, .dm-row.ot .dm-bub.only-img { background: none !important; padding: 0 !important; box-shadow: none !important; border: 0 !important; }
 .dm-bub.only-img .dm-img { display: block; border-radius: 18px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
 .dm-bub.has-img:not(.only-img) .dm-img { display: block; border-radius: 18px; }
+/* 답장 미리보기: 입력칸 바로 위에 붙게 */
+.dm-reply { margin: 0 4px 6px; }

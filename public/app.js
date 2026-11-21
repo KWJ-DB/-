@@ -4521,7 +4521,12 @@
       const base = location.origin;
       openSheet(`
         <h2>${ic("send")}애플워치·단축어로 디엠</h2>
-        <p class="sheet-sub">아이폰 "단축어" 앱으로 만들어두면 워치에서 "시리야, 우주 보내기"라고 말하거나 워치 화면의 단축어를 눌러 바로 보내고 확인할 수 있어요.</p>
+        <div class="ig-quick">
+          <b>${ic("send")}바로 쓰기: 워치용 우주</b>
+          <span>만들 것 없이 링크 하나면 돼요. 아래 버튼으로 링크를 <b>메시지 앱에서 나에게</b> 보내고, 워치 메시지 앱에서 그 링크를 누르면 워치에서 우주 채팅이 열려요. 최근 메시지 보기, 받아쓰기·손글씨로 보내기, 하트까지 돼요.</span>
+          <button class="btn primary" data-act="scShare" data-v="${esc(base)}/w?k=${esc(k)}">${ic("send")}워치용 링크 보내기</button>
+        </div>
+        <p class="sheet-sub" style="margin-top:14px">시리로 말해서 보내고 싶으면 아래처럼 단축어도 만들 수 있어요. (애플이 단축어를 다른 곳에서 바로 추가하는 걸 막아둬서 직접 만들어야 해요)</p>
         <label class="fl">내 키 (남에게 보여주지 마세요)</label>
         <div class="gd-uri"><code>${esc(k)}</code><button data-act="gdCopy" data-v="${esc(k)}">복사</button></div>
         <label class="fl" style="margin-top:14px">1. 보내기 단축어 만들기</label>
@@ -4543,6 +4548,11 @@
         <p class="sheet-sub" style="margin-top:10px">하트만 보내려면 보내기 단축어에서 text 대신 키 <b>kind</b>, 값 <b>heart</b>로 하나 더 만들면 돼요.</p>
         <p class="sheet-sub"><b>폰을 냈을 때:</b> 워치가 셀룰러 모델이거나, 전에 연결한 와이파이에 붙어 있으면 폰 없이도 돼요. 아이패드나 맥의 단축어에서도 똑같이 쓸 수 있어요.</p>
         <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="scNew">키 새로 만들기</button><button class="btn primary" data-act="close">확인</button></div>`);
+    },
+    async scShare(el) {
+      const u = el.dataset.v;
+      if (navigator.share) { try { await navigator.share({ title: "워치용 우주", url: u }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+      try { await navigator.clipboard.writeText(u); toast("링크를 복사했어요. 메시지 앱에서 나에게 보내세요"); } catch { toast(u); }
     },
     async scNew() { if (!confirm("키를 새로 만들면 지금 만든 단축어의 키도 바꿔야 해요. 바꿀까요?")) return; ACT.scSheet(null, true); },
     pcAdd() {

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="disabled-adaptations" content="watch">
+<title>우주</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; font-size: 15px; }
+  body { padding: 6px 6px 14px; }
+  h1 { font-size: 15px; margin: 2px 4px 8px; color: #FF8FAB; display: flex; align-items: center; gap: 6px; }
+  h1 span { color: #999; font-weight: 500; font-size: 12px; margin-left: auto; }
+  .m { margin: 4px 0; display: flex; }
+  .m p { margin: 0; padding: 7px 11px; border-radius: 16px; max-width: 86%; line-height: 1.3; word-break: break-word; white-space: pre-wrap; }
+  .ot p { background: #262628; }
+  .me { justify-content: flex-end; }
+  .me p { background: #F2668B; }
+  .t { font-size: 10.5px; color: #888; text-align: center; margin: 6px 0 2px; }
+  .new { text-align: center; font-size: 12px; color: #FF8FAB; margin: 4px 0; }
+  form { margin-top: 10px; display: grid; gap: 6px; }
+  input { width: 100%; padding: 11px 12px; border-radius: 14px; border: 0; background: #1c1c1e; color: #fff; font-size: 16px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+  button { border: 0; border-radius: 14px; padding: 11px 12px; font-size: 15px; font-weight: 700; color: #fff; background: #F2668B; }
+  button.h { background: #3a1f29; color: #FF8FAB; padding: 11px 14px; }
+  .st { text-align: center; font-size: 12px; color: #aaa; margin-top: 6px; min-height: 16px; }
+  .err { padding: 20px 8px; text-align: center; color: #ccc; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>우주<span id="who"></span></h1>
+<div id="list"><div class="t">불러오는 중</div></div>
+<form id="f">
+  <input id="txt" placeholder="메시지" autocomplete="off" enterkeyhint="send">
+  <div class="row"><button type="submit">보내기</button><button type="button" class="h" id="heart" aria-label="하트"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:block"><path d="M12 20s-7-4.4-9-9.2C1.6 7.4 4 4 7.4 4 9.6 4 11 5.3 12 6.8 13 5.3 14.4 4 16.6 4 20 4 22.4 7.4 21 10.8 19 15.6 12 20 12 20z"/></svg></button></div>
+</form>
+<div class="st" id="st"></div>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search), key = q.get("k") || "";
+  try { if (key) localStorage.setItem("wooju_wk", key); else key = localStorage.getItem("wooju_wk") || ""; } catch (e) {}
+  var list = document.getElementById("list"), st = document.getElementById("st");
+  function esc(t) { return String(t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  if (!key) { list.innerHTML = '<div class="err">키가 없어요.<br>우주 설정에서 워치용 링크를 다시 보내주세요.</div>'; document.getElementById("f").style.display = "none"; return; }
+  function load() {
+    fetch("/api/sc/feed?n=8", { headers: { "x-wooju-key": key }, cache: "no-store" }).then(function (r) {
+      if (r.status === 401) throw new Error("키가 맞지 않아요");
+      return r.json();
+    }).then(function (d) {
+      document.getElementById("who").textContent = d.other + "님";
+      var h = d.unread ? '<div class="new">새 메시지 ' + d.unread + '개</div>' : "";
+      d.msgs.forEach(function (m) { h += '<div class="m ' + (m.me ? "me" : "ot") + '"><p>' + esc(m.text) + '</p></div>'; });
+      if (d.msgs.length) h += '<div class="t">' + esc(d.msgs[d.msgs.length - 1].ago) + '</div>';
+      list.innerHTML = h || '<div class="t">아직 메시지가 없어요</div>';
+      window.scrollTo(0, document.body.scrollHeight);
+    }).catch(function (e) { list.innerHTML = '<div class="err">' + esc(e.message || "연결이 안 돼요") + '</div>'; });
+  }
+  function send(body, done) {
+    st.textContent = "보내는 중";
+    fetch("/api/sc/send", { method: "POST", headers: { "x-wooju-key": key, "content-type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error(t); return t; }); })
+      .then(function (t) { st.textContent = t; done && done(); load(); setTimeout(function () { st.textContent = ""; }, 2500); })
+      .catch(function (e) { st.textContent = e.message || "못 보냈어요"; });
+  }
+  document.getElementById("f").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var i = document.getElementById("txt"), v = i.value.trim(); if (!v) return;
+    send({ text: v }, function () { i.value = ""; });
+  });
+  document.getElementById("heart").addEventListener("click", function () { send({ kind: "heart" }); });
+  load(); setInterval(load, 15000);
+})();
+</script>
+</body>
+</html>

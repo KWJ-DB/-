@@ -375,6 +375,17 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (r.error) return txt(r.error, 400);
         return txt(kind === "heart" ? `${oname}님에게 하트를 보냈어요` : `${oname}님에게 보냈어요`);
       }
+      if (p1 === "feed") {
+        await deliverDue();
+        const n = Math.min(20, Math.max(1, Number(q("n")) || 8));
+        const { results } = await DB.prepare("SELECT id, who, text, kind, img, t FROM messages ORDER BY id DESC LIMIT ?1").bind(n).all();
+        const rows = (results || []).reverse();
+        const ago = (t) => { const d = Math.max(0, Date.now() - t) / 60000; return d < 1 ? "방금" : d < 60 ? `${Math.floor(d)}분 전` : d < 1440 ? `${Math.floor(d / 60)}시간 전` : `${Math.floor(d / 1440)}일 전`; };
+        const body = (r) => r.kind === "heart" ? "\u2665" : r.kind === "voice" ? "음성 메시지" : r.kind === "poll" ? "투표" : r.kind === "loc" ? "위치" : r.kind === "event" ? "일정" : r.kind === "call" ? r.text : r.text || (r.img ? "사진" : "");
+        const unread = rows.filter((r) => r.who === other && r.id > (Number(st["read_" + who]) || 0)).length;
+        if (rows.length) await setSettings(env, { ["read_" + who]: Math.max(Number(st["read_" + who]) || 0, rows[rows.length - 1].id), ["read_t_" + who]: Date.now() });
+        return json({ other: oname, unread, msgs: rows.map((r) => ({ me: r.who === who, text: body(r), ago: ago(r.t) })) });
+      }
       if (p1 === "inbox") {
         await deliverDue();
         const n = Math.min(20, Math.max(1, Number(q("n")) || 6));

@@ -2453,14 +2453,40 @@
   const autoFx = (t) => /생일\s*축하/.test(t) ? "fireworks" : /축하/.test(t) ? "confetti" : /사랑해|좋아해|보고\s*싶/.test(t) ? "hearts" : null;
   function screenFx(kind) {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const box = document.createElement("div"); box.className = "sfx sfx-" + kind; document.body.appendChild(box);
-    const W = innerWidth, H = innerHeight; let h = "";
-    if (kind === "confetti") for (let i = 0; i < 70; i++) h += `<i style="left:${Math.random() * 100}%;--d:${(Math.random() * 0.8).toFixed(2)}s;--x:${((Math.random() - 0.5) * 160) | 0}px;--r:${(Math.random() * 720 - 360) | 0}deg;--c:${["#F2668B", "#FFC94D", "#6FCF97", "#56A8F5", "#B48CF2"][i % 5]};--s:${(6 + Math.random() * 6) | 0}px"></i>`;
-    if (kind === "hearts") for (let i = 0; i < 28; i++) h += `<i style="left:${Math.random() * 100}%;--d:${(Math.random() * 1.2).toFixed(2)}s;--x:${((Math.random() - 0.5) * 80) | 0}px;--s:${(18 + Math.random() * 26) | 0}px">${HEART}</i>`;
-    if (kind === "fireworks") for (let b = 0; b < 4; b++) { const cx = 15 + Math.random() * 70, cy = 15 + Math.random() * 45, col = ["#FFC94D", "#F2668B", "#56A8F5", "#B48CF2"][b]; for (let i = 0; i < 22; i++) { const a = (i / 22) * Math.PI * 2, d = 60 + Math.random() * 50; h += `<i style="left:${cx}%;top:${cy}%;--x:${(Math.cos(a) * d) | 0}px;--y:${(Math.sin(a) * d) | 0}px;--d:${(b * 0.45).toFixed(2)}s;--c:${col}"></i>`; } }
+    // 키보드가 올라와 있으면 보이는 화면(키보드 위) 안에서만 터지게
+    const vv = window.visualViewport;
+    const box = document.createElement("div"); box.className = "sfx sfx-" + kind;
+    if (vv) { box.style.top = vv.offsetTop + "px"; box.style.height = vv.height + "px"; box.style.bottom = "auto"; }
+    document.body.appendChild(box);
+    const R = Math.random, C = ["#F2668B", "#FFC94D", "#6FCF97", "#56A8F5", "#B48CF2", "#FF8A5B"];
+    let h = "";
+    if (kind === "confetti") {
+      // 아래 양쪽에서 위로 쏘아 올렸다가 떨어지게
+      for (let i = 0; i < 120; i++) {
+        const left = i % 2 === 0, x0 = left ? 5 + R() * 15 : 80 + R() * 15;
+        h += `<i style="left:${x0}%;--d:${(R() * 0.25).toFixed(2)}s;--ux:${((left ? 1 : -1) * (60 + R() * 200)) | 0}px;--uy:${(-(45 + R() * 40)) | 0}vh;--fx:${((R() - 0.5) * 160) | 0}px;--r:${(R() * 1080 - 540) | 0}deg;--c:${C[i % 6]};--s:${(7 + R() * 7) | 0}px;--t:${(2.6 + R() * 1.2).toFixed(2)}s"></i>`;
+      }
+    }
+    if (kind === "hearts") for (let i = 0; i < 46; i++) h += `<i style="left:${R() * 100}%;--d:${(R() * 1.4).toFixed(2)}s;--x:${((R() - 0.5) * 120) | 0}px;--s:${(22 + R() * 34) | 0}px;--t:${(2.4 + R() * 1.4).toFixed(2)}s;--c:${["#F2668B", "#FF8FAB", "#E8406E"][i % 3]}">${HEART}</i>`;
+    if (kind === "fireworks") {
+      for (let k = 0; k < 6; k++) {
+        const cx = 12 + R() * 76, cy = 12 + R() * 40, col = C[k % 6], dl = k * 0.42;
+        h += `<b style="left:${cx}%;top:${cy}%;--d:${dl.toFixed(2)}s;--c:${col}"></b>`;
+        for (let i = 0; i < 30; i++) { const a = (i / 30) * Math.PI * 2, d = 70 + R() * 60; h += `<i style="left:${cx}%;top:${cy}%;--x:${(Math.cos(a) * d) | 0}px;--y:${(Math.sin(a) * d) | 0}px;--d:${(dl + 0.35).toFixed(2)}s;--c:${col}"></i>`; }
+      }
+    }
     box.innerHTML = h;
-    try { haptic(20); } catch {}
-    setTimeout(() => box.remove(), 4200);
+    try { haptic(kind === "fireworks" ? [20, 60, 20, 60, 20] : 25); } catch {}
+    setTimeout(() => box.remove(), 5200);
+  }
+  // 말풍선 효과(쿵·크게)는 화면도 같이 흔들리게
+  function bubbleShake(fx) {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const L = $("#dmList"); if (!L) return;
+    L.classList.remove("shake-slam", "shake-loud"); void L.offsetWidth;
+    if (fx === "slam") { setTimeout(() => { L.classList.add("shake-slam"); try { haptic(30); } catch {} }, 260); }
+    if (fx === "loud") { L.classList.add("shake-loud"); try { haptic([15, 40, 15]); } catch {} }
+    setTimeout(() => L.classList.remove("shake-slam", "shake-loud"), 900);
   }
   // 새로 온 메시지 중 화면 효과가 있는 것 한 번만 재생
   function chatFx(msgs) {
@@ -2471,7 +2497,8 @@
       if (m.id <= seen) continue;
       top = Math.max(top, m.id);
       const fx = m.meta && m.meta.fx;
-      if (fx && ["confetti", "hearts", "fireworks"].includes(fx) && Date.now() + (S.clockOff || 0) - m.t < 120000 && m.who !== S.who) screenFx(fx);
+      const recent = Date.now() + (S.clockOff || 0) - m.t < 120000;
+      if (fx && recent && m.who !== S.who) { if (["confetti", "hearts", "fireworks"].includes(fx)) screenFx(fx); else bubbleShake(fx); }
     }
     if (top > seen) try { localStorage.setItem("wooju_fxseen", String(top)); } catch {}
   }
@@ -2617,6 +2644,7 @@
     setReply(null);
     drawChat(true);
     if (fx && ["confetti", "hearts", "fireworks"].includes(fx)) setTimeout(() => screenFx(fx), 150);
+    else if (fx) bubbleShake(fx);
     postMsg({ text, reply, fx: fx || undefined }, tmp);
   }
   function sendHeart() {
@@ -2723,6 +2751,13 @@
   function sendOpts() {
     const text = $("#dmText").value.trim();
     if (!text) return toast("보낼 말을 먼저 적어주세요");
+    // 키보드가 떠 있으면 먼저 내리고 메뉴 열기 (메뉴가 키보드에 가려지지 않게)
+    const ta = $("#dmText");
+    if (document.activeElement === ta) { ta.blur(); return setTimeout(sendOptsOpen, 320); }
+    sendOptsOpen();
+  }
+  function sendOptsOpen() {
+    const text = $("#dmText").value.trim();
     const d = new Date(), pad = (n) => String(n).padStart(2, "0");
     const local = (x) => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}T${pad(x.getHours())}:${pad(x.getMinutes())}`;
     const tonight = new Date(); tonight.setHours(21, 0, 0, 0); if (tonight < d) tonight.setDate(tonight.getDate() + 1);
@@ -2874,10 +2909,10 @@
     const canEdit = m && m.who === S.who && m.text && Date.now() - m.t < 15 * 60000;
     const box = $("#rx");
     box.innerHTML = `<div class="rx-bg" data-act="rxClose"></div>
-      <div class="rx-bar" style="top:${Math.max(70, rect.top - 64)}px">
+      <div class="rx-bar" style="top:${Math.max((window.visualViewport ? visualViewport.offsetTop : 0) + 70, rect.top - 64)}px">
         ${RX.map((r) => `<button class="${mineR === r ? "on" : ""} r-${r}" data-act="rxPick" data-r="${r}" data-id="${id}">${ic(r)}</button>`).join("")}
       </div>
-      <div class="rx-menu" style="top:${Math.min(innerHeight - 290, rect.bottom + 10)}px">
+      <div class="rx-menu" style="top:${Math.max(80, Math.min((window.visualViewport ? visualViewport.offsetTop + visualViewport.height : innerHeight) - 290, rect.bottom + 10))}px">
         <button data-act="rxReply" data-id="${id}">${ic("send")}답장</button>
         ${m && m.text ? `<button data-act="rxCopy" data-id="${id}">${ic("copy")}복사</button>` : ""}
         <button data-act="rxPin" data-id="${id}">${ic("pinned")}${m && m.pinned ? "고정 해제" : "위에 고정"}</button>
@@ -3046,6 +3081,21 @@
     };
     visualViewport.addEventListener("resize", fit);
     visualViewport.addEventListener("scroll", fit);
+    // 아래에서 올라온 창(시트)도 키보드 위로 올라가게
+    const fitSheet = () => {
+      const sh = $("#sheet"), box = $("#sheetBox");
+      if (!sh || sh.hidden) return;
+      const kbOpen = visualViewport.height < innerHeight * 0.8;
+      if (kbOpen) {
+        sh.style.top = visualViewport.offsetTop + "px"; sh.style.height = visualViewport.height + "px"; sh.style.bottom = "auto";
+        box.style.maxHeight = (visualViewport.height - 12) + "px";
+        const a = document.activeElement;
+        if (a && box.contains(a)) setTimeout(() => a.scrollIntoView({ block: "center", behavior: "smooth" }), 50);
+      } else { sh.style.top = ""; sh.style.height = ""; sh.style.bottom = ""; box.style.maxHeight = ""; }
+    };
+    visualViewport.addEventListener("resize", fitSheet);
+    visualViewport.addEventListener("scroll", fitSheet);
+    document.addEventListener("focusin", () => setTimeout(fitSheet, 350));
     $("#dmText").addEventListener("blur", () => { const w = $("#chatWrap"); w.style.top = ""; w.style.bottom = ""; });
   }
 

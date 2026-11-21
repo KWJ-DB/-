@@ -2868,7 +2868,7 @@
     if (!m) { if (!C.editing) { box.hidden = true; box.innerHTML = ""; } return; }
     box.innerHTML = `<div><b>${esc(nm(m.who))}에게 답장</b><span>${esc(m.text || (m.kind === "heart" ? "하트" : "사진"))}</span></div><button data-act="replyCancel" aria-label="취소">${ic("x")}</button>`;
     box.hidden = false;
-    $("#dmText").focus();
+    $("#dmText").focus({ preventScroll: true });
   }
   function setEdit(m) {
     C.editing = m ? m.id : null;
@@ -2877,7 +2877,7 @@
     S.replyTo = null;
     box.innerHTML = `<div><b>메시지 수정</b><span>${esc(m.text)}</span></div><button data-act="editCancel" aria-label="취소">${ic("x")}</button>`;
     box.hidden = false;
-    const t = $("#dmText"); t.value = m.text; autosize(); updateSendBtn(); t.focus();
+    const t = $("#dmText"); t.value = m.text; autosize(); updateSendBtn(); t.focus({ preventScroll: true });
   }
   function flashMsg(id) {
     const row = $("#m" + id);
@@ -3059,10 +3059,9 @@
     b.addEventListener("click", (e) => { if (longed) { longed = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
   })();
   $("#dmText").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.isComposing && !e.shiftKey) { e.preventDefault(); sendChat(); }
+    if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229 && !e.shiftKey) { e.preventDefault(); sendChat(); }
   });
-  $("#dmText").addEventListener("focus", () => { document.body.classList.add("typing"); $("#dmPlusMenu").hidden = true; setTimeout(() => { const L = $("#dmList"); L.scrollTop = L.scrollHeight; }, 300); });
-  $("#dmText").addEventListener("blur", () => { document.body.classList.remove("typing"); $("#chatWrap").style.height = ""; });
+
   const isField = (el) => el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !["checkbox", "radio", "file", "button", "range", "color"].includes(el.type)));
   document.addEventListener("focusin", (e) => { if (isField(e.target)) document.body.classList.add("kb"); });
   const kbCheck = () => { const a = document.activeElement; if (!isField(a) || !a.offsetParent) document.body.classList.remove("kb"); };
@@ -3071,16 +3070,6 @@
   if (window.visualViewport) visualViewport.addEventListener("resize", () => { if (visualViewport.height > innerHeight * 0.85) kbCheck(); });
   setInterval(kbCheck, 1500);
   if (window.visualViewport) {
-    const fit = () => {
-      if (!document.body.classList.contains("typing")) return;
-      if (window.scrollY) window.scrollTo(0, 0);
-      const w = $("#chatWrap");
-      w.style.height = visualViewport.height + "px";
-      w.style.top = visualViewport.offsetTop + "px";
-      w.style.bottom = "auto";
-    };
-    visualViewport.addEventListener("resize", fit);
-    visualViewport.addEventListener("scroll", fit);
     // 아래에서 올라온 창(시트)도 키보드 위로 올라가게
     const fitSheet = () => {
       const sh = $("#sheet"), box = $("#sheetBox");
@@ -3096,8 +3085,78 @@
     visualViewport.addEventListener("resize", fitSheet);
     visualViewport.addEventListener("scroll", fitSheet);
     document.addEventListener("focusin", () => setTimeout(fitSheet, 350));
-    $("#dmText").addEventListener("blur", () => { const w = $("#chatWrap"); w.style.top = ""; w.style.bottom = ""; });
   }
+
+
+  // ---------- 아이폰 키보드와 채팅 (아이메시지처럼) ----------
+  // 키보드가 올라오는 동안 미리 예상 높이로 같이 올라가고, 다 올라오면 실제 높이로 맞춤. 맨 아래를 보고 있었으면 계속 맨 아래 유지.
+  (() => {
+    const ta = $("#dmText"), wrap = $("#chatWrap"), L = $("#dmList"), vv = window.visualViewport;
+    const EASE = "cubic-bezier(.25,.8,.25,1)";
+    let open = false, guessH = 0;
+    try { guessH = Number(localStorage.getItem("wooju_kbh")) || 0; } catch {}
+    const atBottom = () => L.scrollHeight - L.scrollTop - L.clientHeight < 90;
+    const keepBottom = (stick, fromBottom) => { if (stick) L.scrollTop = L.scrollHeight; else if (fromBottom != null) L.scrollTop = L.scrollHeight - fromBottom; };
+    const setBox = (h, top, anim) => {
+      const stick = atBottom(), fb = L.scrollHeight - L.scrollTop;
+      wrap.style.transition = anim ? `height .32s ${EASE}, transform .32s ${EASE}` : "none";
+      wrap.style.bottom = "auto"; wrap.style.top = "0px";
+      wrap.style.height = Math.round(h) + "px";
+      wrap.style.transform = top ? `translateY(${Math.round(top)}px)` : "";
+      keepBottom(stick, fb);
+      // 높이 변하는 동안에도 맨 아래 붙여두기
+      if (stick && anim) { const t0 = performance.now(); const f = () => { L.scrollTop = L.scrollHeight; if (performance.now() - t0 < 360) requestAnimationFrame(f); }; requestAnimationFrame(f); }
+    };
+    const reset = (anim) => {
+      const stick = atBottom();
+      wrap.style.transition = anim ? `height .3s ${EASE}` : "none";
+      wrap.style.height = ""; wrap.style.top = ""; wrap.style.bottom = ""; wrap.style.transform = "";
+      keepBottom(stick);
+    };
+    const onOpen = () => {
+      open = true;
+      document.body.classList.add("typing"); document.documentElement.classList.add("kb-lock");
+      $("#dmPlusMenu").hidden = true;
+      // 실제 크기가 오기 전에 예상 높이로 먼저 (키보드와 같이 올라가게)
+      if (vv && guessH > 150 && vv.height > innerHeight * 0.85) setBox(innerHeight - guessH, 0, true);
+      setTimeout(fit, 60); setTimeout(fit, 400);
+    };
+    const onClose = () => {
+      open = false;
+      document.body.classList.remove("typing"); document.documentElement.classList.remove("kb-lock");
+      reset(true);
+    };
+    function fit() {
+      if (!vv || !open) return;
+      const kb = innerHeight - vv.height;
+      if (kb > 150) { guessH = kb; try { localStorage.setItem("wooju_kbh", String(Math.round(kb))); } catch {} }
+      if (window.scrollY && kb > 150) { /* 아이폰이 페이지를 밀어 올린 만큼 보정 */ }
+      setBox(vv.height, vv.offsetTop, false);
+    }
+    ta.addEventListener("focus", onOpen);
+    ta.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== ta) onClose(); }, 30));
+    if (vv) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
+    // 입력칸을 누를 때 아이폰이 화면을 위로 튕기지 않게 직접 포커스
+    ta.addEventListener("touchend", (e) => {
+      if (document.activeElement === ta) return;
+      e.preventDefault();
+      ta.focus({ preventScroll: true });
+    });
+    // 메시지 목록을 아래로 끌면 키보드 내리기 (아이메시지처럼)
+    let y0 = null, x0 = null;
+    L.addEventListener("touchstart", (e) => { if (!open) return; y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; }, { passive: true });
+    L.addEventListener("touchmove", (e) => {
+      if (!open || y0 == null) return;
+      const dy = e.touches[0].clientY - y0, dx = Math.abs(e.touches[0].clientX - x0);
+      if (dy > 40 && dy > dx * 1.5) { y0 = null; ta.blur(); }
+    }, { passive: true });
+    // 위쪽(이름 칸)을 누르면 키보드 내리기
+    $(".dm-head").addEventListener("click", (e) => { if (open && !e.target.closest("button")) ta.blur(); });
+    // 글이 길어져 입력칸이 커지면 맨 아래 유지
+    ta.addEventListener("input", () => { if (atBottom()) requestAnimationFrame(() => { L.scrollTop = L.scrollHeight; }); });
+    // 앱을 나갔다 오면 키보드 상태 다시 맞추기
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && open && document.activeElement !== ta) onClose(); });
+  })();
 
   // ---------- 폰 맞대기 ----------
   const T = { polling: null, near: null };
@@ -4617,7 +4676,7 @@
     dmSearch: () => searchSheet(),
     srchGo: () => doSearch(),
     srchPick(el) { closeSheet(); setTimeout(() => gotoMsg(Number(el.dataset.id)), 250); },
-    dmPlus() { const m = $("#dmPlusMenu"); m.hidden = !m.hidden; },
+    dmPlus() { const m = $("#dmPlusMenu"); if (m.hidden) $("#dmText").blur(); m.hidden = !m.hidden; },
     async dmEvent() {
       $("#dmPlusMenu").hidden = true;
       const d = await api(`calendar?from=${today()}&to=${addDays(today(), 90)}`);

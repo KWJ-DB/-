@@ -4586,6 +4586,7 @@
     dmLoc() { $("#dmPlusMenu").hidden = true; sendMyLoc(); },
     dmHeart() { $("#dmPlusMenu").hidden = true; sendHeart(); },
     dmPoll() { $("#dmPlusMenu").hidden = true; pollSheet(); },
+    dmVoice() { $("#dmPlusMenu").hidden = true; vmStart(); },
     dmMedia() { S.chat.media = null; mediaSheet("photo"); },
     mediaTab(el) { mediaSheet(el.dataset.t); },
     mediaPhoto(el) { const L = S.chat.media.photos.map((p) => ({ id: p.img, src: `/api/chatimg/${p.img}`, chat: true, who: p.who, t: p.t })); openLightbox(L, +el.dataset.i); },

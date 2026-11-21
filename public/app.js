@@ -3289,6 +3289,7 @@
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
+        ${row("pcAdd", "list", "컴퓨터로 맛집·갈 곳 등록", "큰 화면에서 검색하고 한꺼번에 추가")}
         ${row("gdSheet", "film", "구글 드라이브", S.gdrive && S.gdrive.email ? `${esc(S.gdrive.email)} · 영상 저장 중` : "영상을 드라이브에 저장 (용량 넉넉하게)")}
         ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : S.make ? "Make로 연결됨" : igShareMode() ? "인스타 앱으로 넘기기 켜짐" : "사진 올릴 때 인스타에도 같이")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
@@ -4219,6 +4220,14 @@
     turnSheet: () => turnSheet(),
     igSheet: () => igSheet(),
     gdSheet: () => gdSheet(),
+    pcAdd() {
+      const u = `${location.origin}/add`;
+      openSheet(`
+        <h2>${ic("list")}컴퓨터로 등록하기</h2>
+        <p class="sheet-sub">컴퓨터 브라우저에서 아래 주소를 열면 넓은 화면에서 검색하고 바로 추가할 수 있어요. 여러 곳을 한 줄씩 붙여넣어 한꺼번에 등록할 수도 있어요. 처음 한 번은 커플 비밀번호로 로그인해요.</p>
+        <div class="gd-uri"><code>${esc(u)}</code><button data-act="gdCopy" data-v="${esc(u)}">복사</button></div>
+        <div class="row2" style="margin-top:14px"><button class="btn primary" data-act="close">확인</button></div>`);
+    },
     async gdBackup(el) {
       if (S.gdBk) return;
       S.gdBk = true; el.disabled = true;

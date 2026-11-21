@@ -257,7 +257,7 @@ export const distM = (a, b) => {
 };
 // 바뀐 것만 돌려줌: [{ place, inside }]
 // 한 번만 알리도록: 정확도 낮은 위치·오래된 위치는 무시, 경계 여유를 크게, 같은 장소는 20분 안에 다시 안 바꿈
-export async function checkPlaces(DB, who, lat, lon, acc, t) {
+export async function checkPlaces(DB, who, lat, lon, acc, t, trusted = false) {
   const now = Date.now();
   const a = Number(acc) || 0;
   if (a > 120) return [];
@@ -281,7 +281,15 @@ export async function checkPlaces(DB, who, lat, lon, acc, t) {
       continue;
     }
     if (inside !== was) {
-      if (ps.t && now - ps.t < 20 * 60000) continue; // 20분 안에는 다시 안 바꿈
+      if (ps.t && now - ps.t < (trusted ? 4 : 20) * 60000) continue; // 너무 자주 바뀌지 않게
+      // OwnTracks 앱처럼 폰이 직접 보낸 정확한 위치는 한 번에 바로 판단 (바로 알림)
+      if (trusted && a <= 60) {
+        if (inside && d > p.radius) continue;
+        if (!inside && d <= p.radius + Math.max(60, a)) continue;
+        changes.push({ place: p, inside: !!inside });
+        writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, now, who, p.id));
+        continue;
+      }
       if (inside) {
         // 도착도 지나가다 스친 걸로 판단하지 않음: 최근 몇 분 동안 계속 안에 있어야 도착
         const { results: rec } = await DB.prepare("SELECT lat, lon, acc, t FROM loc_hist WHERE who = ?1 AND t > ?2 ORDER BY t DESC LIMIT 4").bind(who, now - 10 * 60000).all();
@@ -302,4 +310,16 @@ export async function checkPlaces(DB, who, lat, lon, acc, t) {
   }
   if (writes.length) await DB.batch(writes);
   return changes;
+}
+
+// OwnTracks 지오펜스(폰이 직접 감지한 도착/출발)로 장소 상태를 바로 바꿈
+export async function forcePlace(DB, who, name, inside) {
+  const p = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE name = ?1 AND (owner IS NULL OR owner = 'both' OR owner = ?2)").bind(name, who).first();
+  if (!p) return [];
+  const ps = await DB.prepare("SELECT inside, t FROM place_state WHERE who = ?1 AND place_id = ?2").bind(who, p.id).first();
+  const now = Date.now(), v = inside ? 1 : 0;
+  if (ps && ps.inside === v) return [];
+  if (ps && ps.t && now - ps.t < 2 * 60000) return [];
+  await DB.prepare("INSERT INTO place_state (who, place_id, inside, t) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(who, place_id) DO UPDATE SET inside = excluded.inside, t = excluded.t").bind(who, p.id, v, now).run();
+  return ps ? [{ place: p, inside: !!inside }] : [];
 }

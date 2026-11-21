@@ -1,5 +1,5 @@
 // 모든 /api/* 요청을 처리하는 라우터
-import {
+import { forcePlace,
   json, err, body, isDate, isTime, str, todayKST,
   ensureSchema, getSettings, setSettings, saveLoc,
   randHex, hashPw, safeEq, makeToken, readToken, getCookie, cookieHeader,
@@ -34,9 +34,9 @@ export async function onRequest({ request, env, params, waitUntil }) {
     const st = await getSettings(env);
     const isSetup = !!st.pass_hash;
     // 위치가 저장된 뒤 장소 도착/출발이면 상대에게 알림
-    const placeNotify = async (who, lat, lon, acc, t) => {
+    const placeNotify = async (who, lat, lon, acc, t, trusted = false, pre = null) => {
       try {
-        const changes = await checkPlaces(DB, who, Number(lat), Number(lon), acc, t);
+        const changes = pre || await checkPlaces(DB, who, Number(lat), Number(lon), acc, t, trusted);
         if (!changes.length) return;
         const name = who === "a" ? st.a_name : st.b_name;
         const other = who === "a" ? "b" : "a";
@@ -90,12 +90,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
     // 가보고 싶던 맛집·갈 곳 근처(120m)에 가면 알려줌 (같은 곳은 12시간에 한 번)
     const eatNearby = async (who, lat, lon, acc) => {
       lat = Number(lat); lon = Number(lon); acc = Number(acc) || 30;
-      // 진짜 가까울 때만: 위치가 정확(오차 35m 이내)하고 가게에서 40m 안쪽일 때, 제일 가까운 한 곳만
-      if (!Number.isFinite(lat) || !Number.isFinite(lon) || acc > 35) return;
-      const d = 0.0006;
+      // 가까울 때만: 위치가 정확(오차 50m 이내)하고 가게에서 50~80m 안쪽일 때, 제일 가까운 한 곳만
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || acc > 50) return;
+      const d = 0.001;
       const { results } = await env.DB.prepare("SELECT id, name, kind, wa, wb, lat, lon FROM eats WHERE status != 'been' AND lat BETWEEN ?1 AND ?2 AND lon BETWEEN ?3 AND ?4")
         .bind(lat - d, lat + d, lon - d * 1.3, lon + d * 1.3).all();
-      const lim = Math.min(40, 25 + acc * 0.4);
+      const lim = Math.min(80, 50 + acc * 0.5); // 50~80m 앞에서 알림
       const near = (results || []).map((e) => ({ e, m: distM({ lat, lon }, e) })).filter((x) => x.m <= lim).sort((a, b) => a.m - b.m)[0];
       if (!near) return;
       const { e, m } = near;
@@ -159,17 +159,40 @@ export async function onRequest({ request, env, params, waitUntil }) {
       if (b && b._type === "location") {
         try {
           await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, batt: b.batt, vel: b.vel, t: b.tst ? b.tst * 1000 : Date.now(), src: "app" });
-          await later(placeNotify(who, b.lat, b.lon, b.acc, b.tst ? b.tst * 1000 : Date.now()).then(togetherCheck).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
+          await later(placeNotify(who, b.lat, b.lon, b.acc, b.tst ? b.tst * 1000 : Date.now(), true).then(togetherCheck).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
+        } catch {}
+      }
+      // 폰이 직접 감지한 장소 도착/출발 (OwnTracks 지역) → 바로 알림
+      if (b && b._type === "transition" && b.desc && (b.event === "enter" || b.event === "leave")) {
+        try {
+          const t0 = b.tst ? b.tst * 1000 : Date.now();
+          if (Date.now() - t0 < 15 * 60000) {
+            const ch = await forcePlace(DB, who, String(b.desc), b.event === "enter");
+            if (ch.length) await later(placeNotify(who, b.lat, b.lon, b.acc, t0, true, ch).catch(() => {}));
+          }
+          if (Number.isFinite(Number(b.lat)) && Number.isFinite(Number(b.lon))) await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, t: t0, src: "app" }).catch(() => {});
         } catch {}
       }
       const other = who === "a" ? "b" : "a";
+      const out = [];
       const r = await DB.prepare("SELECT * FROM couple_locs WHERE who = ?1").bind(other).first();
-      if (!r) return json([]);
-      const name = other === "a" ? st.a_name : st.b_name;
-      const msg = { _type: "location", lat: r.lat, lon: r.lon, tst: Math.floor(r.t / 1000), tid: [...name].slice(0, 2).join(""), topic: `owntracks/${other}/phone` };
-      if (r.acc != null) msg.acc = r.acc;
-      if (r.batt != null) msg.batt = r.batt;
-      return json([msg]);
+      if (r) {
+        const name = other === "a" ? st.a_name : st.b_name;
+        const msg = { _type: "location", lat: r.lat, lon: r.lon, tst: Math.floor(r.t / 1000), tid: [...name].slice(0, 2).join(""), topic: `owntracks/${other}/phone` };
+        if (r.acc != null) msg.acc = r.acc;
+        if (r.batt != null) msg.batt = r.batt;
+        out.push(msg);
+      }
+      // 우주에 등록한 장소를 OwnTracks 지역으로 보내기 (바뀌었을 때만) → 폰이 도착/출발을 직접 감지
+      try {
+        const { results: pls } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE owner IS NULL OR owner = 'both' OR owner = ?1 ORDER BY id").bind(who).all();
+        const sig = (pls || []).map((p) => `${p.id}:${p.name}:${p.lat.toFixed(5)}:${p.lon.toFixed(5)}:${p.radius}`).join("|");
+        if ((sig !== (st["ot_wp_" + who] || "") || Date.now() - (Number(st["ot_wpt_" + who]) || 0) > 6 * 3600e3) && pls && pls.length) {
+          out.push({ _type: "cmd", action: "setWaypoints", waypoints: { _type: "waypoints", waypoints: pls.map((p) => ({ _type: "waypoint", desc: p.name, lat: p.lat, lon: p.lon, rad: Math.max(50, Math.round(p.radius)), tst: 1700000000 + p.id })) } });
+          await setSettings(env, { ["ot_wp_" + who]: sig, ["ot_wpt_" + who]: Date.now() });
+        }
+      } catch {}
+      return json(out);
     }
 
     // ---------- NFC 맞대기 (단축어 앱이 여는 링크, 로그인 없이 개인 토큰으로) ----------

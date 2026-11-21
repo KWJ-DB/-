@@ -2129,7 +2129,7 @@
       if (!pl) { i++; continue; }
       let j = i;
       while (j + 1 < p.length && inPl[j + 1] === pl) j++;
-      if (p[j].t - p[i].t >= 5 * 60000) for (let k = i; k <= j; k++) { p[k].lat = pl.lat; p[k].lon = pl.lon; p[k].pl = pl.name; }
+      if (p[j].t - p[i].t >= 5 * 60000) for (let k = i; k <= j; k++) p[k].pl = pl.name; // 이름표만 붙이고 위치는 실제 그대로
       i = j + 1;
     }
     // 앞뒤는 가까운데 혼자 멀리 튄 점 제거
@@ -2152,7 +2152,11 @@
         j++; n++; cLat += (q.lat - cLat) / n; cLon += (q.lon - cLon) / n;
       }
       if (j > i && p[j].t - p[i].t >= 5 * 60000) {
-        const st = { lat: p[i].pl ? p[i].lat : cLat, lon: p[i].pl ? p[i].lon : cLon, t0: p[i].t, t1: p[j].t, stay: true, pl: p[i].pl };
+        // 머문 자리 = 실제 찍힌 점들의 가운데값(튄 점에 안 끌려감), 정확한 점일수록 우선
+        const run = p.slice(i, j + 1), good = run.filter((x) => (x.acc || 30) <= 40);
+        const use = good.length >= 3 ? good : run;
+        const med = (arr) => { const a = [...arr].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+        const st = { lat: med(use.map((x) => x.lat)), lon: med(use.map((x) => x.lon)), t0: p[i].t, t1: p[j].t, stay: true, pl: p[i].pl };
         stays.push(st); seg.push(st); i = j + 1;
       } else { seg.push(p[i]); i++; }
     }
@@ -2165,7 +2169,7 @@
       const B = seg[j];
       if (B && B.stay && distM(A, B) < 150 && B.t0 - A.t1 < 45 * 60000) {
         const wa = A.t1 - A.t0 + 1, wb = B.t1 - B.t0 + 1;
-        if (!A.pl) { A.lat = (A.lat * wa + B.lat * wb) / (wa + wb); A.lon = (A.lon * wa + B.lon * wb) / (wa + wb); }
+        A.lat = (A.lat * wa + B.lat * wb) / (wa + wb); A.lon = (A.lon * wa + B.lon * wb) / (wa + wb);
         A.t1 = B.t1; A.pl = A.pl || B.pl;
         stays.splice(stays.indexOf(B), 1);
         seg.splice(k + 1, j - k);

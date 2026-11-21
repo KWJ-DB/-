@@ -2127,3 +2127,7 @@ body, .sheet-box, .empty, .sheet-sub, p { word-break: keep-all; overflow-wrap: b
 /* 키보드 열렸을 때 페이지가 따로 스크롤되지 않게 */
 html.kb-lock, html.kb-lock body { overflow: hidden; overscroll-behavior: none; }
 body.typing #chatWrap { will-change: height, transform; }
+/* 사진만 보낸 말풍선: 분홍 테두리 없이 사진만 (아이메시지처럼) */
+.dm-row.me .dm-bub.only-img, .dm-row.ot .dm-bub.only-img { background: none !important; padding: 0 !important; box-shadow: none !important; border: 0 !important; }
+.dm-bub.only-img .dm-img { display: block; border-radius: 18px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
+.dm-bub.has-img:not(.only-img) .dm-img { display: block; border-radius: 18px; }

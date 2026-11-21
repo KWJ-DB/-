@@ -357,6 +357,41 @@ export async function onRequest({ request, env, params, waitUntil }) {
       } catch (e) { return page(false, "연결 중 오류: " + esc2(e && e.message || e)); }
     }
 
+    // ---------- 단축어·애플워치로 디엠 (개인 키로 로그인 없이) ----------
+    if (p0 === "sc") {
+      const key = request.headers.get("x-wooju-key") || q("key") || "";
+      const who = key && st.sc_a && safeEq(key, st.sc_a) ? "a" : key && st.sc_b && safeEq(key, st.sc_b) ? "b" : null;
+      if (!isSetup || !who) return new Response("키가 맞지 않아요. 우주 설정에서 키를 다시 복사해주세요.", { status: 401, headers: { "content-type": "text/plain; charset=utf-8" } });
+      const other = who === "a" ? "b" : "a", oname = other === "a" ? st.a_name : st.b_name;
+      const txt = (t, status = 200) => new Response(t, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
+      if (p1 === "send" && m === "POST") {
+        let b = {};
+        const ct = request.headers.get("content-type") || "";
+        try { b = ct.includes("json") ? await request.json() : Object.fromEntries(new URLSearchParams(await request.text())); } catch {}
+        const text = str(b.text || b.message || "", 2000);
+        const kind = b.kind === "heart" || (!text && b.heart) ? "heart" : "text";
+        if (kind === "text" && !text) return txt("보낼 말이 비어 있어요", 400);
+        const r = await insertMsg(who, kind === "heart" ? { kind: "heart" } : { text });
+        if (r.error) return txt(r.error, 400);
+        return txt(kind === "heart" ? `${oname}님에게 하트를 보냈어요` : `${oname}님에게 보냈어요`);
+      }
+      if (p1 === "inbox") {
+        await deliverDue();
+        const n = Math.min(20, Math.max(1, Number(q("n")) || 6));
+        const { results } = await DB.prepare("SELECT id, who, text, kind, img, t FROM messages ORDER BY id DESC LIMIT ?1").bind(n).all();
+        const rows = (results || []).reverse();
+        if (!rows.length) return txt("아직 메시지가 없어요");
+        const ago = (t) => { const d = Math.max(0, Date.now() - t) / 60000; return d < 1 ? "방금" : d < 60 ? `${Math.floor(d)}분 전` : d < 1440 ? `${Math.floor(d / 60)}시간 전` : `${Math.floor(d / 1440)}일 전`; };
+        const body = (r) => r.kind === "heart" ? "하트" : r.kind === "voice" ? "음성 메시지" : r.kind === "poll" ? "투표" : r.kind === "loc" ? "위치" : r.kind === "event" ? "일정" : r.kind === "call" ? r.text : r.text || (r.img ? "사진" : "");
+        const unread = rows.filter((r) => r.who === other && r.id > (Number(st["read_" + who]) || 0)).length;
+        const out = rows.map((r) => `${r.who === who ? "나" : oname} · ${ago(r.t)}\n${body(r)}`).join("\n\n");
+        const last = rows[rows.length - 1];
+        await setSettings(env, { ["read_" + who]: Math.max(Number(st["read_" + who]) || 0, last.id), ["read_t_" + who]: Date.now() });
+        return txt((unread ? `새 메시지 ${unread}개\n\n` : "") + out);
+      }
+      return txt("없는 주소예요", 404);
+    }
+
     if (p0 === "igimg" && m === "GET") {
       const mm = /^(\d+)-(\d+)-([0-9a-f]{24})\.jpg$/.exec(p1 || "");
       if (!isSetup || !mm) return err(404, "없음");
@@ -752,6 +787,11 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!r.ok || !d.user_id) return err(400, "토큰이 올바르지 않아요" + (d.error && d.error.message ? ` (${d.error.message})` : ""));
         await setSettings(env, { ig_token: tok, ig_uid: String(d.user_id), ig_name: d.username || "", ig_who: who, ig_ref: Date.now() });
         return json({ ok: true, user: d.username || "" });
+      }
+      case "GET sckey": {
+        let k = st["sc_" + who];
+        if (!k || q("new")) { k = randHex(16); await setSettings(env, { ["sc_" + who]: k }); }
+        return json({ key: k });
       }
       case "POST makehook": {
         const b = await body(request);

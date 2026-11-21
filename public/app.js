@@ -3583,6 +3583,7 @@
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
+        ${row("scSheet", "send", "애플워치·단축어로 디엠", "폰 없이도 워치에서 말로 보내고 확인")}
         ${row("pcAdd", "list", "컴퓨터로 맛집·갈 곳 등록", "큰 화면에서 검색하고 한꺼번에 추가")}
         ${row("gdSheet", "film", "구글 드라이브", S.gdrive && S.gdrive.email ? `${esc(S.gdrive.email)} · 영상 저장 중` : "영상을 드라이브에 저장 (용량 넉넉하게)")}
         ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : S.make ? "Make로 연결됨" : igShareMode() ? "인스타 앱으로 넘기기 켜짐" : "사진 올릴 때 인스타에도 같이")}
@@ -4514,6 +4515,36 @@
     turnSheet: () => turnSheet(),
     igSheet: () => igSheet(),
     gdSheet: () => gdSheet(),
+    async scSheet(el, fresh) {
+      let k = "";
+      try { k = (await api(`sckey${fresh ? "?new=1" : ""}`)).key; } catch (e) { return toast(e.message); }
+      const base = location.origin;
+      openSheet(`
+        <h2>${ic("send")}애플워치·단축어로 디엠</h2>
+        <p class="sheet-sub">아이폰 "단축어" 앱으로 만들어두면 워치에서 "시리야, 우주 보내기"라고 말하거나 워치 화면의 단축어를 눌러 바로 보내고 확인할 수 있어요.</p>
+        <label class="fl">내 키 (남에게 보여주지 마세요)</label>
+        <div class="gd-uri"><code>${esc(k)}</code><button data-act="gdCopy" data-v="${esc(k)}">복사</button></div>
+        <label class="fl" style="margin-top:14px">1. 보내기 단축어 만들기</label>
+        <ol class="nv-steps ig-steps">
+          <li>단축어 앱 → <b>+</b> → 이름을 <b>우주 보내기</b>로</li>
+          <li><b>입력 요청</b> 동작 추가 → 종류 <b>텍스트</b>, 질문 "뭐라고 보낼까요?"</li>
+          <li><b>URL의 콘텐츠 가져오기</b> 동작 추가 → URL에 아래 주소<div class="gd-uri"><code>${esc(base)}/api/sc/send</code><button data-act="gdCopy" data-v="${esc(base)}/api/sc/send">복사</button></div></li>
+          <li>그 동작의 <b>보기</b>를 펼쳐서 방법 <b>POST</b> → 헤더 추가: 키 <b>x-wooju-key</b>, 값은 위의 내 키 → 요청 본문 <b>JSON</b> → 필드 추가: 키 <b>text</b>, 값은 <b>제공된 입력</b></li>
+          <li><b>결과 보기</b> 동작 추가 (보냈다는 말이 떠요)</li>
+          <li>단축어 정보(i)에서 <b>Apple Watch에서 보기</b> 켜기</li>
+        </ol>
+        <label class="fl" style="margin-top:14px">2. 확인 단축어 만들기</label>
+        <ol class="nv-steps ig-steps">
+          <li>새 단축어 이름 <b>우주 확인</b></li>
+          <li><b>URL의 콘텐츠 가져오기</b> → URL<div class="gd-uri"><code>${esc(base)}/api/sc/inbox</code><button data-act="gdCopy" data-v="${esc(base)}/api/sc/inbox">복사</button></div>방법은 <b>GET</b>, 헤더 <b>x-wooju-key</b> = 내 키</li>
+          <li><b>결과 보기</b> 추가 → 최근 메시지 6개가 떠요 (본 걸로 읽음 처리돼요)</li>
+          <li>마찬가지로 <b>Apple Watch에서 보기</b> 켜기</li>
+        </ol>
+        <p class="sheet-sub" style="margin-top:10px">하트만 보내려면 보내기 단축어에서 text 대신 키 <b>kind</b>, 값 <b>heart</b>로 하나 더 만들면 돼요.</p>
+        <p class="sheet-sub"><b>폰을 냈을 때:</b> 워치가 셀룰러 모델이거나, 전에 연결한 와이파이에 붙어 있으면 폰 없이도 돼요. 아이패드나 맥의 단축어에서도 똑같이 쓸 수 있어요.</p>
+        <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="scNew">키 새로 만들기</button><button class="btn primary" data-act="close">확인</button></div>`);
+    },
+    async scNew() { if (!confirm("키를 새로 만들면 지금 만든 단축어의 키도 바꿔야 해요. 바꿀까요?")) return; ACT.scSheet(null, true); },
     pcAdd() {
       const u = `${location.origin}/add`;
       openSheet(`

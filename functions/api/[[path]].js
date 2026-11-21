@@ -386,6 +386,34 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (rows.length) await setSettings(env, { ["read_" + who]: Math.max(Number(st["read_" + who]) || 0, rows[rows.length - 1].id), ["read_t_" + who]: Date.now() });
         return json({ other: oname, unread, msgs: rows.map((r) => ({ me: r.who === who, text: body(r), ago: ago(r.t) })) });
       }
+      // 홈 화면 위젯용 요약 (Scriptable)
+      if (p1 === "widget") {
+        await deliverDue();
+        const today = todayKST();
+        const days = st.start ? Math.floor((Date.parse(today) - Date.parse(st.start)) / 864e5) + 1 : 0;
+        const nextK = Math.ceil((days + 1) / 100) * 100, dNext = nextK - days;
+        const [lm, locs, pin] = await DB.batch([
+          DB.prepare("SELECT id, who, text, kind, img, t FROM messages ORDER BY id DESC LIMIT 1"),
+          DB.prepare("SELECT who, lat, lon, acc, t, batt FROM couple_locs"),
+          DB.prepare("SELECT p.name FROM place_state s JOIN places p ON p.id = s.place_id WHERE s.who = ?1 AND s.inside = 1 LIMIT 1").bind(other),
+        ]);
+        const m0 = (lm.results || [])[0];
+        const L = Object.fromEntries((locs.results || []).map((r) => [r.who, r]));
+        const ago = (t) => { const d = Math.max(0, Date.now() - t) / 60000; return d < 1 ? "방금" : d < 60 ? `${Math.floor(d)}분 전` : d < 1440 ? `${Math.floor(d / 60)}시간 전` : `${Math.floor(d / 1440)}일 전`; };
+        let dist = null;
+        if (L.a && L.b) dist = Math.round(distM(L.a, L.b));
+        const { results: ur } = await DB.prepare("SELECT COUNT(*) AS n FROM messages WHERE who = ?1 AND id > ?2").bind(other, Number(st["read_" + who]) || 0).all();
+        const kindTxt = (r) => r.kind === "heart" ? "하트" : r.kind === "voice" ? "음성 메시지" : r.kind === "poll" ? "투표" : r.kind === "loc" ? "위치" : r.kind === "event" ? "일정" : r.kind === "call" ? r.text : r.text || (r.img ? "사진" : "");
+        return json({
+          me: who === "a" ? st.a_name : st.b_name, other: oname, days, next: { n: nextK, d: dNext },
+          unread: ur && ur[0] ? ur[0].n : 0,
+          last: m0 ? { me: m0.who === who, text: kindTxt(m0), ago: ago(m0.t) } : null,
+          dist, together: st.together === "1",
+          place: pin.results && pin.results[0] ? pin.results[0].name : "",
+          seen: L[other] ? ago(L[other].t) : "", batt: L[other] && L[other].batt != null ? L[other].batt : null,
+          url: `${url.origin}/#chat`,
+        });
+      }
       if (p1 === "inbox") {
         await deliverDue();
         const n = Math.min(20, Math.max(1, Number(q("n")) || 6));

@@ -3583,6 +3583,7 @@
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
+        ${row("widgetSheet", "frame", "홈 화면·잠금 화면 위젯", "함께한 날, 거리, 마지막 메시지")}
         ${row("scSheet", "send", "애플워치·단축어로 디엠", "폰 없이도 워치에서 말로 보내고 확인")}
         ${row("pcAdd", "list", "컴퓨터로 맛집·갈 곳 등록", "큰 화면에서 검색하고 한꺼번에 추가")}
         ${row("gdSheet", "film", "구글 드라이브", S.gdrive && S.gdrive.email ? `${esc(S.gdrive.email)} · 영상 저장 중` : "영상을 드라이브에 저장 (용량 넉넉하게)")}
@@ -4165,6 +4166,7 @@
   })();
 
   // ---------- 버튼 동작 ----------
+  const WIDGET_TPL = "// 우주 위젯 (Scriptable) — 홈 화면·잠금 화면\nconst KEY = \"__KEY__\";\nconst BASE = \"__BASE__\";\nconst req = new Request(BASE + \"/api/sc/widget\");\nreq.headers = { \"x-wooju-key\": KEY };\nreq.timeoutInterval = 15;\nlet d = null;\ntry { d = await req.loadJSON(); if (!d || !d.days) d = null; } catch (e) { d = null; }\nconst fam = config.widgetFamily || \"medium\";\nconst pink = new Color(\"#F2668B\"), ink = new Color(\"#2B2330\"), sub = new Color(\"#8A7F88\"), white = Color.white();\nconst w = new ListWidget();\nw.url = d ? d.url : BASE;\nw.refreshAfterDate = new Date(Date.now() + 10 * 60 * 1000);\nfunction sym(stack, name, size, color) {\n  const s = SFSymbol.named(name); if (!s) return;\n  s.applyFont(Font.systemFont(size));\n  const img = stack.addImage(s.image); img.imageSize = new Size(size, size); img.tintColor = color;\n}\nfunction txt(stack, t, font, color, lines) {\n  const x = stack.addText(String(t)); x.font = font; x.textColor = color; if (lines) x.lineLimit = lines; return x;\n}\nconst distTxt = (m) => m == null ? \"\" : m < 1000 ? `${m}m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)}km`;\nif (fam.startsWith(\"accessory\")) {\n  // 잠금 화면\n  if (!d) { txt(w, \"우주\", Font.boldSystemFont(13), white); }\n  else if (fam === \"accessoryCircular\") {\n    w.addAccessoryWidgetBackground = true;\n    const s = w.addStack(); s.layoutVertically(); s.centerAlignContent();\n    const r1 = s.addStack(); r1.addSpacer(); sym(r1, \"heart.fill\", 13, white); r1.addSpacer();\n    const r2 = s.addStack(); r2.addSpacer(); txt(r2, d.days, Font.boldRoundedSystemFont(15), white); r2.addSpacer();\n  } else if (fam === \"accessoryInline\") {\n    txt(w, `${d.other} ${d.together ? \"함께 있어요\" : distTxt(d.dist)} · ${d.days}일`, Font.systemFont(12), white);\n  } else {\n    const h = w.addStack(); h.centerAlignContent(); sym(h, \"heart.fill\", 12, white); h.addSpacer(4);\n    txt(h, `${d.days}일째${d.unread ? `  ·  새 메시지 ${d.unread}` : \"\"}`, Font.boldSystemFont(13), white);\n    txt(w, d.together ? `${d.other}와 함께 있어요` : `${d.other} ${d.place ? d.place + \"에 있어요\" : distTxt(d.dist) + \" 떨어져 있어요\"}`, Font.systemFont(12), white, 1);\n    if (d.last) txt(w, `${d.last.me ? \"나\" : d.other}: ${d.last.text}`, Font.systemFont(12), white, 1);\n  }\n} else {\n  const bg = new LinearGradient(); bg.colors = [new Color(\"#FFF7FA\"), new Color(\"#FFE1EB\")]; bg.locations = [0, 1]; w.backgroundGradient = bg;\n  w.setPadding(14, 14, 14, 14);\n  if (!d) { txt(w, \"우주\", Font.boldSystemFont(16), pink); w.addSpacer(4); txt(w, \"연결할 수 없어요. 키를 확인해주세요.\", Font.systemFont(12), sub, 3); }\n  else {\n    const top = w.addStack(); top.centerAlignContent();\n    txt(top, d.me, Font.semiboldSystemFont(12), sub); top.addSpacer(4); sym(top, \"heart.fill\", 11, pink); top.addSpacer(4); txt(top, d.other, Font.semiboldSystemFont(12), sub);\n    top.addSpacer();\n    if (d.unread) { const b = top.addStack(); b.backgroundColor = pink; b.cornerRadius = 9; b.setPadding(2, 7, 2, 7); txt(b, `${d.unread}`, Font.boldSystemFont(11), white); }\n    w.addSpacer(fam === \"small\" ? 6 : 4);\n    const dd = w.addStack(); dd.bottomAlignContent();\n    txt(dd, d.days, Font.boldRoundedSystemFont(fam === \"small\" ? 34 : 30), ink); dd.addSpacer(3); txt(dd, \"일째\", Font.semiboldSystemFont(13), sub);\n    if (fam !== \"small\") { dd.addSpacer(); txt(dd, `${d.next.n}일까지 D-${d.next.d}`, Font.mediumSystemFont(11), sub); }\n    w.addSpacer(fam === \"small\" ? 6 : 8);\n    const loc = w.addStack(); loc.centerAlignContent();\n    sym(loc, d.together ? \"heart.circle.fill\" : \"location.fill\", 12, pink); loc.addSpacer(5);\n    txt(loc, d.together ? \"함께 있어요\" : d.place ? `${d.other} · ${d.place}` : d.dist != null ? `${distTxt(d.dist)} 떨어져 있어요` : \"위치 없음\", Font.mediumSystemFont(12), ink, 1);\n    if (fam !== \"small\" && d.last) {\n      w.addSpacer(8);\n      const m = w.addStack(); m.backgroundColor = d.last.me ? pink : white; m.cornerRadius = 12; m.setPadding(7, 10, 7, 10); m.layoutVertically();\n      txt(m, d.last.text, Font.systemFont(13), d.last.me ? white : ink, 2);\n      const mm = w.addStack(); mm.addSpacer(); txt(mm, `${d.last.me ? \"나\" : d.other} · ${d.last.ago}`, Font.systemFont(10), sub);\n    }\n    w.addSpacer();\n  }\n}\nif (config.runsInWidget) Script.setWidget(w); else if (fam === \"small\") await w.presentSmall(); else await w.presentMedium();\nScript.complete();\n";
   const ACT = {
     tab: (el) => setTab(el.dataset.tab),
     bucketOpen: () => bucketSheet(),
@@ -4553,6 +4555,28 @@
       const u = el.dataset.v;
       if (navigator.share) { try { await navigator.share({ title: "워치용 우주", url: u }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
       try { await navigator.clipboard.writeText(u); toast("링크를 복사했어요. 메시지 앱에서 나에게 보내세요"); } catch { toast(u); }
+    },
+    async widgetSheet() {
+      let k = "";
+      try { k = (await api("sckey")).key; } catch (e) { return toast(e.message); }
+      S.wScript = WIDGET_TPL.replace("__KEY__", k).replace("__BASE__", location.origin);
+      openSheet(`
+        <h2>${ic("frame")}홈 화면 위젯</h2>
+        <p class="sheet-sub">무료 앱 <b>Scriptable</b>을 쓰면 함께한 날, 둘 사이 거리나 상대가 있는 장소, 새 메시지 수, 마지막 메시지를 보여주는 위젯을 홈 화면과 잠금 화면에 놓을 수 있어요. 누르면 우주 채팅이 열려요.</p>
+        <ol class="nv-steps ig-steps">
+          <li>App Store에서 <a href="https://apps.apple.com/app/scriptable/id1405459188" target="_blank" rel="noopener"><b>Scriptable</b></a> 받기 (무료)</li>
+          <li>아래 <b>위젯 코드 복사</b>를 눌러요</li>
+          <li>Scriptable 열기 → 오른쪽 위 <b>+</b> → 빈 화면에 <b>붙여넣기</b> → 위쪽 제목을 <b>우주</b>로 바꾸고 <b>Done</b></li>
+          <li>홈 화면을 꾹 → 왼쪽 위 <b>+</b>(편집) → <b>Scriptable</b> → 작은/중간 크기 골라 추가</li>
+          <li>추가된 위젯을 꾹 → <b>위젯 편집</b> → Script에서 <b>우주</b> 고르기</li>
+          <li>잠금 화면도 똑같이: 잠금 화면 꾹 → 사용자화 → 위젯 추가 → Scriptable → Script <b>우주</b></li>
+        </ol>
+        <p class="sheet-sub">위젯은 아이폰이 정한 때에 새로고침돼서 보통 10~15분마다 바뀌어요. 코드에 내 키가 들어 있으니 남에게 보내지 마세요.</p>
+        <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="close">닫기</button><button class="btn primary" data-act="widgetCopy">${ic("copy")}위젯 코드 복사</button></div>`);
+    },
+    async widgetCopy() {
+      try { await navigator.clipboard.writeText(S.wScript); toast("복사했어요. Scriptable에 붙여넣으세요"); }
+      catch { const ta = document.createElement("textarea"); ta.value = S.wScript; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); toast("복사했어요"); } catch { toast("복사하지 못했어요"); } ta.remove(); }
     },
     async scNew() { if (!confirm("키를 새로 만들면 지금 만든 단축어의 키도 바꿔야 해요. 바꿀까요?")) return; ACT.scSheet(null, true); },
     pcAdd() {

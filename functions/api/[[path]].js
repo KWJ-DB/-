@@ -165,14 +165,25 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const w of ["a", "b"]) {
           const ow = w === "a" ? "b" : "a";
           if (st["noshow_off_" + ow] === "1") continue;
-          const { results } = await DB.prepare("SELECT place, t FROM place_events WHERE who = ?1 AND inside = 1 AND t >= ?2 ORDER BY t").bind(w, now - 29 * 864e5).all();
-          const first = new Map(); const todayIn = new Set();
-          for (const e of results || []) {
-            if (e.t >= dayStart) { todayIn.add(e.place); continue; }
-            const k = K(e.t), d = k.toISOString().slice(0, 10);
-            if (k.getUTCDay() !== dow) continue;
-            const key = e.place + "|" + d;
-            if (!first.has(key)) first.set(key, { place: e.place, m: k.getUTCHours() * 60 + k.getUTCMinutes() });
+          // 데이터를 자주 꺼도 나중에 몰아서 올라온 위치(OwnTracks)까지 보도록, 장소 이벤트 대신 실제 위치 기록으로 도착 시각을 계산
+          const loc = await DB.prepare("SELECT lat, lon, t FROM couple_locs WHERE who = ?1").bind(w).first();
+          if (!loc || now - loc.t > 15 * 60000) continue;   // 위치가 15분 넘게 안 들어오면(데이터 꺼짐) 모르는 거라 알리지 않음
+          const pls = (await DB.prepare("SELECT name, lat, lon, radius FROM places WHERE owner IS NULL OR owner = 'both' OR owner = ?1").bind(w).all()).results || [];
+          if (!pls.length) continue;
+          const pts = (await DB.prepare("SELECT lat, lon, t FROM loc_hist WHERE who = ?1 AND t >= ?2 ORDER BY t").bind(w, now - 29 * 864e5).all()).results || [];
+          const first = new Map(); const todayIn = new Set(); const outSeen = new Set();
+          for (const pt of pts) {
+            const k = K(pt.t), d = k.toISOString().slice(0, 10);
+            for (const pl of pls) {
+              const dm = distM(pt, pl), r = pl.radius || 100;
+              const key = pl.name + "|" + d;
+              if (dm > r + 60) { outSeen.add(key); continue; }
+              if (dm > r) continue;
+              if (!outSeen.has(key)) continue;                // 그날 밖에 있다가 들어온 것만 "도착"
+              if (pt.t >= dayStart) { todayIn.add(pl.name); continue; }
+              if (k.getUTCDay() !== dow || first.has(key)) continue;
+              first.set(key, { place: pl.name, m: k.getUTCHours() * 60 + k.getUTCMinutes() });
+            }
           }
           const by = {};
           for (const v of first.values()) (by[v.place] = by[v.place] || []).push(v.m);
@@ -184,16 +195,14 @@ export async function onRequest({ request, env, params, waitUntil }) {
             if (nowMin < med + 25 || nowMin > med + 120) continue;
             const sk = w + "|" + place;
             if (sent.k.includes(sk)) continue;
-            const pl = await DB.prepare("SELECT lat, lon, radius FROM places WHERE name = ?1").bind(place).first();
-            const loc = await DB.prepare("SELECT lat, lon, t FROM couple_locs WHERE who = ?1").bind(w).first();
+            const pl = pls.find((x) => x.name === place);
             if (pl && loc && distM(loc, pl) <= (pl.radius || 100) + 30) continue;   // 사실 이미 그 근처
             sent.k.push(sk); changed = true;
             const name = w === "a" ? st.a_name : st.b_name;
             const hh = `${med >= 720 ? "오후" : "오전"} ${(Math.floor(med / 60) % 12) || 12}:${String(med % 60).padStart(2, "0")}`;
-            const old = loc ? Math.round((now - loc.t) / 60000) : null;
             await sendPush(env, st, setSettings, ow, {
               title: `${name}님이 아직 ${place}에 안 왔어요`,
-              body: `평소 ${hh}쯤 도착하는데 아직이에요${old != null && old > 20 ? ` · 위치가 ${old}분 전에 마지막으로 들어왔어요` : ""}`,
+              body: `평소 ${hh}쯤 도착하는데 아직이에요`,
               url: "/#map", tag: "noshow",
             });
           }
@@ -726,7 +735,25 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of results || []) locs[r.who] = r;
         const sos = {};
         for (const w of ["a", "b"]) { try { const v = JSON.parse(st["sos_" + w] || "null"); if (v && Date.now() - v.t < 6 * 3600e3) sos[w] = v; } catch {} }
-        return json({ now: Date.now(), locs, sos });
+        // 가는 중: 목적지(상대 또는 장소)에 70m 안으로 들어오면 자동으로 끝내고 상대에게 도착 알림
+        const omw = {}, upd = {};
+        for (const w of ["a", "b"]) {
+          let v = null; try { v = JSON.parse(st["omw_" + w] || "null"); } catch {}
+          if (!v) { try { const dn = JSON.parse(st["omwdone_" + w] || "null"); if (dn && Date.now() - dn.t < 90000) omw[w] = { done: dn.t, name: dn.name }; } catch {} continue; }
+          const me0 = locs[w], dest = v.kind === "partner" ? locs[w === "a" ? "b" : "a"] : v.dest;
+          if (Date.now() - v.t0 > 4 * 3600e3) { upd["omw_" + w] = ""; continue; }
+          const d = me0 && dest ? distM(me0, dest) : null;
+          if (d != null && d < 70 && me0.t > v.t0) {
+            upd["omw_" + w] = ""; upd["omwdone_" + w] = JSON.stringify({ t: Date.now(), name: v.name });
+            omw[w] = { done: Date.now(), name: v.name };
+            const name = w === "a" ? st.a_name : st.b_name;
+            later(sendPush(env, st, setSettings, w === "a" ? "b" : "a", { title: `${name}님 도착`, body: v.kind === "partner" ? "바로 옆에 왔어요" : `${v.name}에 도착했어요`, url: "/#map", tag: "omw" }).catch(() => {}));
+            continue;
+          }
+          omw[w] = { ...v, d, dest: dest ? { lat: dest.lat, lon: dest.lon } : null };
+        }
+        if (Object.keys(upd).length) await setSettings(env, upd);
+        return json({ now: Date.now(), locs, sos, omw });
       }
       // 긴급 알림: 꾹 눌러 보내면 상대에게 바로 알림 + 채팅에 기록, 상대가 확인하면 보낸 사람에게 알림
       // 무전: 꾹 누르고 말하면 상대 앱이 열려 있을 때 바로 재생 (채팅에도 음성으로 남음)
@@ -749,6 +776,32 @@ export async function onRequest({ request, env, params, waitUntil }) {
         await setSettings(env, { ["noshow_off_" + who]: b.on ? "" : "1" });
         return json(OK);
       }
+      case "POST omw": {
+        const b = await body(request);
+        const ow = who === "a" ? "b" : "a", name = who === "a" ? st.a_name : st.b_name;
+        const L = {}; for (const r of (await DB.prepare("SELECT who, lat, lon, t FROM couple_locs").all()).results || []) L[r.who] = r;
+        if (!L[who]) return err(400, "내 위치가 아직 없어요. 위치를 먼저 켜주세요");
+        let v;
+        if (b.kind === "place") {
+          const la = Number(b.lat), lo = Number(b.lon);
+          if (!Number.isFinite(la) || !Number.isFinite(lo)) return err(400, "목적지가 없어요");
+          v = { kind: "place", name: str(b.name, 40) || "목적지", dest: { lat: la, lon: lo } };
+        } else {
+          if (!L[ow]) return err(400, "상대 위치가 아직 없어요");
+          v = { kind: "partner", name: ow === "a" ? st.a_name : st.b_name };
+        }
+        const dest = v.kind === "partner" ? L[ow] : v.dest;
+        v.t0 = Date.now(); v.d0 = Math.round(distM(L[who], dest));
+        if (v.d0 < 80) return err(400, "이미 거의 다 왔어요");
+        await setSettings(env, { ["omw_" + who]: JSON.stringify(v), ["omwdone_" + who]: "" });
+        const mins = Math.max(1, Math.round(v.d0 / (v.d0 < 2500 ? 75 : 450)));
+        const job = sendPush(env, st, setSettings, ow, { title: `${name}님이 ${v.kind === "partner" ? "오는 중" : v.name + "에 가는 중"}`, body: `${v.d0 >= 1000 ? (v.d0 / 1000).toFixed(1) + "km" : v.d0 + "m"} · 약 ${mins}분`, url: "/#map", tag: "omw" }).catch(() => {});
+        if (waitUntil) waitUntil(job); else await job;
+        return json(OK);
+      }
+      case "DELETE omw":
+        await setSettings(env, { ["omw_" + who]: "", ["omwdone_" + who]: "" });
+        return json(OK);
       case "POST sos": {
         const name = who === "a" ? st.a_name : st.b_name, ow = who === "a" ? "b" : "a";
         await setSettings(env, { ["sos_" + who]: JSON.stringify({ t: Date.now() }) });

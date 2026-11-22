@@ -305,7 +305,7 @@
     const [, locR, bkR, lt, sk] = await Promise.all([
       loadAnswers(qToday(), qToday()), api("loc"), api("bucket"), api(`letters?today=${t}`), api(`streak?today=${qToday()}`),
     ]);
-    S.locs = locR.locs; S.locNow = locR.now; renderSos(locR.sos);
+    S.locs = locR.locs; S.locNow = locR.now; renderSos(locR.sos); renderOmw(locR.omw);
     updateBadge();
     if (S.tab !== "home") return;
 
@@ -2111,6 +2111,7 @@
       <div class="mc-acts">
         <button data-act="trailOpen">${ic("route")}<span>이동 기록</span></button>
         <button data-act="navTo" ${lo ? "" : "disabled"}>${ic("target")}<span>길찾기</span></button>
+        <button data-act="omwOpen">${ic("run")}<span>가는 중</span></button>
         <button data-act="locReq">${ic("bell")}<span>위치 요청</span></button>
       </div>`;
   }
@@ -2310,6 +2311,77 @@
         ${body}
       </div>`;
   }
+  // ---------- 가는 중 (실시간 도착 예정) ----------
+  // 한 번 만든 띠는 그대로 두고 숫자·위치만 바꿔서, 아바타가 길 위를 미끄러지고 분이 굴러가듯 바뀜
+  function omwEta(v, l) {
+    const el = (Date.now() - v.t0) / 1000, done = Math.max(0, v.d0 - v.d);
+    let sp = el > 90 && done > 60 ? done / el : 0;                 // 지금까지 실제 속도
+    const vel = l && l.vel != null && S.locNow - l.t < 5 * 60000 ? Number(l.vel) / 3.6 : 0;
+    if (!sp) sp = vel > 1 ? vel : v.d0 < 2500 ? 1.25 : 7.5;
+    sp = Math.max(0.9, Math.min(30, sp));
+    // 데이터를 꺼서 위치가 멈춰 있으면, 마지막 위치 이후 흐른 시간만큼 계속 움직였다고 보고 예상 (자주 데이터를 꺼도 시간이 흘러감)
+    const stale = l ? Math.max(0, (S.locNow - l.t) / 1000) : 0;
+    const dd = stale > 180 ? Math.max(v.d * 0.1, v.d - sp * stale) : v.d;
+    return { min: Math.max(1, Math.round(dd / sp / 60)), p: Math.max(0.03, Math.min(0.97, 1 - dd / v.d0)), mode: sp > 6 ? "차·버스로" : sp > 2.6 ? "자전거로" : "걸어서", stale: stale > 180 ? Math.round(stale / 60) : 0 };
+  }
+  function renderOmw(om) {
+    const bar = $("#omwBar"); if (!bar) return;
+    om = om || {}; S.omw = om;
+    const o = other();
+    const pick = om[o] && !om[o].done ? [o, om[o]] : om[S.who] && !om[S.who].done ? [S.who, om[S.who]] : null;
+    const doneW = [o, S.who].find((w) => om[w] && om[w].done && S.omwDoneSeen !== om[w].done);
+    if (!pick && !doneW) { if (!bar.hidden && !bar.classList.contains("bye")) { bar.classList.add("bye"); setTimeout(() => { bar.hidden = true; bar.classList.remove("bye"); bar.innerHTML = ""; bar._k = ""; }, 320); } return; }
+    if (!pick && doneW) {
+      S.omwDoneSeen = om[doneW].done;
+      const mine = doneW === S.who;
+      if (bar._k) {
+        bar.querySelector(".omw").classList.add("done");
+        bar.querySelector(".omw-fill").style.width = "100%"; bar.querySelector(".omw-av").style.left = "100%";
+        bar.querySelector(".omw-title").textContent = mine ? "도착했어요" : `${nm(doneW)}님 도착`;
+        bar.querySelector(".omw-eta").innerHTML = ic("check");
+        bar.querySelector(".omw-sub").textContent = mine ? "알림을 보냈어요" : "바로 옆에 왔어요";
+      }
+      try { haptic(30); } catch {}
+      setTimeout(() => renderOmw({}), 5200);
+      return;
+    }
+    const [w, v] = pick, mine = w === S.who, l = S.locs[w];
+    const e = v.d != null ? omwEta(v, l) : { min: "-", p: 0.03, mode: "" };
+    const key = w + v.t0;
+    if (bar._k !== key) {
+      bar._k = key; bar.hidden = false; bar.classList.remove("bye");
+      const destAv = v.kind === "partner" ? av(mine ? o : S.who) : `<span class="omw-pin">${ic("pin")}</span>`;
+      bar.innerHTML = `<div class="omw ${mine ? "mine" : ""}" data-act="omwTap" style="--c:${w === "a" ? "#E5406A" : "#5C6BF0"}">
+        <div class="omw-top"><b class="omw-title">${mine ? `${v.kind === "partner" ? esc(nm(o)) + "님에게" : esc(v.name) + "에"} 가는 중` : `${esc(nm(w))}님이 ${v.kind === "partner" ? "오는 중" : esc(v.name) + "에 가는 중"}`}</b>
+          <span class="omw-eta"><span class="omw-n"><em>${e.min}</em></span>분</span>${mine ? `<button class="omw-x" data-act="omwCancel" aria-label="그만하기">${ic("x")}</button>` : ""}</div>
+        <div class="omw-track"><i class="omw-fill"></i><span class="omw-av">${av(w)}</span><span class="omw-dest">${destAv}</span></div>
+        <div class="omw-sub"></div></div>`;
+      void bar.offsetWidth;
+    }
+    const n = bar.querySelector(".omw-n");
+    if (n && n.dataset.v !== String(e.min)) {
+      const old = n.dataset.v; n.dataset.v = String(e.min);
+      if (old) { n.innerHTML = `<em class="out">${old}</em><em class="in">${e.min}</em>`; setTimeout(() => { if (n.dataset.v === String(e.min)) n.innerHTML = `<em>${e.min}</em>`; }, 420); }
+    }
+    const pc = (e.p * 100).toFixed(1) + "%";
+    bar.querySelector(".omw-fill").style.width = pc; bar.querySelector(".omw-av").style.left = pc;
+    bar.querySelector(".omw-sub").textContent = v.d == null ? "위치를 기다리는 중" : e.stale ? `${e.stale}분째 위치가 안 들어와요 · 데이터가 꺼져 있나 봐요, 예상 시간이에요` : `${fmtDist(v.d)} 남음${e.mode ? " · " + e.mode : ""}`;
+    bar.querySelector(".omw").classList.toggle("stale", !!e.stale);
+  }
+  // 다른 탭에서도 가는 중이면 8초마다 갱신
+  setInterval(async () => {
+    if (document.hidden || !S.who || S.tab === "map" || S.tab === "home") return;
+    const om = S.omw || {}; if (!Object.values(om).some((x) => x && !x.done) && $("#sosBar").hidden) return;
+    try { const r = await api("loc"); S.locs = r.locs; S.locNow = r.now; renderSos(r.sos); renderOmw(r.omw); } catch {}
+  }, 8000);
+  function omwSheet() {
+    const o = other(), lo = S.locs[o], me0 = S.locs[S.who];
+    const pl = (S.places || []).map((p) => ({ ...p, d: me0 ? distM(me0, p) : null })).filter((p) => p.d == null || p.d > 100).sort((a, b) => (a.d || 0) - (b.d || 0)).slice(0, 8);
+    openSheet(`<h2>${ic("run")}가는 중 알리기</h2>
+      <p class="omw-help">상대 화면에 도착까지 남은 시간이 실시간으로 떠요. 도착하면 저절로 끝나요</p>
+      <button class="omw-opt big" data-act="omwStart" data-k="partner" ${lo ? "" : "disabled"}>${av(o)}<span><b>${esc(nm(o))}님에게 가요</b><small>${lo && me0 ? fmtDist(distM(me0, lo)) + " 떨어져 있어요" : "상대 위치를 기다리는 중"}</small></span>${ic("right")}</button>
+      ${pl.length ? `<div class="omw-list">${pl.map((p) => `<button class="omw-opt" data-act="omwStart" data-k="place" data-lat="${p.lat}" data-lon="${p.lon}" data-name="${esc(p.name)}"><span class="omw-pin">${ic("pin")}</span><span><b>${esc(p.name)}</b><small>${p.d != null ? fmtDist(p.d) : ""}</small></span>${ic("right")}</button>`).join("")}</div>` : ""}`);
+  }
   // 긴급 알림 띠: 상대가 보냈으면 빨간 띠(위치 보기·확인), 내가 보냈으면 취소
   function renderSos(sos) {
     const bar = $("#sosBar"); if (!bar) return;
@@ -2330,7 +2402,16 @@
       e.preventDefault(); t0 = Date.now(); b.classList.add("hold"); try { haptic(8); } catch {}
       tm = setTimeout(async () => {
         stop(); try { haptic(40); } catch {}
-        try { await api("sos", { method: "POST", body: {} }); toast("긴급 알림을 보냈어요"); refreshLoc(); } catch (er) { toast(er.message); }
+        try { await api("sos", { method: "POST", body: {} }); toast("긴급 알림을 보냈어요"); refreshLoc(); }
+        catch (er) {
+          // 데이터가 꺼져 있으면 문자로: 위치는 GPS라 데이터 없이도 잡힘
+          const ph = (S.phones || {})[other()];
+          if (er.status || !ph) return toast(er.status ? er.message : "데이터가 꺼져 있어서 못 보냈어요. 데이터를 켜고 다시 눌러주세요");
+          let l = S.locs[S.who];
+          try { const p0 = await Promise.race([getPos(), new Promise((_, rj) => setTimeout(rj, 4000))]); if (p0 && p0.coords) l = { lat: p0.coords.latitude, lon: p0.coords.longitude }; } catch {}
+          const where = l ? ` https://maps.google.com/?q=${l.lat.toFixed(5)},${l.lon.toFixed(5)}` : "";
+          location.href = `sms:${ph.replace(/[^0-9+]/g, "")}&body=${encodeURIComponent("[우주 긴급] 지금 도움이 필요해요. 연락 주세요." + where)}`;
+        }
       }, 1400);
     });
     ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => b.addEventListener(ev, () => { if (tm && Date.now() - t0 < 400) toast("꾹 누르고 있으면 긴급 알림을 보내요"); if (tm) stop(); }));
@@ -2339,7 +2420,7 @@
   async function refreshLoc(redraw) {
     try {
       const r = await api("loc");
-      S.locs = r.locs; S.locNow = r.now; renderSos(r.sos);
+      S.locs = r.locs; S.locNow = r.now; renderSos(r.sos); renderOmw(r.omw);
       if (S.tab === "map") { drawMap(); renderMapCard(); }
     } catch {}
   }
@@ -2893,7 +2974,7 @@
         $("#wtLbl").textContent = "보내는 중";
         const b64 = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1] || ""); fr.readAsDataURL(blob); });
         try { await api("walkie", { method: "POST", body: { aud: b64, dur: Math.round(dur * 10) / 10, mime: blob.type, wave } }); $("#wtLbl").textContent = "보냈어요"; try { haptic(20); } catch {} }
-        catch (er) { $("#wtLbl").textContent = "꾹 누르고 말하기"; return toast(er.message); }
+        catch (er) { $("#wtLbl").textContent = "꾹 누르고 말하기"; return toast(er.status ? er.message : "데이터가 꺼져 있어서 못 보냈어요"); }
         setTimeout(() => { const l = $("#wtLbl"); if (l && !WT.rec) l.textContent = "꾹 누르고 말하기"; }, 1200);
       };
       try { rec.stop(); } catch {}
@@ -4943,6 +5024,13 @@
     dmPoll() { $("#dmPlusMenu").hidden = true; pollSheet(); },
     dmVoice() { $("#dmPlusMenu").hidden = true; vmStart(); },
     async noshowToggle() { S.noshowOff = !S.noshowOff; try { await api("noshow", { method: "POST", body: { on: !S.noshowOff } }); } catch (e) { S.noshowOff = !S.noshowOff; return toast(e.message); } toast(S.noshowOff ? "늦음 알림을 껐어요" : "늦음 알림을 켰어요"); settingsSheet(); },
+    omwOpen() { omwSheet(); },
+    async omwStart(el) {
+      const b = el.dataset.k === "place" ? { kind: "place", lat: +el.dataset.lat, lon: +el.dataset.lon, name: el.dataset.name } : { kind: "partner" };
+      try { await api("omw", { method: "POST", body: b }); closeSheet(); try { haptic(20); } catch {} refreshLoc(); } catch (e) { toast(e.message); }
+    },
+    async omwCancel(el, ev) { if (ev) ev.stopPropagation(); try { await api("omw", { method: "DELETE" }); } catch {} S.omwDoneSeen = null; renderOmw({}); toast("가는 중 알림을 껐어요"); },
+    omwTap(el, ev) { if (ev && ev.target.closest(".omw-x")) return; if (S.tab !== "map") setTab("map"); setTimeout(() => { try { fitMap(); } catch {} }, 350); },
     wtOpen() { const m = $("#dmPlusMenu"); if (m) m.hidden = true; wtSheet(); },
     dmMedia() { S.chat.media = null; mediaSheet("photo"); },
     mediaTab(el) { mediaSheet(el.dataset.t); },

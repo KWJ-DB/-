@@ -79,7 +79,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       if (kind === "voice") {
         if (typeof b.aud !== "string" || !b.aud || b.aud.length > 1400000 || !/^[A-Za-z0-9+/=]+$/.test(b.aud.slice(0, 100))) return { error: "음성이 너무 길거나 올바르지 않아요", status: 413 };
         aud = b.aud;
-        meta = { dur: Math.max(0, Math.min(600, Number(b.dur) || 0)), mime: /^audio\/[a-z0-9.+;=\- ]+$/i.test(b.mime || "") ? b.mime : "audio/mp4", wave: Array.isArray(b.wave) ? b.wave.slice(0, 48).map((x) => Math.max(0, Math.min(1, Number(x) || 0))) : undefined };
+        meta = { dur: Math.max(0, Math.min(600, Number(b.dur) || 0)), mime: /^audio\/[a-z0-9.+;=\- ]+$/i.test(b.mime || "") ? b.mime : "audio/mp4", wave: Array.isArray(b.wave) ? b.wave.slice(0, 48).map((x) => Math.max(0, Math.min(1, Number(x) || 0))) : undefined, wt: b.wt ? 1 : undefined };
       }
       if (kind === "poll") {
         const opts = (Array.isArray(b.opts) ? b.opts : []).map((x) => str(x, 40)).filter(Boolean).slice(0, 4);
@@ -97,8 +97,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       const other = who === "a" ? "b" : "a";
       const name = who === "a" ? st.a_name : st.b_name;
       const pushBody = kind === "heart" ? "하트를 보냈어요" : kind === "loc" ? "위치를 보냈어요" : kind === "event" ? `일정: ${meta.title}` : kind === "voice" ? "음성 메시지를 보냈어요" : kind === "poll" ? `투표: ${meta.q}` : text || "사진을 보냈어요";
-      const job = sendPush(env, st, setSettings, other, { title: name, body: pushBody, url: "/#chat", tag: "dm" }).catch(() => {});
-      if (waitUntil) waitUntil(job); else await job;
+      if (!b.quiet) { const job = sendPush(env, st, setSettings, other, { title: name, body: pushBody, url: "/#chat", tag: "dm" }).catch(() => {}); if (waitUntil) waitUntil(job); else await job; }
       // 링크가 있으면 미리보기 카드 정보 가져오기 (응답은 안 기다림)
       const um = kind === "text" && text ? /https?:\/\/[^\s<>"']+/i.exec(text) : null;
       if (um && newId) { const lj = linkPreview(um[0]).then(async (lp) => { if (!lp) return; const cur = await DB.prepare("SELECT meta FROM messages WHERE id = ?1").bind(newId).first(); let mm = {}; try { mm = cur && cur.meta ? JSON.parse(cur.meta) : {}; } catch {} mm.link = lp; await DB.prepare("UPDATE messages SET meta = ?1 WHERE id = ?2").bind(JSON.stringify(mm), newId).run(); }).catch(() => {}); if (waitUntil) waitUntil(lj); }
@@ -151,6 +150,57 @@ export async function onRequest({ request, env, params, waitUntil }) {
       } catch {}
     };
     const later = (job) => { if (waitUntil) waitUntil(job); else return job; };
+    // 늦음 알림: 같은 요일 이 시간쯤 늘 도착하던 곳에 25분 넘게 안 오면 상대에게 한 번 알려줌 (5분마다 점검)
+    const noShowCheck = async () => {
+      try {
+        const now = Date.now();
+        if (now - (Number(st.noshow_chk) || 0) < 5 * 60000) return;
+        await setSettings(env, { noshow_chk: now });
+        const K = (t) => new Date(t + 9 * 3600e3);
+        const kn = K(now), today = kn.toISOString().slice(0, 10), dow = kn.getUTCDay(), nowMin = kn.getUTCHours() * 60 + kn.getUTCMinutes();
+        let sent = {}; try { sent = JSON.parse(st.noshow_sent || "{}"); } catch {}
+        if (sent.d !== today) sent = { d: today, k: [] };
+        const dayStart = Date.parse(today + "T00:00:00+09:00");
+        let changed = false;
+        for (const w of ["a", "b"]) {
+          const ow = w === "a" ? "b" : "a";
+          if (st["noshow_off_" + ow] === "1") continue;
+          const { results } = await DB.prepare("SELECT place, t FROM place_events WHERE who = ?1 AND inside = 1 AND t >= ?2 ORDER BY t").bind(w, now - 29 * 864e5).all();
+          const first = new Map(); const todayIn = new Set();
+          for (const e of results || []) {
+            if (e.t >= dayStart) { todayIn.add(e.place); continue; }
+            const k = K(e.t), d = k.toISOString().slice(0, 10);
+            if (k.getUTCDay() !== dow) continue;
+            const key = e.place + "|" + d;
+            if (!first.has(key)) first.set(key, { place: e.place, m: k.getUTCHours() * 60 + k.getUTCMinutes() });
+          }
+          const by = {};
+          for (const v of first.values()) (by[v.place] = by[v.place] || []).push(v.m);
+          for (const [place, ms] of Object.entries(by)) {
+            if (ms.length < 3 || todayIn.has(place)) continue;
+            ms.sort((x, y) => x - y);
+            const med = ms[Math.floor(ms.length / 2)];
+            if (ms[ms.length - 1] - ms[0] > 90) continue;          // 들쑥날쑥하면 습관이 아님
+            if (nowMin < med + 25 || nowMin > med + 120) continue;
+            const sk = w + "|" + place;
+            if (sent.k.includes(sk)) continue;
+            const pl = await DB.prepare("SELECT lat, lon, radius FROM places WHERE name = ?1").bind(place).first();
+            const loc = await DB.prepare("SELECT lat, lon, t FROM couple_locs WHERE who = ?1").bind(w).first();
+            if (pl && loc && distM(loc, pl) <= (pl.radius || 100) + 30) continue;   // 사실 이미 그 근처
+            sent.k.push(sk); changed = true;
+            const name = w === "a" ? st.a_name : st.b_name;
+            const hh = `${med >= 720 ? "오후" : "오전"} ${(Math.floor(med / 60) % 12) || 12}:${String(med % 60).padStart(2, "0")}`;
+            const old = loc ? Math.round((now - loc.t) / 60000) : null;
+            await sendPush(env, st, setSettings, ow, {
+              title: `${name}님이 아직 ${place}에 안 왔어요`,
+              body: `평소 ${hh}쯤 도착하는데 아직이에요${old != null && old > 20 ? ` · 위치가 ${old}분 전에 마지막으로 들어왔어요` : ""}`,
+              url: "/#map", tag: "noshow",
+            });
+          }
+        }
+        if (changed) await setSettings(env, { noshow_sent: JSON.stringify(sent) });
+      } catch {}
+    };
     // 가보고 싶던 맛집·갈 곳 근처(120m)에 가면 알려줌 (같은 곳은 12시간에 한 번)
     const eatNearby = async (who, lat, lon, acc) => {
       lat = Number(lat); lon = Number(lon); acc = Number(acc) || 30;
@@ -462,7 +512,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of av || []) avatars[r.who] = r.t;
         const mood = {};
         for (const w of ["a", "b"]) { try { mood[w] = st["mood_" + w] ? JSON.parse(st["mood_" + w]) : null; } catch { mood[w] = null; } }
-        return json({ who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" }, ig: st.ig_token ? { user: st.ig_name || "", who: st.ig_who || "" } : null, make: st.make_hook ? { who: st.make_who || "" } : null, gdrive: st.gd_refresh ? { email: st.gd_email || "", who: st.gd_who || "" } : st.gd_cid ? { setup: true } : null });
+        return json({ noshowOff: st["noshow_off_" + who] === "1",  who, names: { a: st.a_name, b: st.b_name }, start: st.start, created: st.created, avatars, mood, nextMeet: st.next_meet || "", naver: !!(st.naver_id && st.naver_secret), kakao: !!st.kakao_key, kakaoJs: st.kakao_js || "", turn: !!((st.turn_id && st.turn_token) || st.relay_url || st.tu_user), phones: { a: st.phone_a || "", b: st.phone_b || "" }, ig: st.ig_token ? { user: st.ig_name || "", who: st.ig_who || "" } : null, make: st.make_hook ? { who: st.make_who || "" } : null, gdrive: st.gd_refresh ? { email: st.gd_email || "", who: st.gd_who || "" } : st.gd_cid ? { setup: true } : null });
       }
       case "POST meet": {
         const b = await body(request);
@@ -670,6 +720,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // ----- 위치 -----
       case "GET loc": {
+        later(noShowCheck());
         const { results } = await DB.prepare("SELECT who, lat, lon, acc, batt, src, t, vel FROM couple_locs").all();
         const locs = {};
         for (const r of results || []) locs[r.who] = r;
@@ -678,6 +729,26 @@ export async function onRequest({ request, env, params, waitUntil }) {
         return json({ now: Date.now(), locs, sos });
       }
       // 긴급 알림: 꾹 눌러 보내면 상대에게 바로 알림 + 채팅에 기록, 상대가 확인하면 보낸 사람에게 알림
+      // 무전: 꾹 누르고 말하면 상대 앱이 열려 있을 때 바로 재생 (채팅에도 음성으로 남음)
+      case "POST walkie": {
+        const b = await body(request);
+        const r = await insertMsg(who, { kind: "voice", aud: b.aud, dur: b.dur, mime: b.mime, wave: b.wave, wt: 1, quiet: 1 });
+        if (r.error) return err(r.status || 400, r.error);
+        const ow = who === "a" ? "b" : "a", name = who === "a" ? st.a_name : st.b_name;
+        await setSettings(env, { ["wt_" + ow]: JSON.stringify({ id: r.id, t: Date.now() }) });
+        const job = sendPush(env, st, setSettings, ow, { title: `무전 · ${name}`, body: "눌러서 들어보세요", url: "/#chat", tag: "wt" }).catch(() => {});
+        if (waitUntil) waitUntil(job); else await job;
+        return json({ ok: true, id: r.id });
+      }
+      case "GET walkie": {
+        let v = null; try { v = JSON.parse(st["wt_" + who] || "null"); } catch {}
+        return json({ wt: v && Date.now() - v.t < 120000 ? v : null });
+      }
+      case "POST noshow": {
+        const b = await body(request);
+        await setSettings(env, { ["noshow_off_" + who]: b.on ? "" : "1" });
+        return json(OK);
+      }
       case "POST sos": {
         const name = who === "a" ? st.a_name : st.b_name, ow = who === "a" ? "b" : "a";
         await setSettings(env, { ["sos_" + who]: JSON.stringify({ t: Date.now() }) });

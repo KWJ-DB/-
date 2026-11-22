@@ -2498,7 +2498,7 @@
     if (m.kind === "loc" && m.meta) return `<span class="loc-card" data-lat="${m.meta.lat}" data-lon="${m.meta.lon}">${ic("pin")}<span><b>${m.meta.name ? esc(m.meta.name) : m.who === S.who ? "내 위치" : esc(nm(m.who)) + "님 위치"}</b><em>지도에서 보기</em></span></span>`;
     if (m.kind === "voice") {
       const wv = (m.meta && m.meta.wave && m.meta.wave.length ? m.meta.wave : Array.from({ length: 28 }, (_, i) => 0.3 + 0.5 * Math.abs(Math.sin(i * 1.7)))).slice(0, 36);
-      return `<span class="vm" data-vid="${m.id}" data-src="${m.local || `/api/chataud/${m.id}`}"><button class="vm-play" data-act="vmPlay" aria-label="재생">${ic("play")}</button><span class="vm-wave">${wv.map((v) => `<i style="height:${Math.round(18 + v * 82)}%"></i>`).join("")}</span><em>${fmtDur(m.meta ? m.meta.dur : 0)}</em></span>`;
+      return `<span class="vm" data-vid="${m.id}" data-src="${m.local || `/api/chataud/${m.id}`}"><button class="vm-play" data-act="vmPlay" aria-label="재생">${ic("play")}</button><span class="vm-wave">${wv.map((v) => `<i style="height:${Math.round(18 + v * 82)}%"></i>`).join("")}</span><em>${m.meta && m.meta.wt ? "무전 · " : ""}${fmtDur(m.meta ? m.meta.dur : 0)}</em></span>`;
     }
     if (m.kind === "poll" && m.meta) {
       const P = m.meta, votes = P.votes || {}, total = Object.keys(votes).length;
@@ -2804,6 +2804,106 @@
     a.onended = () => { setIc(true); vm.classList.remove("on"); vm.style.removeProperty("--p"); };
     a.play().catch(() => toast("재생하지 못했어요"));
   }
+  // ---------- 무전 (꾹 누르고 말하기 → 상대 앱이 열려 있으면 바로 재생) ----------
+  const WT = { ctx: null, stream: null, rec: null, chunks: [], t0: 0, wave: [], an: null, raf: 0, busy: false, played: new Set() };
+  try { JSON.parse(localStorage.getItem("wtPlayed") || "[]").forEach((x) => WT.played.add(x)); } catch {}
+  // 아이폰은 사용자가 한 번 화면을 만진 뒤에만 소리를 낼 수 있어서, 첫 터치 때 소리 장치를 깨워 둠
+  const wtUnlock = () => {
+    try {
+      if (!WT.ctx) WT.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (WT.ctx.state === "suspended") WT.ctx.resume();
+      const b = WT.ctx.createBuffer(1, 1, 22050), s0 = WT.ctx.createBufferSource(); s0.buffer = b; s0.connect(WT.ctx.destination); s0.start(0);
+    } catch {}
+  };
+  ["touchend", "pointerdown", "keydown"].forEach((ev) => document.addEventListener(ev, wtUnlock, { passive: true }));
+  async function wtPoll() {
+    if (document.hidden || !S.who || WT.busy) return;
+    try {
+      const r = await api("walkie"); const v = r.wt;
+      if (!v || WT.played.has(v.id)) return;
+      WT.played.add(v.id); try { localStorage.setItem("wtPlayed", JSON.stringify([...WT.played].slice(-30))); } catch {}
+      wtPlay(v.id);
+    } catch {}
+  }
+  setInterval(wtPoll, 2000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) wtPoll(); });
+  async function wtPlay(id) {
+    WT.busy = true;
+    const live = $("#wtLive");
+    live.innerHTML = `<span class="wt-av">${av(other())}</span><b>${esc(nm(other()))}</b><span class="wt-bars">${"<i></i>".repeat(5)}</span>`;
+    live.hidden = false; live.classList.remove("out");
+    try { haptic(12); } catch {}
+    const done = () => { live.classList.add("out"); setTimeout(() => { live.hidden = true; live.classList.remove("out"); }, 260); WT.busy = false; if (S.tab === "chat") { try { refreshChat(); } catch {} } };
+    try {
+      const buf = await (await fetch(`/api/chataud/${id}`, { credentials: "same-origin" })).arrayBuffer();
+      wtUnlock();
+      const ab = await new Promise((res, rej) => { const pr = WT.ctx.decodeAudioData(buf, res, rej); if (pr && pr.catch) pr.catch(rej); });
+      const src = WT.ctx.createBufferSource(); src.buffer = ab; src.connect(WT.ctx.destination);
+      src.onended = done; src.start(0);
+    } catch {
+      try { const a = new Audio(`/api/chataud/${id}`); a.onended = done; a.onerror = done; await a.play(); }
+      catch { done(); toast(`${nm(other())}님이 무전을 보냈어요. 채팅에서 들어보세요`); }
+    }
+  }
+  function wtSheet() {
+    openSheet(`<h2>${ic("radio")}무전</h2>
+      <div class="wt">
+        <div class="wt-to">${av(other())}<span><b>${esc(nm(other()))}</b><small>앱이 열려 있으면 바로 들려요. 아니면 알림으로 가요</small></span></div>
+        <button class="wt-btn" id="wtBtn" aria-label="꾹 누르고 말하기"><span class="wt-ring"></span>${ic("mic")}<b id="wtLbl">꾹 누르고 말하기</b></button>
+        <div class="wt-live" id="wtWave"></div>
+      </div>`);
+    const btn = $("#wtBtn");
+    const start = async (e) => {
+      e.preventDefault(); if (WT.rec) return;
+      wtUnlock();
+      if (!WT.stream || !WT.stream.active) {
+        try { WT.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+        catch { return toast("마이크 권한을 허용해주세요"); }
+      }
+      if (!btn.matches(":active") && e.type !== "keydown" && !btn.classList.contains("down")) { /* 권한 묻는 사이 손을 뗐으면 시작 안 함 */ if (!WT.wantUp) {} }
+      const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+      WT.rec = new MediaRecorder(WT.stream, mime ? { mimeType: mime, audioBitsPerSecond: 40000 } : undefined);
+      WT.chunks = []; WT.wave = []; WT.t0 = Date.now();
+      WT.rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) WT.chunks.push(ev.data); };
+      WT.rec.start(200);
+      try { const src = WT.ctx.createMediaStreamSource(WT.stream); WT.an = WT.ctx.createAnalyser(); WT.an.fftSize = 256; src.connect(WT.an); } catch { WT.an = null; }
+      btn.classList.add("on"); $("#wtLbl").textContent = "말하는 중 · 떼면 보내요"; try { haptic(14); } catch {}
+      const arr = new Uint8Array(128); let last = 0;
+      const tick = () => {
+        if (!WT.rec) return;
+        if (WT.an && Date.now() - last > 90) {
+          last = Date.now(); WT.an.getByteTimeDomainData(arr); let pk = 0; for (const v of arr) pk = Math.max(pk, Math.abs(v - 128) / 128);
+          const lv = Math.min(1, pk * 2.4); WT.wave.push(lv); btn.style.setProperty("--lv", lv.toFixed(2));
+          const w = $("#wtWave"); if (w) w.innerHTML = WT.wave.slice(-32).map((x) => `<i style="height:${Math.round(12 + x * 88)}%"></i>`).join("");
+        }
+        if (Date.now() - WT.t0 > 60000) return stop();
+        WT.raf = requestAnimationFrame(tick);
+      };
+      WT.raf = requestAnimationFrame(tick);
+    };
+    const stop = () => {
+      const rec = WT.rec; if (!rec) return;
+      WT.rec = null; cancelAnimationFrame(WT.raf);
+      btn.classList.remove("on"); btn.style.removeProperty("--lv");
+      const dur = (Date.now() - WT.t0) / 1000;
+      rec.onstop = async () => {
+        if (dur < 0.6) { $("#wtLbl").textContent = "꾹 누르고 말하기"; return toast("조금 더 길게 눌러주세요"); }
+        const blob = new Blob(WT.chunks, { type: rec.mimeType || "audio/mp4" });
+        const w = WT.wave, n = 36, wave = Array.from({ length: n }, (_, i) => { const a = Math.floor((i / n) * w.length), b = Math.max(a + 1, Math.floor(((i + 1) / n) * w.length)); return w.length ? Math.round(Math.max(...w.slice(a, b)) * 100) / 100 : 0.3; });
+        $("#wtLbl").textContent = "보내는 중";
+        const b64 = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1] || ""); fr.readAsDataURL(blob); });
+        try { await api("walkie", { method: "POST", body: { aud: b64, dur: Math.round(dur * 10) / 10, mime: blob.type, wave } }); $("#wtLbl").textContent = "보냈어요"; try { haptic(20); } catch {} }
+        catch (er) { $("#wtLbl").textContent = "꾹 누르고 말하기"; return toast(er.message); }
+        setTimeout(() => { const l = $("#wtLbl"); if (l && !WT.rec) l.textContent = "꾹 누르고 말하기"; }, 1200);
+      };
+      try { rec.stop(); } catch {}
+    };
+    btn.addEventListener("pointerdown", start);
+    ["pointerup", "pointercancel", "pointerleave"].forEach((ev) => btn.addEventListener(ev, stop));
+    btn.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+  // 무전 창을 닫으면 마이크도 끔
+  new MutationObserver(() => { if ($("#sheet").hidden && WT.stream && !WT.rec) { try { WT.stream.getTracks().forEach((t) => t.stop()); } catch {} WT.stream = null; } }).observe($("#sheet"), { attributes: true, attributeFilter: ["hidden"] });
   // ---------- 예약 메시지 ----------
   async function loadSched() {
     try { const d = await api("sched"); S.chat.sched = d.sched || []; } catch { S.chat.sched = []; }
@@ -3661,6 +3761,7 @@
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
+        ${row("noshowToggle", "clock", "늦음 알림", S.noshowOff ? "꺼짐 · 눌러서 켜기" : `켜짐 · 평소 도착하던 시간에 ${esc(nm(other()))}님이 안 오면 알려줘요`)}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
         ${row("widgetSheet", "frame", "홈 화면·잠금 화면 위젯", "함께한 날, 거리, 마지막 메시지")}
@@ -4841,6 +4942,8 @@
     dmHeart() { $("#dmPlusMenu").hidden = true; sendHeart(); },
     dmPoll() { $("#dmPlusMenu").hidden = true; pollSheet(); },
     dmVoice() { $("#dmPlusMenu").hidden = true; vmStart(); },
+    async noshowToggle() { S.noshowOff = !S.noshowOff; try { await api("noshow", { method: "POST", body: { on: !S.noshowOff } }); } catch (e) { S.noshowOff = !S.noshowOff; return toast(e.message); } toast(S.noshowOff ? "늦음 알림을 껐어요" : "늦음 알림을 켰어요"); settingsSheet(); },
+    wtOpen() { const m = $("#dmPlusMenu"); if (m) m.hidden = true; wtSheet(); },
     dmMedia() { S.chat.media = null; mediaSheet("photo"); },
     mediaTab(el) { mediaSheet(el.dataset.t); },
     mediaPhoto(el) { const L = S.chat.media.photos.map((p) => ({ id: p.img, src: `/api/chatimg/${p.img}`, chat: true, who: p.who, t: p.t })); openLightbox(L, +el.dataset.i); },
@@ -5272,7 +5375,7 @@
       if (!st.setup) return showSetup();
       let me;
       try { me = await api("me"); } catch (e) { if (e.status === 401) return showLogin(); throw e; }
-      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {}; S.ig = me.ig || null; S.make = me.make || null; S.gdrive = me.gdrive || null;
+      S.who = me.who; S.names = me.names; S.start = me.start; S.created = me.created; S.avatars = me.avatars || {}; S.mood = me.mood || {}; S.nextMeet = me.nextMeet || ""; S.naver = !!me.naver; S.kakao = !!me.kakao; S.kakaoJs = me.kakaoJs || ""; S.turn = !!me.turn; S.phones = me.phones || {}; S.ig = me.ig || null; S.make = me.make || null; S.gdrive = me.gdrive || null; S.noshowOff = !!me.noshowOff;
       setBrand();
       await loadAnniv();
       showOnly("app");

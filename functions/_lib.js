@@ -132,6 +132,15 @@ export async function ensureSchema(env) {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS route_cache (k TEXT PRIMARY KEY, v TEXT, t INTEGER)").run();
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '14') ON CONFLICT(k) DO UPDATE SET v = '14'").run();
   }
+  // v15: 가본 곳(스크래치 지도) 칸 + 누가 더 잘 알까 게임
+  if (!v || Number(v.v) < 15) {
+    await env.DB.batch([
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS visits (who TEXT NOT NULL, cell TEXT NOT NULL, t INTEGER NOT NULL, PRIMARY KEY (who, cell))"),
+      env.DB.prepare("INSERT OR IGNORE INTO visits (who, cell, t) SELECT who, CAST(lat * 1000 AS INTEGER) || ':' || CAST(lon * 800 AS INTEGER), MIN(t) FROM loc_hist WHERE acc IS NULL OR acc <= 60 GROUP BY who, CAST(lat * 1000 AS INTEGER), CAST(lon * 800 AS INTEGER)"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS quiz (day TEXT NOT NULL, qi INTEGER NOT NULL, who TEXT NOT NULL, mine INTEGER, guess INTEGER, t INTEGER, PRIMARY KEY (day, qi, who))"),
+      env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '15') ON CONFLICT(k) DO UPDATE SET v = '15'"),
+    ]);
+  }
   ready = true;
 }
 
@@ -199,6 +208,7 @@ export async function saveLoc(DB, who, d) {
   if (!last || moved > minMove || dt > 300) {
     await DB.batch([
       DB.prepare("INSERT INTO loc_hist (who, lat, lon, t, acc) VALUES (?1, ?2, ?3, ?4, ?5)").bind(who, lat, lon, Math.round(t), Math.round(accOk)),
+      ...(accOk <= 60 ? [DB.prepare("INSERT OR IGNORE INTO visits (who, cell, t) VALUES (?1, ?2, ?3)").bind(who, Math.trunc(lat * 1000) + ":" + Math.trunc(lon * 800), Math.round(t))] : []),
       DB.prepare("DELETE FROM loc_hist WHERE t < ?1").bind(Date.now() - 30 * 864e5),
     ]);
   }

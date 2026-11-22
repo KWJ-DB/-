@@ -622,9 +622,150 @@
       <div id="qPage" data-date="${d}">
         ${qCard(d, ds.t)}
         ${ds.c.length ? `<section class="qbox"><h3 class="qbox-t">취향 맞추기 <span>한 번만 고를 수 있어요</span></h3>${ds.c.map((c) => choiceOne(d, c)).join("")}</section>` : ""}
+        ${isT ? qzEntry() : ""}
       </div>
       <p class="q-hint">${isT ? (S.streak ? `${S.streak}일 연속 함께 답했어요. ` : "") + "옆으로 밀면 지난 질문을 볼 수 있어요" : `<button class="linkbtn" data-act="qToday">오늘 질문으로</button>`}</p>`;
+    if (isT) qzLoad();
     if (S.qAnim) { const pg = $("#qPage"); pg.classList.remove("q-in-l", "q-in-r"); void pg.offsetWidth; pg.classList.add(S.qAnim); S.qAnim = null; }
+  }
+  // ---------- 누가 더 잘 알까 (내 답 + 상대 답 맞히기, 하루 3문제) ----------
+  const QZ = [
+    ["제일 좋아하는 계절", ["봄", "여름", "가을", "겨울"]],
+    ["배고플 때 제일 먼저 떠오르는 것", ["떡볶이", "치킨", "국밥", "마라탕"]],
+    ["쉬는 날 하고 싶은 것", ["하루 종일 잠", "밖에서 놀기", "집에서 영상 보기", "맛집 탐방"]],
+    ["스트레스 받으면", ["먹는다", "잔다", "운동한다", "누구한테 말한다"]],
+    ["더 무서운 것", ["벌레", "높은 곳", "귀신", "시험"]],
+    ["여행 간다면", ["바다", "산", "도시", "해외"]],
+    ["카페에서 늘 고르는 것", ["아메리카노", "라떼", "달달한 음료", "에이드·차"]],
+    ["아침형? 저녁형?", ["완전 아침형", "조금 아침형", "조금 저녁형", "완전 저녁형"]],
+    ["답장 스타일", ["바로바로", "생각나면", "몰아서", "읽고 까먹음"]],
+    ["선물로 받고 싶은 것", ["편지", "먹을 것", "옷·악세사리", "같이 하는 경험"]],
+    ["영화 고른다면", ["로맨스", "공포", "액션", "애니"]],
+    ["제일 자신 있는 과목", ["국어", "영어", "수학", "과학·사회"]],
+    ["화났을 때 나는", ["바로 말함", "조용해짐", "티 안 냄", "먹고 풀림"]],
+    ["좋아하는 데이트 시간", ["아침", "점심", "저녁", "밤"]],
+    ["라면 끓이면", ["꼬들꼬들", "적당히", "푹 익게", "생라면"]],
+    ["사진 찍을 때", ["찍는 거 좋아함", "찍히는 거 좋아함", "둘 다 좋아함", "둘 다 별로"]],
+    ["비 오는 날엔", ["집에 있기", "카페 가기", "우산 쓰고 걷기", "파전"]],
+    ["제일 자주 하는 말버릇", ["진짜?", "헐", "아 몰라", "ㅋㅋㅋ"]],
+    ["좋아하는 맛", ["단맛", "매운맛", "짠맛", "새콤한 맛"]],
+    ["슈퍼파워 하나 고르면", ["순간이동", "투명인간", "시간 멈추기", "마음 읽기"]],
+    ["잠들기 전에 하는 것", ["폰 보기", "음악 듣기", "바로 잠", "생각 많아짐"]],
+    ["놀이공원에서 먼저 타는 것", ["롤러코스터", "회전목마", "귀신의 집", "구경만"]],
+    ["좋아하는 날씨", ["맑음", "흐림", "비", "눈"]],
+    ["용돈 생기면", ["바로 씀", "모은다", "맛있는 거", "선물 산다"]],
+    ["음악 들을 때", ["케이팝", "발라드", "힙합", "팝송"]],
+    ["연락 제일 좋은 방법", ["전화", "디엠", "만나서", "음성 메시지"]],
+    ["더 좋아하는 동물", ["강아지", "고양이", "토끼", "햄스터"]],
+    ["시험 끝나면 제일 먼저", ["잠", "놀러 가기", "맛있는 거 먹기", "게임"]],
+    ["둘이 싸우면 먼저 연락하는 쪽은 나다", ["항상 내가", "주로 내가", "주로 상대가", "누가 먼저 할 틈 없이 풀림"]],
+    ["좋아하는 간식", ["젤리", "초콜릿", "과자", "아이스크림"]],
+    ["가장 많이 쓰는 앱", ["인스타", "유튜브", "카톡", "우주"]],
+    ["처음 만났을 때 첫인상", ["귀여웠다", "멋있었다", "무서웠다", "기억 안 남"]],
+    ["둘 중 더 잘 우는 사람", ["나", "상대", "둘 다", "둘 다 안 움"]],
+    ["10년 뒤 살고 싶은 곳", ["대구", "서울", "바닷가 도시", "해외"]],
+    ["제일 좋아하는 데이트", ["맛집", "카페", "산책", "영화"]],
+    ["밥 먹을 때 나는", ["빨리 먹음", "천천히 먹음", "많이 남김", "남의 것도 먹음"]],
+  ];
+  const qzDayNum = (d) => Math.round(Date.parse(d) / 864e5);
+  const qzQs = (d) => { const n = qzDayNum(d), N = QZ.length; return [0, 1, 2].map((k) => (n * 7 + k * 13) % N); };
+  function qzEntry() {
+    const z = S.qz && S.qz.data;
+    const o = esc(nm(other()));
+    let sub = "서로 얼마나 잘 아는지 매일 3문제", btn = "시작하기", cls = "";
+    if (z) {
+      if (z.both) { sub = "결과가 나왔어요"; btn = "결과 보기"; cls = "ready"; }
+      else if (z.meDone >= 3) { sub = `${o}님이 풀면 결과가 열려요`; btn = "내 답 보기"; cls = "wait"; }
+      else if (z.otDone >= 3) { sub = `${o}님은 다 풀었어요. 내 차례`; btn = "풀기"; cls = "turn"; }
+    }
+    const sc = z && z.score ? z.score : {};
+    const pct = (w) => sc[w] && sc[w].n ? Math.round((sc[w].ok / sc[w].n) * 100) : null;
+    const pm = pct(S.who), po = pct(other());
+    return `<section class="qz-entry ${cls}" data-act="qzOpen">
+      <div class="qz-e-top"><span class="qz-e-ic">${ic("star")}</span><span><b>누가 더 잘 알까</b><small>${sub}</small></span><em>${btn}</em></div>
+      ${pm != null || po != null ? `<div class="qz-e-score"><span>${av(S.who)}<b>${pm != null ? pm + "%" : "-"}</b></span><i>정답률</i><span><b>${po != null ? po + "%" : "-"}</b>${av(other())}</span></div>` : ""}
+    </section>`;
+  }
+  async function qzLoad() {
+    try {
+      const d = qToday(); const r = await api(`quiz?day=${d}`);
+      const changed = !S.qz || JSON.stringify(S.qz.data) !== JSON.stringify(r);
+      S.qz = S.qz || {}; S.qz.day = d; S.qz.data = r;   // 같은 객체를 고쳐야 푸는 중인 단계가 안 날아감
+      if (changed) { const el = $(".qz-entry"); if (el) { const t = document.createElement("template"); t.innerHTML = qzEntry(); morph(el, t.content.firstElementChild); } }
+      if (changed && !$("#sheet").hidden && $("#sheetBox .qz") && S.qz.step >= 6) qzRender();
+    } catch {}
+  }
+  function qzOpen() {
+    S.qz = S.qz || { day: qToday() };
+    const z = S.qz.data;
+    const mine = z ? z.ans.filter((a) => a.who === S.who && a.mine != null && a.guess != null) : [];
+    S.qz.step = mine.length >= 3 ? 6 : 0; S.qz.picks = [];
+    openSheet(`<h2>${ic("star")}누가 더 잘 알까</h2><div class="qz" id="qzBox"></div>`, () => qzLoad());
+    qzRender(true);
+  }
+  function qzRender(first) {
+    const box = $("#qzBox"); if (!box) return;
+    const Z = S.qz, qs = qzQs(Z.day), z = Z.data || { ans: [], score: {} }, o = other();
+    if (Z.step < 6) {
+      const k = Math.floor(Z.step / 2), guess = Z.step % 2 === 1, [qt, opts] = QZ[qs[k]];
+      const html = `<div class="qz-prog">${[0, 1, 2, 3, 4, 5].map((i) => `<i class="${i < Z.step ? "on" : i === Z.step ? "now" : ""}"></i>`).join("")}</div>
+        <div class="qz-card ${guess ? "guess" : ""}">
+          <div class="qz-who">${guess ? `${av(o)}<span>${esc(nm(o))}님은?</span>` : `${av(S.who)}<span>나는?</span>`}</div>
+          <h3>${esc(qt)}</h3>
+          <div class="qz-opts">${opts.map((t, i) => `<button class="qz-o" data-act="qzPick" data-i="${i}" style="--d:${i * 45}ms"><span>${esc(t)}</span></button>`).join("")}</div>
+          ${guess ? `<p class="qz-tip">${esc(nm(o))}님이 고를 것 같은 답을 맞혀보세요</p>` : ""}
+        </div>`;
+      box.innerHTML = html;
+      if (!first) { const c = box.querySelector(".qz-card"); c.classList.add("in"); }
+      return;
+    }
+    // 결과
+    const A = (w, i) => z.ans.find((a) => a.who === w && a.qi === i);
+    if (!z.both) {
+      box.innerHTML = `<div class="qz-wait">
+        <div class="qz-pulse">${av(o)}</div>
+        <b>${esc(nm(o))}님이 풀면 결과가 열려요</b><small>다 풀면 알림이 가요</small></div>
+        <div class="qz-mine">${qs.map((q, i) => { const a = A(S.who, i); return `<div class="qz-row"><span>${esc(QZ[q][0])}</span><em>나: ${a ? esc(QZ[q][1][a.mine]) : "-"}</em><em>${esc(nm(o))}: ${a ? esc(QZ[q][1][a.guess]) : "-"} 예상</em></div>`; }).join("")}</div>`;
+      return;
+    }
+    let myOk = 0, otOk = 0;
+    const rows = qs.map((q, i) => {
+      const me = A(S.who, i), ot = A(o, i);
+      const g1 = me && ot && me.guess === ot.mine, g2 = me && ot && ot.guess === me.mine;
+      if (g1) myOk++; if (g2) otOk++;
+      return `<div class="qz-flip" style="--d:${250 + i * 380}ms"><div class="qz-fi">
+        <div class="qz-front"><b>${i + 1}</b><span>${esc(QZ[q][0])}</span></div>
+        <div class="qz-back"><span class="qz-q">${esc(QZ[q][0])}</span>
+          <div class="qz-line ${g1 ? "ok" : "no"}">${av(S.who)}<span>내 예상 <b>${esc(QZ[q][1][me.guess])}</b><small>${esc(nm(o))}님 답 ${esc(QZ[q][1][ot.mine])}</small></span>${ic(g1 ? "check" : "x")}</div>
+          <div class="qz-line ${g2 ? "ok" : "no"}">${av(o)}<span>${esc(nm(o))}님 예상 <b>${esc(QZ[q][1][ot.guess])}</b><small>내 답 ${esc(QZ[q][1][me.mine])}</small></span>${ic(g2 ? "check" : "x")}</div>
+        </div></div></div>`;
+    }).join("");
+    const win = myOk > otOk ? `내가 ${esc(nm(o))}님을 더 잘 알아요` : myOk < otOk ? `${esc(nm(o))}님이 나를 더 잘 알아요` : "오늘은 비겼어요";
+    const sameKey = box.dataset.res === Z.day;
+    box.dataset.res = Z.day;
+    box.innerHTML = `<div class="qz-res ${sameKey ? "seen" : ""}">
+      <div class="qz-vs"><span>${av(S.who)}<b class="qz-cnt" data-n="${myOk}">${sameKey ? myOk : 0}</b></span><i>:</i><span><b class="qz-cnt" data-n="${otOk}">${sameKey ? otOk : 0}</b>${av(o)}</span></div>
+      <p class="qz-win">${win}</p>
+      <div class="qz-flips">${rows}</div></div>`;
+    if (!sameKey) {
+      // 카드가 하나씩 뒤집히고 점수가 따라 올라감
+      setTimeout(() => box.querySelectorAll(".qz-cnt").forEach((el) => { const n = +el.dataset.n; let c = 0; const tm = setInterval(() => { if (c >= n) return clearInterval(tm); el.textContent = ++c; el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump"); try { haptic(8); } catch {} }, 380); }), 600);
+    }
+  }
+  async function qzPick(el) {
+    const Z = S.qz, i = +el.dataset.i;
+    if (Z.lock) return; Z.lock = true;
+    el.classList.add("picked"); el.parentElement.classList.add("done"); try { haptic(10); } catch {}
+    const k = Math.floor(Z.step / 2);
+    Z.picks[k] = Z.picks[k] || {};
+    if (Z.step % 2 === 0) Z.picks[k].mine = i; else Z.picks[k].guess = i;
+    await new Promise((r) => setTimeout(r, 380));
+    const card = $("#qzBox .qz-card"); if (card) card.classList.add("out");
+    await new Promise((r) => setTimeout(r, 240));
+    if (Z.step % 2 === 1) { try { await api("quiz", { method: "POST", body: { day: Z.day, qi: k, mine: Z.picks[k].mine, guess: Z.picks[k].guess } }); } catch (e) { Z.lock = false; toast(e.message); qzRender(); return; } }
+    Z.step++; Z.lock = false;
+    if (Z.step >= 6) { await qzLoad(); }
+    qzRender();
   }
   function qGo(step) {
     const t = qToday(), first = S.created && S.created < QBASE ? S.created : QBASE;
@@ -1152,6 +1293,8 @@
       map.addSource("places", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({ id: "places-fill", type: "fill", source: "places", paint: { "fill-color": "#B65FE0", "fill-opacity": 0.12 } }, "link");
       map.addLayer({ id: "places-line", type: "line", source: "places", paint: { "line-color": "#B65FE0", "line-width": 2, "line-opacity": 0.6, "line-dasharray": [2, 1.5] } }, "link");
+      map.addSource("scratch", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({ id: "scratch", type: "fill", source: "scratch", paint: { "fill-color": ["get", "c"], "fill-opacity": 0.38 } }, "link");
       map.addSource("trail", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({ id: "trail", type: "line", source: "trail", layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": ["get", "c"], "line-width": ["case", ["==", ["get", "dash"], 1], 3, 5], "line-opacity": ["case", ["==", ["get", "dash"], 1], 0.45, 0.9] } });
@@ -1193,7 +1336,7 @@
     if (mapLoaded) {
       map.getSource("link").setData({
         type: "FeatureCollection",
-        features: pts.length === 2 && !S.trail ? [{ type: "Feature", geometry: { type: "LineString", coordinates: pts } }] : [],
+        features: pts.length === 2 && !S.trail && !S.scratch ? [{ type: "Feature", geometry: { type: "LineString", coordinates: pts } }] : [],
       });
     }
     if (pts.length > fitted) { fitMap(); fitted = pts.length; }
@@ -2092,6 +2235,7 @@
     const mc = $("#mapCard");
     if (!$("#pick") && mc.hidden) mc.hidden = false;
     $("#mapWrap").classList.toggle("tall-card", !!(S.eatOn && E.view === "list" && !S.trail));
+    if (S.scratch) return renderScratchCard();
     if (S.trail) return renderTrailCard();
     if (S.eatOn) return renderEatCard();
     const la = S.locs.a, lb = S.locs.b, o = other(), lo = S.locs[o];
@@ -2110,10 +2254,72 @@
       ${info.length ? `<div class="mc-info">${esc(nm(o))} ${esc(info.join(", "))}</div>` : ""}
       <div class="mc-acts">
         <button data-act="trailOpen">${ic("route")}<span>이동 기록</span></button>
+        <button data-act="scratchOpen">${ic("frame")}<span>가본 곳</span></button>
         <button data-act="navTo" ${lo ? "" : "disabled"}>${ic("target")}<span>길찾기</span></button>
         <button data-act="omwOpen">${ic("run")}<span>가는 중</span></button>
         <button data-act="locReq">${ic("bell")}<span>위치 요청</span></button>
       </div>`;
+  }
+  // ---------- 가본 곳 (스크래치 지도): 약 110m 칸으로 둘이 지나간 곳이 칠해짐 ----------
+  const SC_COL = { a: "#E5406A", b: "#5C6BF0", both: "#9B5CE6" };
+  async function scratchLoad() {
+    try {
+      const r = await api("scratch");
+      const m = new Map();
+      for (const w of ["a", "b"]) for (const [c, t] of r[w] || []) { const x = m.get(c) || { c, t, a: 0, b: 0 }; x[w] = 1; x.t = Math.min(x.t, t); m.set(c, x); }
+      S.scratch.cells = [...m.values()].sort((x, y) => x.t - y.t);
+      renderScratchCard(); scratchDraw(true);
+    } catch (e) { toast(e.message); }
+  }
+  function scratchFeats(list) {
+    const f = S.scratch.f || "all";
+    return list.filter((x) => f === "all" || (f === "both" ? x.a && x.b : f === S.who ? x[S.who] : x[other()])).map((x) => {
+      const [la, lo] = x.c.split(":").map(Number), y0 = la / 1000, x0 = lo / 800, y1 = y0 + 0.001, x1 = x0 + 1 / 800;
+      return { type: "Feature", properties: { c: x.a && x.b ? SC_COL.both : x.a ? SC_COL.a : SC_COL.b }, geometry: { type: "Polygon", coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] } };
+    });
+  }
+  function scratchDraw(reveal) {
+    if (!mapLoaded || !S.scratch || !S.scratch.cells) return;
+    const all = S.scratch.cells, src = map.getSource("scratch");
+    clearInterval(S.scratch.tm);
+    if (!reveal || matchMedia("(prefers-reduced-motion: reduce)").matches) return src.setData({ type: "FeatureCollection", features: scratchFeats(all) });
+    // 처음 간 순서대로 칠해지는 연출 (약 1.4초)
+    let k = 0; const steps = 18;
+    S.scratch.tm = setInterval(() => {
+      k++; src.setData({ type: "FeatureCollection", features: scratchFeats(all.slice(0, Math.ceil((all.length * k) / steps))) });
+      if (k >= steps) clearInterval(S.scratch.tm);
+    }, 75);
+    if (all.length) {
+      const ks = all.map((x) => x.c.split(":").map(Number));
+      const las = ks.map((v) => v[0] / 1000), los = ks.map((v) => v[1] / 800);
+      const q = (a, p) => { const b = [...a].sort((u, v) => u - v); return b[Math.min(b.length - 1, Math.max(0, Math.round(p * (b.length - 1))))]; };
+      try { map.fitBounds([[q(los, 0.04), q(las, 0.04)], [q(los, 0.96) + 1 / 800, q(las, 0.96) + 0.001]], { padding: { top: 90, bottom: 280, left: 40, right: 70 }, maxZoom: 15.5, duration: 900 }); } catch {}
+    }
+  }
+  function countUp(el, to, fmt) {
+    const t0 = performance.now(), from = 0, D = 1100;
+    const step = (now) => { const p = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - p, 3); el.textContent = fmt(from + (to - from) * e); if (p < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
+  function renderScratchCard() {
+    const sc = S.scratch, L = sc.cells;
+    const chip = (v, label) => `<button class="chip${(sc.f || "all") === v ? " on" : ""}" data-act="scratchF" data-v="${v}">${label}</button>`;
+    let body = `<div class="spin" style="margin:18px auto"></div>`;
+    if (L) {
+      const both = L.filter((x) => x.a && x.b).length, me = L.filter((x) => x[S.who] && !x[other()]).length, ot = L.length - both - me;
+      const wk = L.filter((x) => Date.now() - x.t < 7 * 864e5).length;
+      const km = L.length * 0.0125;
+      body = L.length ? `<div class="sc-sum"><b class="sc-big" data-to="${km}">0</b><span>km² 칠했어요 · ${L.length}칸</span></div>
+        <div class="sc-bars"><i style="--w:${(both / L.length) * 100}%;--c:${SC_COL.both}"></i><i style="--w:${(me / L.length) * 100}%;--c:${SC_COL[S.who]}"></i><i style="--w:${(ot / L.length) * 100}%;--c:${SC_COL[other()]}"></i></div>
+        <div class="sc-leg"><span style="--c:${SC_COL.both}">같이 ${both}</span><span style="--c:${SC_COL[S.who]}">나만 ${me}</span><span style="--c:${SC_COL[other()]}">${esc(nm(other()))}만 ${ot}</span></div>
+        ${wk ? `<p class="sc-new">이번 주에 새로 칠한 곳 ${wk}칸</p>` : `<p class="sc-new">이번 주엔 새로 간 곳이 없어요. 안 가본 골목 어때요</p>`}`
+        : `<div class="empty" style="padding:16px 0">아직 칠한 곳이 없어요<br><small>돌아다니면 지나간 곳이 칸으로 칠해져요</small></div>`;
+    }
+    $("#mapCard").innerHTML = `<div class="tr sc">
+      <div class="tr-top"><div class="chips">${chip("all", "전체")}${chip("both", "같이")}${chip(S.who, "나")}${chip(other(), esc(nm(other())))}</div>
+      <button class="icon-btn" data-act="scratchClose" aria-label="닫기">${ic("x")}</button></div>${body}</div>`;
+    const big = $(".sc-big"); if (big) { const to = +big.dataset.to; if (sc.shown === L.length) big.textContent = to.toFixed(2); else { sc.shown = L.length; countUp(big, to, (v) => v.toFixed(2)); } }
+    requestAnimationFrame(() => document.querySelectorAll(".sc-bars i").forEach((i) => i.classList.add("on")));
   }
   // 경로 다듬기: 오차 큰 점·튀는 점 버리고, 한곳에 머문 구간은 한 점으로 묶고, 이동 구간은 살짝 매끄럽게
   function cleanTrail(raw) {
@@ -5031,6 +5237,11 @@
     },
     async omwCancel(el, ev) { if (ev) ev.stopPropagation(); try { await api("omw", { method: "DELETE" }); } catch {} S.omwDoneSeen = null; renderOmw({}); toast("가는 중 알림을 껐어요"); },
     omwTap(el, ev) { if (ev && ev.target.closest(".omw-x")) return; if (S.tab !== "map") setTab("map"); setTimeout(() => { try { fitMap(); } catch {} }, 350); },
+    qzOpen() { qzOpen(); },
+    qzPick(el) { return qzPick(el); },
+    scratchOpen() { if (S.eatOn) setEatOn(false); if (S.trail) ACT.trailClose(); $("#mapCard").classList.remove("mc-min"); S.scratch = { f: "all" }; renderMapCard(); drawMap(); scratchLoad(); },
+    scratchClose() { if (S.scratch) clearInterval(S.scratch.tm); S.scratch = null; if (mapLoaded) map.getSource("scratch").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); drawMap(); fitMap(); },
+    scratchF(el) { S.scratch.f = el.dataset.v; renderScratchCard(); scratchDraw(false); },
     wtOpen() { const m = $("#dmPlusMenu"); if (m) m.hidden = true; wtSheet(); },
     dmMedia() { S.chat.media = null; mediaSheet("photo"); },
     mediaTab(el) { mediaSheet(el.dataset.t); },

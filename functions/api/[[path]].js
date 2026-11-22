@@ -222,9 +222,18 @@ export async function onRequest({ request, env, params, waitUntil }) {
       const near = (results || []).map((e) => ({ e, m: distM({ lat, lon }, e) })).filter((x) => x.m <= lim).sort((a, b) => a.m - b.m)[0];
       if (!near) return;
       const { e, m } = near;
+      // 가만히 앉아 있을 때(학원·카페 등)는 알리지 않음: 최근 10분 사이 150m 넘게 떨어진 곳에서 걸어 들어온 경우만
+      const recent = (await env.DB.prepare("SELECT lat, lon, t FROM loc_hist WHERE who = ?1 AND t >= ?2 ORDER BY t").bind(who, Date.now() - 10 * 60000).all()).results || [];
+      const cameFar = recent.some((p) => distM(p, { lat, lon }) > 150);
+      if (!cameFar) return;
+      const still = recent.filter((p) => Date.now() - p.t > 4 * 60000).every((p) => distM(p, { lat, lon }) < 60) && recent.some((p) => Date.now() - p.t > 4 * 60000);
+      if (still) return;
+      // 등록한 장소(학원·학교·집) 안에 있으면 알리지 않음
+      const pls = (await env.DB.prepare("SELECT lat, lon, radius FROM places").all()).results || [];
+      if (pls.some((pl) => distM(pl, { lat, lon }) <= (pl.radius || 100) + 20)) return;
       const st2 = await getSettings(env);
       const key = `eatnear_${who}_${e.id}`;
-      if (Date.now() - (Number(st2[key]) || 0) < 24 * 3600e3) return;
+      if (Date.now() - (Number(st2[key]) || 0) < 7 * 24 * 3600e3) return;
       // 다른 가게 알림도 10분에 한 번까지만
       if (Date.now() - (Number(st2["eatnear_last_" + who]) || 0) < 10 * 60000) return;
       await setSettings(env, { [key]: Date.now(), ["eatnear_last_" + who]: Date.now() });
@@ -774,6 +783,44 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "POST noshow": {
         const b = await body(request);
         await setSettings(env, { ["noshow_off_" + who]: b.on ? "" : "1" });
+        return json(OK);
+      }
+      // 가본 곳: 약 110m 칸 단위로 둘이 지나간 곳
+      case "GET scratch": {
+        const { results } = await DB.prepare("SELECT who, cell, t FROM visits").all();
+        const out = { a: [], b: [] };
+        for (const r of results || []) (out[r.who] || []).push([r.cell, r.t]);
+        return json(out);
+      }
+      // 누가 더 잘 알까: 하루 3문제, 내 답 + 상대 답 맞히기
+      case "GET quiz": {
+        const day = isDate(q("day")) ? q("day") : todayKST();
+        const [rows, all] = await DB.batch([
+          DB.prepare("SELECT qi, who, mine, guess FROM quiz WHERE day = ?1").bind(day),
+          DB.prepare("SELECT x.who AS who, COUNT(*) AS n, SUM(CASE WHEN x.guess = y.mine THEN 1 ELSE 0 END) AS ok FROM quiz x JOIN quiz y ON x.day = y.day AND x.qi = y.qi AND x.who != y.who WHERE x.guess IS NOT NULL AND y.mine IS NOT NULL GROUP BY x.who"),
+        ]);
+        const R = rows.results || [];
+        const meDone = R.filter((r) => r.who === who && r.mine != null && r.guess != null).length;
+        const otDone = R.filter((r) => r.who !== who && r.mine != null && r.guess != null).length;
+        // 둘 다 끝내기 전엔 상대 답을 숨김 (먼저 보고 맞히지 못하게)
+        const both = meDone >= 3 && otDone >= 3;
+        const ans = R.filter((r) => r.who === who || both);
+        const score = {}; for (const r of all.results || []) score[r.who] = { n: r.n, ok: r.ok };
+        return json({ day, ans, meDone, otDone, both, score });
+      }
+      case "POST quiz": {
+        const b = await body(request);
+        const day = isDate(b.day) ? b.day : todayKST(), qi = Number(b.qi);
+        if (!(qi >= 0 && qi < 3)) return err(400, "문제가 없어요");
+        const mi = Number(b.mine), gu = Number(b.guess);
+        if (!(mi >= 0 && mi < 4) || !(gu >= 0 && gu < 4)) return err(400, "답을 골라주세요");
+        await DB.prepare("INSERT INTO quiz (day, qi, who, mine, guess, t) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(day, qi, who) DO UPDATE SET mine = excluded.mine, guess = excluded.guess, t = excluded.t").bind(day, qi, who, mi, gu, Date.now()).run();
+        if (qi === 2) {
+          const ow = who === "a" ? "b" : "a", name = who === "a" ? st.a_name : st.b_name;
+          const od = await DB.prepare("SELECT COUNT(*) AS n FROM quiz WHERE day = ?1 AND who = ?2 AND guess IS NOT NULL").bind(day, ow).first();
+          const job = sendPush(env, st, setSettings, ow, od && od.n >= 3 ? { title: "맞히기 결과가 나왔어요", body: `${name}님도 다 풀었어요. 누가 더 잘 아는지 확인해 보세요`, url: "/#question", tag: "quiz" } : { title: "누가 더 잘 알까", body: `${name}님이 오늘 문제를 다 풀었어요. 당신 차례예요`, url: "/#question", tag: "quiz" }).catch(() => {});
+          if (waitUntil) waitUntil(job); else await job;
+        }
         return json(OK);
       }
       case "POST omw": {

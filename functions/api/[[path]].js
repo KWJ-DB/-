@@ -150,6 +150,34 @@ export async function onRequest({ request, env, params, waitUntil }) {
       } catch {}
     };
     const later = (job) => { if (waitUntil) waitUntil(job); else return job; };
+    // 가는 중 도착 확인: 앱을 안 열어도 위치(OwnTracks 포함)가 들어올 때마다 확인 → 목적지 70m 안이면 끝내고 상대에게 알림
+    const omwCheck = async (locs) => {
+      if (!locs) { locs = {}; for (const r of (await DB.prepare("SELECT who, lat, lon, acc, t FROM couple_locs").all()).results || []) locs[r.who] = r; }
+      const s2 = await getSettings(env);
+      const omw = {}, upd = {};
+      for (const w of ["a", "b"]) {
+        let v = null; try { v = JSON.parse(s2["omw_" + w] || "null"); } catch {}
+        if (!v) { try { const dn = JSON.parse(s2["omwdone_" + w] || "null"); if (dn && Date.now() - dn.t < 90000) omw[w] = { done: dn.t, name: dn.name }; } catch {} continue; }
+        if (Date.now() - v.t0 > 4 * 3600e3) { upd["omw_" + w] = ""; continue; }
+        const ow = w === "a" ? "b" : "a", me0 = locs[w], dest = v.kind === "partner" ? locs[ow] : v.dest;
+        const d = me0 && dest ? distM(me0, dest) : null;
+        if (d != null && d < 70 && me0.t > v.t0) {
+          upd["omw_" + w] = ""; upd["omwdone_" + w] = JSON.stringify({ t: Date.now(), name: v.name });
+          omw[w] = { done: Date.now(), name: v.name };
+          // 서로 가는 중이었으면 상대 것도 같이 끝냄 (알림은 "만났어요" 한 번씩)
+          let both = false;
+          if (v.kind === "partner") { try { const ov = JSON.parse(s2["omw_" + ow] || "null"); if (ov && ov.kind === "partner") { both = true; upd["omw_" + ow] = ""; upd["omwdone_" + ow] = JSON.stringify({ t: Date.now(), name: ov.name }); omw[ow] = { done: Date.now(), name: ov.name }; } } catch {} }
+          const name = w === "a" ? st.a_name : st.b_name;
+          if (both) for (const x of ["a", "b"]) later(sendPush(env, st, setSettings, x, { title: "만났어요", body: `${x === "a" ? st.b_name : st.a_name}님이 바로 옆에 있어요`, url: "/#map", tag: "omw" }).catch(() => {}));
+          else later(sendPush(env, st, setSettings, ow, { title: `${name}님 도착`, body: v.kind === "partner" ? "바로 옆에 왔어요" : `${v.name}에 도착했어요`, url: "/#map", tag: "omw" }).catch(() => {}));
+          if (both) break;
+          continue;
+        }
+        omw[w] = { ...v, d, dest: dest ? { lat: dest.lat, lon: dest.lon } : null };
+      }
+      if (Object.keys(upd).length) await setSettings(env, upd);
+      return omw;
+    };
     // 늦음 알림: 같은 요일 이 시간쯤 늘 도착하던 곳에 25분 넘게 안 오면 상대에게 한 번 알려줌 (5분마다 점검)
     const noShowCheck = async () => {
       try {
@@ -195,6 +223,8 @@ export async function onRequest({ request, env, params, waitUntil }) {
             if (nowMin < med + 25 || nowMin > med + 120) continue;
             const sk = w + "|" + place;
             if (sent.k.includes(sk)) continue;
+            if (st.together === "1") continue;                       // 둘이 같이 있으면 알 필요 없음
+            try { const ov = JSON.parse(st["omw_" + w] || "null"); if (ov) continue; } catch {}   // 가는 중을 켰으면 이미 알고 있음
             const pl = pls.find((x) => x.name === place);
             if (pl && loc && distM(loc, pl) <= (pl.radius || 100) + 30) continue;   // 사실 이미 그 근처
             sent.k.push(sk); changed = true;
@@ -291,7 +321,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       if (b && b._type === "location") {
         try {
           await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, batt: b.batt, vel: b.vel, t: b.tst ? b.tst * 1000 : Date.now(), src: "app" });
-          await later(placeNotify(who, b.lat, b.lon, b.acc, b.tst ? b.tst * 1000 : Date.now(), true).then(togetherCheck).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
+          await later(placeNotify(who, b.lat, b.lon, b.acc, b.tst ? b.tst * 1000 : Date.now(), true).then(togetherCheck).then(() => omwCheck()).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
         } catch {}
       }
       // 폰이 직접 감지한 장소 도착/출발 (OwnTracks 지역) → 바로 알림
@@ -744,24 +774,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         for (const r of results || []) locs[r.who] = r;
         const sos = {};
         for (const w of ["a", "b"]) { try { const v = JSON.parse(st["sos_" + w] || "null"); if (v && Date.now() - v.t < 6 * 3600e3) sos[w] = v; } catch {} }
-        // 가는 중: 목적지(상대 또는 장소)에 70m 안으로 들어오면 자동으로 끝내고 상대에게 도착 알림
-        const omw = {}, upd = {};
-        for (const w of ["a", "b"]) {
-          let v = null; try { v = JSON.parse(st["omw_" + w] || "null"); } catch {}
-          if (!v) { try { const dn = JSON.parse(st["omwdone_" + w] || "null"); if (dn && Date.now() - dn.t < 90000) omw[w] = { done: dn.t, name: dn.name }; } catch {} continue; }
-          const me0 = locs[w], dest = v.kind === "partner" ? locs[w === "a" ? "b" : "a"] : v.dest;
-          if (Date.now() - v.t0 > 4 * 3600e3) { upd["omw_" + w] = ""; continue; }
-          const d = me0 && dest ? distM(me0, dest) : null;
-          if (d != null && d < 70 && me0.t > v.t0) {
-            upd["omw_" + w] = ""; upd["omwdone_" + w] = JSON.stringify({ t: Date.now(), name: v.name });
-            omw[w] = { done: Date.now(), name: v.name };
-            const name = w === "a" ? st.a_name : st.b_name;
-            later(sendPush(env, st, setSettings, w === "a" ? "b" : "a", { title: `${name}님 도착`, body: v.kind === "partner" ? "바로 옆에 왔어요" : `${v.name}에 도착했어요`, url: "/#map", tag: "omw" }).catch(() => {}));
-            continue;
-          }
-          omw[w] = { ...v, d, dest: dest ? { lat: dest.lat, lon: dest.lon } : null };
-        }
-        if (Object.keys(upd).length) await setSettings(env, upd);
+        const omw = await omwCheck(locs);
         return json({ now: Date.now(), locs, sos, omw });
       }
       // 긴급 알림: 꾹 눌러 보내면 상대에게 바로 알림 + 채팅에 기록, 상대가 확인하면 보낸 사람에게 알림
@@ -873,7 +886,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const bt = Number(b.t), tt = Number.isFinite(bt) && bt < Date.now() + 60000 && bt > Date.now() - 3 * 86400000 ? bt : Date.now();
         await saveLoc(DB, who, { ...b, src: "web", t: tt });
         if (Date.now() - tt > 5 * 60000) return json(OK);
-        await later(placeNotify(who, b.lat, b.lon, b.acc, tt).then(togetherCheck).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
+        await later(placeNotify(who, b.lat, b.lon, b.acc, tt).then(togetherCheck).then(() => omwCheck()).then(() => eatNearby(who, b.lat, b.lon, b.acc)).catch(() => {}));
         return json(OK);
       }
       case "DELETE loc":

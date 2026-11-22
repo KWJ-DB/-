@@ -701,7 +701,10 @@
     S.qz = S.qz || { day: qToday() };
     const z = S.qz.data;
     const mine = z ? z.ans.filter((a) => a.who === S.who && a.mine != null && a.guess != null) : [];
-    S.qz.step = mine.length >= 3 ? 6 : 0; S.qz.picks = [];
+    // 풀다 만 문제가 있으면 이어서 (다 푼 문제는 건너뜀)
+    S.qz.picks = []; mine.forEach((a) => (S.qz.picks[a.qi] = { mine: a.mine, guess: a.guess }));
+    let k0 = 0; while (k0 < 3 && S.qz.picks[k0]) k0++;
+    S.qz.step = mine.length >= 3 ? 6 : k0 * 2;
     openSheet(`<h2>${ic("star")}누가 더 잘 알까</h2><div class="qz" id="qzBox"></div>`, () => qzLoad());
     qzRender(true);
   }
@@ -766,6 +769,7 @@
     await new Promise((r) => setTimeout(r, 240));
     if (Z.step % 2 === 1) { try { await api("quiz", { method: "POST", body: { day: Z.day, qi: k, mine: Z.picks[k].mine, guess: Z.picks[k].guess } }); } catch (e) { Z.lock = false; toast(e.message); qzRender(); return; } }
     Z.step++; Z.lock = false;
+    while (Z.step < 6 && Z.step % 2 === 0 && Z.picks[Z.step / 2] && Z.picks[Z.step / 2].guess != null) Z.step += 2;
     if (Z.step >= 6) { await qzLoad(); }
     qzRender();
   }
@@ -2528,11 +2532,12 @@
         : `<button class="tr-mv" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><svg><use href="#${x.ic}"/></svg><span>${x.txt}</span><small>${x.dist}</small></button>`;
       body = r.points.length
         ? `<div class="tr-sum"><b>${fmtDist(moved || t.dist)}</b><span>이동 · 머문 곳 ${cl.stays.length}곳</span></div>
-           <div class="tr-tl">${tl.map(row).join("")}</div>`
+           <div class="tr-tl${S.trAnimK !== t.w + t.day ? " anim" : ""}">${tl.map(row).join("")}</div>`
         : `<div class="empty" style="padding:18px 0">이날 기록이 없어요<br><small>사이트나 OwnTracks가 켜져 있을 때 기록돼요</small></div>`;
       if (r.points.length && !tl.length) body = body.replace('<div class="tr-tl"></div>', `<div class="empty" style="padding:12px 0">한곳에 오래 머문 기록이 없어요</div>`);
     }
     const inCls = S.trailIn || ""; if (r) S.trailIn = null;
+    if (r) setTimeout(() => { S.trAnimK = t.w + t.day; }, 0);   // 목록 올라오는 연출은 그날 처음 열 때만 (새로고침 때 다시 안 나오게)
     $("#mapCard").innerHTML = `
       <div class="tr ${inCls}">
         <div class="tr-top">
@@ -2565,6 +2570,8 @@
     const col = (w) => (w === "a" ? "#E5406A" : "#5C6BF0");
     // 둘 다 서로에게 가는 중이면 한 줄 위에서 양쪽 끝에서 마주 보고 다가오는 모양
     const meet = act.length === 2 && om[o].kind === "partner" && om[me].kind === "partner";
+    // 도착 표시(5초)가 떠 있는 동안은 다음 새로고침이 지우지 않게
+    if (!act.length && !doneW && S.omwDoneUntil > Date.now()) return;
     if (!act.length && !doneW) {
       S.isl.omw = null; islUpdate();
       if (!bar.hidden && !bar.classList.contains("bye")) { bar.classList.add("bye"); setTimeout(() => { bar.hidden = true; bar.classList.remove("bye"); bar.innerHTML = ""; bar._k = ""; }, 320); }
@@ -2583,7 +2590,8 @@
       }
       S.isl.omw = { list: [{ w: doneW, done: true, mine, meet: bar._meet }] }; islUpdate();
       try { haptic(30); } catch {}
-      setTimeout(() => renderOmw({}), 5200);
+      S.omwDoneUntil = Date.now() + 5200;
+      setTimeout(() => { S.omwDoneUntil = 0; renderOmw({}); }, 5200);
       return;
     }
     const info = {};
@@ -2727,7 +2735,7 @@
     root.addEventListener("contextmenu", (e) => { if (e.target.closest(sel)) e.preventDefault(); });
   }
   // 머문 곳 카드 꾹: 이름 붙이기 / 가는 중 알약 꾹(내 것): 그만하기 / 긴급 알약 꾹: 바로 위치 보기
-  longPress($("#mapCard"), ".tr-st", (el) => ACT.stayNameOpen({ dataset: { lat: el.dataset.lat, lon: el.dataset.lon, n: (el.querySelector("b") || {}).textContent || "" } }));
+  longPress($("#mapCard"), ".tr-st", (el) => { const nb = el.querySelector(".tr-name"); if (!nb) return toast("이미 이름이 있는 장소예요. 설정 > 우리 장소에서 바꿀 수 있어요"); ACT.stayNameOpen({ dataset: { ...nb.dataset } }); });
   for (const id of ["isl", "islChat"]) longPress(document.getElementById(id), ".isl-p", (el) => {
     if (el.dataset.k === "omw" && S.isl.omw && S.isl.omw.list.some((x) => x.mine && !x.done) && (!el.dataset.w || el.dataset.w === S.who)) { if (confirmTap(el, "한 번 더 꾹 누르면 가는 중을 꺼요")) ACT.omwCancel(); }
     else if (el.dataset.k === "sos" && S.isl.sos && S.isl.sos.in) ACT.sosSee();
@@ -2776,8 +2784,10 @@
       else if (x.meet) h += `<button class="isl-p omw-p meet${x.stale ? " stale" : ""}" data-act="islToggle" data-k="omw" aria-label="서로 가는 중 보기"><span class="isl-avs">${av(S.who)}${av(other())}</span><b>${x.min}분</b></button>`;
       else h += `<button class="isl-p omw-p${x.stale ? " stale" : ""}" data-act="islToggle" data-k="omw" data-w="${x.w}" style="--c:${x.w === "a" ? "#E5406A" : "#5C6BF0"}" aria-label="가는 중 보기">${av(x.w)}<span class="isl-trk"><i style="width:${(x.p * 100).toFixed(0)}%"></i></span><b>${x.min}분</b></button>`;
     }
+    const many = (h.match(/class="isl-p/g) || []).length >= 2;
     for (const id of ["isl", "islChat"]) {
       const el = document.getElementById(id); if (!el) continue;
+      el.classList.toggle("many", many);   // 알약이 여러 개면 막대·글자를 줄여 한 줄에 들어가게
       if (el._h === h) continue;
       const t = document.createElement("template"); t.innerHTML = h;
       if (el.children.length && t.content.children.length) { S.quiet = true; try { morphKids(el, t.content); } finally { S.quiet = false; } } else el.innerHTML = h;
@@ -5476,7 +5486,7 @@
       const b = el.dataset.k === "place" ? { kind: "place", lat: +el.dataset.lat, lon: +el.dataset.lon, name: el.dataset.name } : { kind: "partner" };
       try { await api("omw", { method: "POST", body: b }); closeSheet(); try { haptic(20); } catch {} refreshLoc(); } catch (e) { toast(e.message); }
     },
-    async omwCancel(el, ev) { if (ev) ev.stopPropagation(); try { await api("omw", { method: "DELETE" }); } catch {} S.omwDoneSeen = null; renderOmw({}); toast("가는 중 알림을 껐어요"); },
+    async omwCancel(el, ev) { if (ev) ev.stopPropagation(); try { await api("omw", { method: "DELETE" }); } catch {} toast("가는 중을 껐어요"); refreshLoc(); },
     islToggle(el) { const k = el.dataset.k; if (el.dataset.w && S.omwSel !== el.dataset.w) { S.omwSel = el.dataset.w; renderOmw(S.omw); islOpen(k); return; } if (S.islOpen === k) islClose(); else islOpen(k); },
     omwTap(el, ev) { if (ev && ev.target.closest(".omw-x")) return; islClose(); if (S.tab !== "map") setTab("map"); setTimeout(() => { try { fitMap(); } catch {} }, 350); },
     qzOpen() { qzOpen(); },

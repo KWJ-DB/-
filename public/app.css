@@ -2446,3 +2446,33 @@ body.typing #chatWrap { will-change: height, transform; }
 .omw.meet.done .omw-meet { animation: omwPop .5s cubic-bezier(.3,1.6,.5,1); transform: translate(-50%, -50%) scale(1.3); }
 .isl-avs { display: inline-flex; } .isl-avs .av + .av { margin-left: -8px; box-shadow: 0 0 0 2px #fff; }
 .omw-p.meet b { color: #9B5CE6; }
+
+.isl.many { gap: 4px; }
+.isl.many .isl-trk { display: none; }
+.isl.many .isl-p { padding-right: 10px; gap: 5px; }
+.isl.many .sos-p b { display: none; }
+.isl.many .sos-p { padding: 0 9px; }
+.topbar.has-isl .brand-t { max-width: 64px; overflow: hidden; }
+
+/* 덜 꾸민 느낌으로: 그라데이션 빼고 다른 카드와 같은 흰 면 + 한 가지 강조색 */
+.qz-entry { background: var(--card); border-radius: var(--r-surface); }
+.qz-e-ic { background: #FCE8EE; }
+.qz-e-top em { background: #F2F1F5; color: var(--ink); }
+.qz-entry.turn em, .qz-entry.ready em { background: var(--rose); color: #fff; }
+.qz-e-score { border-top: 1px solid var(--line); }
+.qz-card, .qz-card.guess { background: #F6F5F8; }
+.qz-card.guess .qz-who { color: #5C6BF0; }
+.qz-front { background: var(--ink); }
+.qz-front b { opacity: .35; }
+.omw { background: #fff; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 0 12px 32px rgba(29, 28, 33, .12); }
+.isl-p { box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.05); }
+/* 움직임 기준: 들어올 때 ease-out 0.32s, 손 뗄 때 살짝 튀는 스프링 */
+:root { --ease-out: cubic-bezier(.2,.8,.2,1); --spring-soft: cubic-bezier(.3,1.35,.5,1); }
+.tr-st, .omw-opt, .qz-o, .isl-p, .qz-entry { transition: transform .22s var(--spring-soft), background-color .2s var(--ease-out), opacity .2s; }
+.tr-st:active, .omw-opt:active, .qz-entry:active { transform: scale(.975); transition-duration: .1s; }
+.qz-o:active, .isl-p:active { transform: scale(.94); transition-duration: .1s; }
+/* 이동 기록 목록이 열릴 때 머문 곳 카드가 차례로 올라옴 (한 번만) */
+.tr-tl.anim > * { animation: tlIn .36s var(--ease-out) backwards; }
+.tr-tl.anim > :nth-child(2) { animation-delay: .04s; } .tr-tl.anim > :nth-child(3) { animation-delay: .08s; } .tr-tl.anim > :nth-child(4) { animation-delay: .12s; } .tr-tl.anim > :nth-child(5) { animation-delay: .16s; } .tr-tl.anim > :nth-child(n+6) { animation-delay: .2s; }
+@keyframes tlIn { from { transform: translateY(8px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .tr-tl > * { animation: none; } }

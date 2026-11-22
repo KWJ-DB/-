@@ -7,9 +7,9 @@ self.addEventListener("push", (e) => {
   try { d = e.data ? e.data.json() : {}; } catch { d = { title: "", body: e.data ? e.data.text() : "" }; }
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    const isCall = d.tag === "call";
+    const isCall = d.tag === "call" || String(d.tag || "").startsWith("sos") && d.tag !== "sosok";
     // 앱이 열려 있으면 바로 전화 화면이 뜨게
-    if (isCall) for (const w of wins) { try { w.postMessage({ type: "call" }); } catch {} }
+    if (d.tag === "call") for (const w of wins) { try { w.postMessage({ type: "call" }); } catch {} }
     // 앱을 보고 있으면 알림이 쌓이지 않게: 아이폰은 푸시마다 알림을 꼭 띄워야 해서, 띄우고 바로 지움
     const open = wins.some((w) => w.visibilityState === "visible");
     await self.registration.showNotification(d.title || "", {

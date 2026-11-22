@@ -673,7 +673,28 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const { results } = await DB.prepare("SELECT who, lat, lon, acc, batt, src, t, vel FROM couple_locs").all();
         const locs = {};
         for (const r of results || []) locs[r.who] = r;
-        return json({ now: Date.now(), locs });
+        const sos = {};
+        for (const w of ["a", "b"]) { try { const v = JSON.parse(st["sos_" + w] || "null"); if (v && Date.now() - v.t < 6 * 3600e3) sos[w] = v; } catch {} }
+        return json({ now: Date.now(), locs, sos });
+      }
+      // 긴급 알림: 꾹 눌러 보내면 상대에게 바로 알림 + 채팅에 기록, 상대가 확인하면 보낸 사람에게 알림
+      case "POST sos": {
+        const name = who === "a" ? st.a_name : st.b_name, ow = who === "a" ? "b" : "a";
+        await setSettings(env, { ["sos_" + who]: JSON.stringify({ t: Date.now() }) });
+        try { await insertMsg(who, { text: "긴급 알림을 보냈어요. 지금 연락해 주세요" }); } catch {}
+        const job = Promise.all([0, 1].map((k) => new Promise((r) => setTimeout(r, k * 20000)).then(() => sendPush(env, st, setSettings, ow, { title: `긴급 · ${name}`, body: "지금 도움이 필요해요. 눌러서 위치를 확인하세요", url: "/#map", tag: "sos" + k })))).catch(() => {});
+        if (waitUntil) waitUntil(job); else await job;
+        return json(OK);
+      }
+      case "DELETE sos": {
+        const tw = q("w") === "a" || q("w") === "b" ? q("w") : who;
+        await setSettings(env, { ["sos_" + tw]: "" });
+        if (tw !== who) {
+          const name = who === "a" ? st.a_name : st.b_name;
+          const job = sendPush(env, st, setSettings, tw, { title: name, body: "긴급 알림을 확인했어요", url: "/#chat", tag: "sosok" }).catch(() => {});
+          if (waitUntil) waitUntil(job); else await job;
+        }
+        return json(OK);
       }
       case "POST loc": {
         const b = await body(request);

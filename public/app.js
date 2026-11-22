@@ -305,7 +305,7 @@
     const [, locR, bkR, lt, sk] = await Promise.all([
       loadAnswers(qToday(), qToday()), api("loc"), api("bucket"), api(`letters?today=${t}`), api(`streak?today=${qToday()}`),
     ]);
-    S.locs = locR.locs; S.locNow = locR.now;
+    S.locs = locR.locs; S.locNow = locR.now; renderSos(locR.sos);
     updateBadge();
     if (S.tab !== "home") return;
 
@@ -2304,16 +2304,42 @@
       <div class="tr">
         <div class="tr-top">
           <div class="chips">${chip("trailWho", S.who, t.w, "나")}${chip("trailWho", other(), t.w, esc(nm(other())))}</div>
-          <div class="chips">${chip("trailDay", 0, t.day, "오늘")}${chip("trailDay", 1, t.day, "어제")}${chip("trailDay", 2, t.day, "그제")}</div>
+          <div class="chips">${chip("trailDay", 0, t.day, "오늘")}${chip("trailDay", 1, t.day, "어제")}<label class="chip tr-date${t.day >= 2 ? " on" : ""}">${t.day >= 2 ? (() => { const d = addDays(today(), -t.day); return `${+d.slice(5, 7)}월 ${+d.slice(8)}일`; })() : `${ic("cal")}날짜`}<input type="date" data-chg="trailDate" max="${today()}" min="${addDays(today(), -29)}" value="${addDays(today(), -t.day)}"></label></div>
           <button class="icon-btn" data-act="trailClose" aria-label="닫기">${ic("x")}</button>
         </div>
         ${body}
       </div>`;
   }
+  // 긴급 알림 띠: 상대가 보냈으면 빨간 띠(위치 보기·확인), 내가 보냈으면 취소
+  function renderSos(sos) {
+    const bar = $("#sosBar"); if (!bar) return;
+    sos = sos || {};
+    const o = other(), mine = sos[S.who], theirs = sos[o];
+    let html = "";
+    if (theirs) html = `<div class="sos-in">${ic("alert")}<span><b>${esc(nm(o))}님이 긴급 알림을 보냈어요</b><small>${hm(theirs.t)}</small></span><button data-act="sosSee">위치</button><button data-act="sosOk" data-w="${o}">확인했어요</button></div>`;
+    else if (mine) html = `<div class="sos-me">${ic("alert")}<span><b>긴급 알림을 보냈어요</b><small>${hm(mine.t)} · 상대가 확인하면 사라져요</small></span><button data-act="sosOk" data-w="${S.who}">취소</button></div>`;
+    if (bar._h === html) return;
+    bar._h = html; bar.innerHTML = html; bar.hidden = !html;
+    if (theirs && S.sosSeen !== theirs.t) { S.sosSeen = theirs.t; try { haptic(30); } catch {} }
+  }
+  (() => {
+    const b = document.getElementById("sosBtn"); if (!b) return;
+    let tm = null, t0 = 0;
+    const stop = () => { clearTimeout(tm); tm = null; b.classList.remove("hold"); };
+    b.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); t0 = Date.now(); b.classList.add("hold"); try { haptic(8); } catch {}
+      tm = setTimeout(async () => {
+        stop(); try { haptic(40); } catch {}
+        try { await api("sos", { method: "POST", body: {} }); toast("긴급 알림을 보냈어요"); refreshLoc(); } catch (er) { toast(er.message); }
+      }, 1400);
+    });
+    ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => b.addEventListener(ev, () => { if (tm && Date.now() - t0 < 400) toast("꾹 누르고 있으면 긴급 알림을 보내요"); if (tm) stop(); }));
+    b.addEventListener("contextmenu", (e) => e.preventDefault());
+  })();
   async function refreshLoc(redraw) {
     try {
       const r = await api("loc");
-      S.locs = r.locs; S.locNow = r.now;
+      S.locs = r.locs; S.locNow = r.now; renderSos(r.sos);
       if (S.tab === "map") { drawMap(); renderMapCard(); }
     } catch {}
   }
@@ -5106,6 +5132,9 @@
     fitMap,
     satToggle: () => setSat(!S.sat),
     trailOpen() { $("#mapCard").classList.remove("mc-min"); if (S.eatOn) setEatOn(false); S.trail = { w: other(), day: 0 }; renderMapCard(); drawMap(); loadTrail(); },
+    async sosOk(el) { try { await api(`sos?w=${el.dataset.w}`, { method: "DELETE" }); } catch {} refreshLoc(); },
+    sosSee() { setTab("map"); setTimeout(() => { const l = S.locs && S.locs[other()]; if (l && map) map.flyTo({ center: [l.lon, l.lat], zoom: 16.5 }); }, 400); },
+    trailDate(el) { const v = el.value; if (!v) return; const n = Math.round((Date.parse(today()) - Date.parse(v)) / 864e5); if (n < 0 || n > 29) return toast("최근 30일만 볼 수 있어요"); S.trail = { ...S.trail, day: n, data: null }; renderTrailCard(); loadTrail(); },
     trailFly(el) { map.flyTo({ center: [+el.dataset.lon, +el.dataset.lat], zoom: 16.5 }); },
     trailClose() { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); drawMap(); fitMap(); },
     trailWho(el) { S.trail = { ...S.trail, w: el.dataset.v, data: null }; renderTrailCard(); loadTrail(); },
@@ -5171,6 +5200,7 @@
   // 일정 시간: 고르면 표시, 비워두면 종일
   document.addEventListener("change", (e) => { if (e.target.id === "evTime") { S.evTime = e.target.value || ""; const t = $("#evTitle") && $("#evTitle").value; render(true).then(() => { if (t && $("#evTitle")) $("#evTitle").value = t; }); } });
   document.addEventListener("change", (e) => {
+    if (e.target.dataset && e.target.dataset.chg === "trailDate") ACT.trailDate(e.target);
     if (e.target.id === "phInput" && e.target.files.length) uploadPhotos([...e.target.files]);
     if (e.target.id === "alInput" && e.target.files.length) albumUpload([...e.target.files]);
     if (e.target.id === "avInput" && e.target.files.length) uploadAvatar(e.target.files[0]);

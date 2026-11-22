@@ -177,7 +177,7 @@ export async function saveLoc(DB, who, d) {
        batt = excluded.batt, src = excluded.src, t = excluded.t, vel = excluded.vel
      WHERE excluded.t >= couple_locs.t`
   ).bind(who, lat, lon, num(d.acc), num(d.batt), d.src || "web", Math.round(t), num(d.vel)).run();
-  // 이동 경로 기록 (정확도 높은 점 위주, 튀는 점 버림, 3일치만 보관)
+  // 이동 경로 기록 (정확도 높은 점 위주, 튀는 점 버림, 30일치 보관)
   const acc = Number(d.acc);
   const accOk = Number.isFinite(acc) ? acc : 30;
   if (accOk > 150) return;
@@ -199,7 +199,7 @@ export async function saveLoc(DB, who, d) {
   if (!last || moved > minMove || dt > 300) {
     await DB.batch([
       DB.prepare("INSERT INTO loc_hist (who, lat, lon, t, acc) VALUES (?1, ?2, ?3, ?4, ?5)").bind(who, lat, lon, Math.round(t), Math.round(accOk)),
-      DB.prepare("DELETE FROM loc_hist WHERE t < ?1").bind(Date.now() - 3 * 864e5),
+      DB.prepare("DELETE FROM loc_hist WHERE t < ?1").bind(Date.now() - 30 * 864e5),
     ]);
   }
 }

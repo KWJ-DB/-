@@ -2159,3 +2159,30 @@ body.typing #chatWrap { will-change: height, transform; }
 .tr-mv span { font-weight: 600; }
 .tr-mv small { margin-left: auto; padding-right: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .tr-mv:active { color: var(--ink); }
+
+/* 날짜 고르기 칩 */
+.tr-date { position: relative; display: inline-flex; align-items: center; gap: 4px; overflow: hidden; }
+.tr-date .i { width: 14px; height: 14px; }
+.tr-date input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; border: 0; padding: 0; }
+/* 긴급 알림 */
+.map-fabs .sos-btn { position: relative; color: #D93A49; }
+.sos-btn .sos-ring { position: absolute; inset: -2px; width: calc(100% + 4px); height: calc(100% + 4px); transform: rotate(-90deg); pointer-events: none; }
+.sos-btn .sos-ring circle { fill: none; stroke: #D93A49; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 126; stroke-dashoffset: 126; }
+.sos-btn.hold { transform: scale(.92); transition: transform .2s; }
+.sos-btn.hold .sos-ring circle { stroke-dashoffset: 0; transition: stroke-dashoffset 1.4s linear; }
+#sosBar { position: fixed; left: 12px; right: 12px; top: calc(env(safe-area-inset-top, 0px) + 64px); z-index: 60; animation: sosIn .35s cubic-bezier(.2,.9,.3,1.2); }
+@keyframes sosIn { from { transform: translateY(-16px); opacity: 0; } }
+#sosBar > div { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; border-radius: 18px; box-shadow: 0 10px 30px rgba(120, 20, 40, .18); }
+.sos-in { background: #D93A49; color: #fff; }
+.sos-me { background: #fff; color: var(--ink); border: 1.5px solid #F2C4CA; }
+#sosBar .i { width: 20px; height: 20px; flex: none; }
+.sos-me .i { color: #D93A49; }
+#sosBar span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#sosBar b { font-size: 14px; font-weight: 700; }
+#sosBar small { font-size: 11.5px; opacity: .8; }
+#sosBar button { all: unset; cursor: pointer; font-size: 13px; font-weight: 700; padding: 8px 11px; border-radius: 12px; background: rgba(255,255,255,.2); white-space: nowrap; }
+.sos-me button { background: #F7F1F3; }
+.sos-in button:last-child { background: #fff; color: #D93A49; }
+.sos-in { animation: sosPulse 1.6s ease-in-out infinite; }
+@keyframes sosPulse { 50% { box-shadow: 0 10px 30px rgba(217, 58, 73, .45); } }
+@media (prefers-reduced-motion: reduce) { .sos-in, #sosBar { animation: none; } }

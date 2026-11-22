@@ -2404,12 +2404,33 @@
     return { path, stays, dist };
   }
   // 머문 곳 이름: 등록한 장소나 맛집 근처면 그 이름
-  function stayName(st) {
+  // 머문 곳 이름: 우리 장소 > (짧게 머문 경우만) 바로 붙어 있는 맛집 > 건물 이름·주소
+  // 학원처럼 오래 있는 곳이 근처 가게 이름으로 잘못 붙지 않게, 가게는 25m 안 + 2시간 반 이하일 때만
+  const geoKey = (st) => `${st.lat.toFixed(4)},${st.lon.toFixed(4)}`;
+  function stayInfo(st) {
+    if (st.pl) return { name: st.pl, reg: true };
     let best = null, bd = Infinity;
-    if (st.pl) return st.pl;
     for (const pl of S.places || []) { const d = distM(st, pl); if (d < Math.max(80, pl.radius || 0) && d < bd) { bd = d; best = pl.name; } }
-    for (const e of E.list || []) { const d = distM(st, e); if (d < 60 && d < bd) { bd = d; best = e.name; } }
-    return best;
+    if (best) return { name: best, reg: true };
+    const dur = (st.t1 || 0) - (st.t0 || 0);
+    if (dur <= 150 * 60000) for (const e of E.list || []) { const d = distM(st, e); if (d < 25 && d < bd) { bd = d; best = e.name; } }
+    if (best) return { name: best, reg: false };
+    const g = (S.geo || {})[geoKey(st)];
+    return { name: g ? g.name : "", reg: false, geo: !g };
+  }
+  function stayName(st) { return stayInfo(st).name || null; }
+  async function stayGeo(list) {
+    S.geo = S.geo || {};
+    let got = false;
+    for (const st of list) {
+      const k = geoKey(st); if (S.geo[k]) continue;
+      try {
+        const r = await api(`revgeo?lat=${st.lat}&lon=${st.lon}`);
+        const short = (r.addr || "").split(" ").slice(-2).join(" ");
+        S.geo[k] = { name: r.building || (short ? `${short} 근처` : ""), addr: r.addr || "" }; got = true;
+      } catch { S.geo[k] = { name: "" }; }
+    }
+    if (got && S.trail && S.trail.data) renderTrailCard();
   }
   const durTxt = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}시간${m % 60 ? " " + (m % 60) + "분" : ""}` : `${m}분`; };
 
@@ -2483,11 +2504,13 @@
       // 머문 곳은 번호 카드, 그 사이 이동은 작은 한 줄
       const tl = [];
       const cl = t.clean || { stays: [] };
-      const names = cl.stays.map((st) => stayName(st));
+      const infos = cl.stays.map((st) => stayInfo(st));
+      const needGeo = cl.stays.filter((st, k) => infos[k].geo);
+      if (needGeo.length) stayGeo(needGeo);
       const lastT = r.points.length ? r.points[r.points.length - 1].t : 0;
       cl.stays.forEach((st, k) => {
         const now = t.day === 0 && lastT - st.t1 < 10 * 60000;
-        tl.push({ t: st.t0, k: k + 1, name: names[k] || "이름 없는 곳", time: now ? `${hm(st.t0)}부터` : `${hm(st.t0)} – ${hm(st.t1)}`, dur: durTxt(st.t1 - st.t0), now, ev: "stay", lat: st.lat, lon: st.lon });
+        tl.push({ t: st.t0, k: k + 1, reg: infos[k].reg, name: infos[k].name || (infos[k].geo ? "주소 찾는 중" : "이름 없는 곳"), time: now ? `${hm(st.t0)}부터` : `${hm(st.t0)} – ${hm(st.t1)}`, dur: durTxt(st.t1 - st.t0), now, ev: "stay", lat: st.lat, lon: st.lon });
       });
       const MODE = { pedestrian: ["i-walk", "걸어서"], bicycle: ["i-bike", "자전거로"], auto: ["i-car", "차로"] };
       let moved = 0;
@@ -2499,7 +2522,7 @@
       });
       tl.sort((x, y) => x.t - y.t);
       const row = (x) => x.ev === "stay"
-        ? `<button class="tr-st${x.now ? " now" : ""}" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><em style="--c:${t.w === "a" ? "#E5406A" : "#5C6BF0"}">${x.k}</em><span><b>${esc(x.name)}</b><small>${x.time}</small></span><i>${x.now ? "있는 중" : x.dur}</i></button>`
+        ? `<div class="tr-st${x.now ? " now" : ""}" role="button" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><em style="--c:${t.w === "a" ? "#E5406A" : "#5C6BF0"}">${x.k}</em><span><b>${esc(x.name)}</b><small>${x.time}</small></span>${x.reg ? "" : `<button class="tr-name" data-act="stayNameOpen" data-lat="${x.lat}" data-lon="${x.lon}" data-n="${esc(x.name === "주소 찾는 중" ? "" : x.name.replace(/ 근처$/, ""))}" aria-label="이름 붙이기">${ic("pen")}</button>`}<i>${x.now ? "있는 중" : x.dur}</i></div>`
         : `<button class="tr-mv" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><svg><use href="#${x.ic}"/></svg><span>${x.txt}</span><small>${x.dist}</small></button>`;
       body = r.points.length
         ? `<div class="tr-sum"><b>${fmtDist(moved || t.dist)}</b><span>이동 · 머문 곳 ${cl.stays.length}곳</span></div>
@@ -2604,8 +2627,8 @@
     const b = document.getElementById("sosBtn"); if (!b) return;
     let tm = null, t0 = 0;
     const stop = () => { clearTimeout(tm); tm = null; b.classList.remove("hold"); };
-    b.addEventListener("pointerdown", (e) => {
-      e.preventDefault(); t0 = Date.now(); b.classList.add("hold"); try { haptic(8); } catch {}
+    const go = (e) => {
+      e.preventDefault(); if (tm) return; t0 = Date.now(); b.classList.add("hold"); try { haptic(8); } catch {}
       tm = setTimeout(async () => {
         stop(); try { haptic(40); } catch {}
         try { await api("sos", { method: "POST", body: {} }); toast("긴급 알림을 보냈어요"); refreshLoc(); }
@@ -2619,8 +2642,14 @@
           location.href = `sms:${ph.replace(/[^0-9+]/g, "")}&body=${encodeURIComponent("[우주 긴급] 지금 도움이 필요해요. 연락 주세요." + where)}`;
         }
       }, 1400);
-    });
-    ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => b.addEventListener(ev, () => { if (tm && Date.now() - t0 < 400) toast("꾹 누르고 있으면 긴급 알림을 보내요"); if (tm) stop(); }));
+    };
+    const end = (e) => { if (e && e.cancelable) e.preventDefault(); if (tm && Date.now() - t0 < 400) toast("꾹 누르고 있으면 긴급 알림을 보내요"); if (tm) stop(); };
+    // 아이폰: 터치 이벤트로 받고 기본 동작(글자 선택·확대경)을 막음
+    b.addEventListener("touchstart", go, { passive: false });
+    b.addEventListener("touchend", end, { passive: false });
+    b.addEventListener("touchcancel", end, { passive: false });
+    b.addEventListener("mousedown", (e) => { if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return; go(e); });
+    b.addEventListener("mouseup", end); b.addEventListener("mouseleave", (e) => { if (tm) end(e); });
     b.addEventListener("contextmenu", (e) => e.preventDefault());
   })();
   async function refreshLoc(redraw) {
@@ -5269,6 +5298,23 @@
     scratchOpen() { if (S.eatOn) setEatOn(false); if (S.trail) ACT.trailClose(); $("#mapCard").classList.remove("mc-min"); S.scratch = { f: "all" }; renderMapCard(); drawMap(); scratchLoad(); },
     scratchClose() { if (S.scratch) clearInterval(S.scratch.tm); S.scratch = null; if (mapLoaded) map.getSource("scratch").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); drawMap(); fitMap(); },
     scratchF(el) { S.scratch.f = el.dataset.v; renderScratchCard(); scratchDraw(false); },
+    stayNameOpen(el, ev) {
+      if (ev) ev.stopPropagation();
+      openSheet(`<h2>${ic("pin")}이 장소 이름 붙이기</h2>
+        <p class="omw-help">한 번 붙이면 이동 기록에 이 이름으로 나오고, 도착·출발 알림도 와요</p>
+        <input id="snName" maxlength="20" placeholder="예: 학원" value="${esc(el.dataset.n || "")}">
+        <div class="sn-quick">${["학원", "학교", "집", "독서실", "카페"].map((n) => `<button class="chip-sel" data-act="snQuick" data-n="${n}">${n}</button>`).join("")}</div>
+        <button class="btn primary" style="width:100%;margin-top:14px" data-act="snSave" data-lat="${el.dataset.lat}" data-lon="${el.dataset.lon}">저장</button>`);
+      setTimeout(() => { const i = $("#snName"); if (i && !i.value) i.focus(); }, 300);
+    },
+    snQuick(el) { const i = $("#snName"); if (i) i.value = el.dataset.n; },
+    async snSave(el) {
+      const name = ($("#snName").value || "").trim(); if (!name) return toast("이름을 적어주세요");
+      await api("places", { method: "POST", body: { name, lat: +el.dataset.lat, lon: +el.dataset.lon, radius: 80, owner: "both" } });
+      closeSheet(); toast(`"${name}"(으)로 저장했어요`);
+      try { await loadPlaces(); } catch {}
+      if (S.trail) { S.trail.data = null; renderTrailCard(); loadTrail(); }
+    },
     wtOpen() { const m = $("#dmPlusMenu"); if (m) m.hidden = true; wtSheet(); },
     dmMedia() { S.chat.media = null; mediaSheet("photo"); },
     mediaTab(el) { mediaSheet(el.dataset.t); },

@@ -2383,3 +2383,13 @@ body.typing #chatWrap { will-change: height, transform; }
 #sosBar button { border-radius: var(--r-sm); }
 .tr .chip svg.i, .chip-sel svg.i, .eat-chips .chip:not(.rl-chip) svg.i { fill: none; stroke: currentColor; stroke-width: 1.8; }
 .wt-btn.press { transform: scale(.96); }
+
+.tr-name { all: unset; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-sm); color: #B4AEB7; flex: none; cursor: pointer; }
+.tr-name .i { width: 16px; height: 16px; }
+.tr-name:active { background: #EAE6EC; color: var(--ink); }
+.sn-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+#snName { width: 100%; height: 48px; padding: 0 14px; border: 0; background: #F4F3F6; font-size: 15px; }
+
+/* 꾹 누르는 버튼: 글자 선택·확대경·파란 선택 막기 */
+.map-fabs, .map-fabs *, .sos-btn, .wt-btn, .wt-btn *, .qz-o, .tr-st, .omw, #sosBar { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.sos-btn, .wt-btn { touch-action: none; }

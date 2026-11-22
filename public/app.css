@@ -2133,3 +2133,6 @@ body.typing #chatWrap { will-change: height, transform; }
 .dm-bub.has-img:not(.only-img) .dm-img { display: block; border-radius: 18px; }
 /* 답장 미리보기: 입력칸 바로 위에 붙게 */
 .dm-reply { margin: 0 4px 6px; }
+
+.dm-retry { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; background: #FFE8EC; color: #E0344F; font-size: 12px; font-weight: 700; }
+.dm-retry svg.i { width: 12px; height: 12px; }

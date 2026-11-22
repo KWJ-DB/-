@@ -2521,7 +2521,7 @@
       const rxHtml = rx.length ? `<span class="dm-rx">${rx.map(([w, r]) => `<i class="${w} r-${r}">${ic(r)}</i>`).join("")}</span>` : "";
       const tmp = String(m.id).startsWith("tmp");
       const unread = mine && !tmp && m.id > readUpTo ? `<span class="dm-1">1</span>` : "";
-      const meta = last ? `<span class="dm-meta">${m.failed ? `<button class="dm-retry" data-act="dmRetry" data-id="${m.id}">다시 보내기</button>` : tmp ? "" : hm(m.t)}${m.edited ? " · 수정됨" : ""}</span>` : (m.edited ? `<span class="dm-meta">수정됨</span>` : "");
+      const meta = m.failed ? `<span class="dm-meta"><button class="dm-retry" data-act="dmRetry" data-id="${m.id}">${ic("refresh")}다시 보내기</button></span>` : last ? `<span class="dm-meta">${tmp ? "" : hm(m.t)}${m.edited ? " · 수정됨" : ""}</span>` : (m.edited ? `<span class="dm-meta">수정됨</span>` : "");
       const cls = m.kind === "heart" ? " heart" : m.kind === "loc" ? " loc" : m.kind === "event" ? " evm" : m.kind === "call" ? " callm" : "";
       out.push([keyOf(m), `<div class="dm-row ${mine ? "me" : "ot"}${first ? " first" : ""}${last ? " last" : ""}${rx.length ? " liked" : ""}${tmp ? " sending" : ""}" id="m${m.id}">
         ${mine ? "" : last ? av(m.who) : '<span class="av-sp"></span>'}
@@ -2854,7 +2854,7 @@
         const r = await apiUp("messages", { img: p }, (v) => show(0.2 + v * 0.7));
         show(1);
         if (r && r.id) cidOf[r.id] = String(tmp.id);
-      } catch (e) { tmp.failed = true; toast("사진 전송 실패: " + e.message); }
+      } catch (e) { tmp.failed = true; tmp.file = files[i]; toast("사진 전송 실패: 다시 보내기를 눌러주세요"); }
       clearInterval(trickle);
       tmp.sending = false;
     }
@@ -3025,6 +3025,17 @@
     L.addEventListener("scroll", () => { if (L.scrollHeight - L.scrollTop - L.clientHeight < 80) $("#dmJump").hidden = true; }, { passive: true });
   })();
   $("#dmFile").addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) sendChatPhotos(f); });
+  // 다시 보내기 버튼 꾹 → 보내지 않기 메뉴
+  (() => {
+    let t = null;
+    $("#dmList").addEventListener("touchstart", (e) => {
+      const b = e.target.closest(".dm-retry"); if (!b) return;
+      t = setTimeout(() => { t = null; S.retryLong = true; try { haptic(12); } catch {} ACT.retryMenu(b.dataset.id); setTimeout(() => { S.retryLong = false; }, 700); }, 450);
+    }, { passive: true });
+    const c = () => { if (t) { clearTimeout(t); t = null; } };
+    $("#dmList").addEventListener("touchend", c); $("#dmList").addEventListener("touchmove", c, { passive: true });
+    $("#dmList").addEventListener("contextmenu", (e) => { const b = e.target.closest(".dm-retry"); if (b) { e.preventDefault(); ACT.retryMenu(b.dataset.id); } });
+  })();
   $("#dmList").addEventListener("selectstart", (e) => e.preventDefault());
   $("#dmList").addEventListener("contextmenu", (e) => e.preventDefault());
   // 사진을 끌어다 놓거나 붙여넣으면 바로 디엠 전송
@@ -4790,11 +4801,25 @@
     schedOpen() { schedSheet(); },
     async schedDel(el) { await api(`sched/${el.dataset.id}`, { method: "DELETE" }); toast("예약을 취소했어요"); await loadSched(); schedSheet(); },
     dmRetry(el) {
+      if (S.retryLong) { S.retryLong = false; return; }
       const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id);
       if (!m) return;
+      if (m.file) { S.chat.msgs = S.chat.msgs.filter((x) => x !== m); sendChatPhotos([m.file]); return; }
       m.failed = false; drawChat();
       postMsg(m.body || { text: m.text }, m);
     },
+    // 다시 보내기 꾹: 보내지 않기
+    retryMenu(id) {
+      const m = S.chat.msgs.find((x) => String(x.id) === String(id)); if (!m) return;
+      openSheet(`<h2>${ic("send")}보내지 못한 메시지</h2>
+        <p class="sheet-sub">"${esc((m.text || (m.kind === "voice" ? "음성 메시지" : m.local ? "사진" : "메시지")).slice(0, 40))}"</p>
+        <div class="row2" style="margin-top:14px"><button class="btn gray" data-act="retryDrop" data-id="${m.id}">${ic("trash")}보내지 않기</button><button class="btn primary" data-act="retryNow" data-id="${m.id}">${ic("refresh")}다시 보내기</button></div>`);
+    },
+    retryDrop(el) {
+      S.chat.msgs = S.chat.msgs.filter((x) => String(x.id) !== el.dataset.id);
+      closeSheet(); drawChat(); toast("보내지 않았어요");
+    },
+    retryNow(el) { closeSheet(); ACT.dmRetry(el); },
     rxReply(el) { const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id); closeRx(); if (m) setReply(m); },
     async rxCopy(el) {
       const m = S.chat.msgs.find((x) => String(x.id) === el.dataset.id); closeRx();

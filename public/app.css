@@ -2424,3 +2424,13 @@ body.typing #chatWrap { will-change: height, transform; }
 /* 이동 기록 위 칩: 날짜 칩(label)에 입력칸용 여백이 붙어 아래로 처지던 것 */
 .tr-top .chips { align-items: center; flex-wrap: nowrap; }
 .tr-top .chip, .tr-top label.chip { margin: 0 !important; flex: none; vertical-align: middle; }
+
+/* 제스처 반응 */
+.tr.tr-in-r .tr-sum, .tr.tr-in-r .tr-tl, .tr.tr-in-r .empty { animation: trInR .32s cubic-bezier(.2,.9,.3,1.05); }
+.tr.tr-in-l .tr-sum, .tr.tr-in-l .tr-tl, .tr.tr-in-l .empty { animation: trInL .32s cubic-bezier(.2,.9,.3,1.05); }
+@keyframes trInR { from { transform: translateX(60px); opacity: 0; } }
+@keyframes trInL { from { transform: translateX(-60px); opacity: 0; } }
+.tr-st.lp-down, .isl-p.lp-down { transform: scale(.96); transition: transform .45s cubic-bezier(.3,.7,.4,1); }
+#omwBar.open::after, #sosBar.open::after { content: ""; display: block; width: 36px; height: 4px; margin: 6px auto 0; border-radius: 2px; background: rgba(0,0,0,.14); }
+#toast { touch-action: none; }
+@media (prefers-reduced-motion: reduce) { .tr [class] { animation: none !important; } }

@@ -2530,8 +2530,9 @@
         : `<div class="empty" style="padding:18px 0">이날 기록이 없어요<br><small>사이트나 OwnTracks가 켜져 있을 때 기록돼요</small></div>`;
       if (r.points.length && !tl.length) body = body.replace('<div class="tr-tl"></div>', `<div class="empty" style="padding:12px 0">한곳에 오래 머문 기록이 없어요</div>`);
     }
+    const inCls = S.trailIn || ""; if (r) S.trailIn = null;
     $("#mapCard").innerHTML = `
-      <div class="tr">
+      <div class="tr ${inCls}">
         <div class="tr-top">
           <div class="chips">${chip("trailWho", S.who, t.w, "나")}${chip("trailWho", other(), t.w, esc(nm(other())))}</div>
           <div class="chips">${chip("trailDay", 0, t.day, "오늘")}${chip("trailDay", 1, t.day, "어제")}<label class="chip tr-date${t.day >= 2 ? " on" : ""}">${t.day >= 2 ? (() => { const d = addDays(today(), -t.day); return `${+d.slice(5, 7)}월 ${+d.slice(8)}일`; })() : `${ic("cal")}날짜`}<input type="date" data-chg="trailDate" max="${today()}" min="${addDays(today(), -29)}" value="${addDays(today(), -t.day)}"></label></div>
@@ -2628,6 +2629,99 @@
     // 상대가 처음 보낸 긴급 알림은 한 번 펼쳐서 보여줌 (밖을 누르면 접힘, 위 알약은 남음)
     if (theirs && S.sosSeen !== theirs.t) { S.sosSeen = theirs.t; try { haptic(30); } catch {} islOpen("sos"); }
   }
+  // ---------- 손가락 제스처 공용 ----------
+  // 밀어서 닫기: 손가락을 그대로 따라오고, 반대 방향은 고무줄처럼 조금만. 충분히 밀거나 빠르게 튕기면 닫힘
+  function swipeAway(el, dir, onGone, opt = {}) {
+    if (!el || el._sw) return; el._sw = true;
+    let st = null;
+    const ax = dir === "up" || dir === "down" ? "y" : "x", sign = dir === "up" || dir === "left" ? -1 : 1;
+    el.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1 || (opt.skip && e.target.closest(opt.skip))) return;
+      st = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), on: false, d: 0 };
+    }, { passive: true });
+    el.addEventListener("touchmove", (e) => {
+      if (!st) return;
+      const dx = e.touches[0].clientX - st.x, dy = e.touches[0].clientY - st.y, d = ax === "y" ? dy : dx, o = ax === "y" ? dx : dy;
+      if (!st.on) { if (Math.abs(o) > Math.abs(d) && Math.abs(o) > 8) { st = null; return; } if (Math.abs(d) < 6) return; st.on = true; el.style.transition = "none"; el.style.animation = "none"; }
+      e.preventDefault();
+      st.d = d * sign > 0 ? d : d * 0.25;                       // 반대로 끌면 고무줄
+      const pr = Math.min(1, Math.abs(st.d) / 160);
+      el.style.transform = ax === "y" ? `translateY(${st.d}px)` : `translateX(${st.d}px)`;
+      el.style.opacity = String(1 - (st.d * sign > 0 ? pr * 0.6 : 0));
+    }, { passive: false });
+    const end = () => {
+      if (!st) return; const { on, d, t } = st; st = null; if (!on) return;
+      const v = Math.abs(d) / Math.max(1, Date.now() - t);
+      el.style.transition = "transform .32s cubic-bezier(.2,.8,.2,1), opacity .25s";
+      if (d * sign > 60 || (d * sign > 18 && v > 0.45)) {
+        el.style.transform = ax === "y" ? `translateY(${sign * 220}px)` : `translateX(${sign * 460}px)`; el.style.opacity = "0";
+        try { haptic(8); } catch {}
+        setTimeout(() => { el.style.transition = ""; el.style.transform = ""; el.style.opacity = ""; el.style.animation = ""; onGone(); }, 260);
+      } else {
+        el.style.transform = ""; el.style.opacity = "";
+        setTimeout(() => { el.style.transition = ""; el.style.animation = ""; }, 330);
+      }
+    };
+    el.addEventListener("touchend", end); el.addEventListener("touchcancel", end);
+  }
+  // 펼친 가는 중·긴급 카드: 위로 밀면 접힘 / 토스트: 위로 밀면 사라짐 / 무전 재생 알약: 위로 밀면 멈춤
+  swipeAway($("#omwBar"), "up", () => islClose(), { skip: "button" });
+  swipeAway($("#sosBar"), "up", () => islClose(), { skip: "button" });
+  swipeAway($("#toast"), "up", () => { clearTimeout(toast.t); clearTimeout(toast.t2); $("#toast").hidden = true; });
+  swipeAway($("#wtLive"), "up", () => { try { WT.src && WT.src.stop(); } catch {} try { WT.audio && WT.audio.pause(); } catch {} $("#wtLive").hidden = true; WT.busy = false; });
+  // 꾹 누르기 공용: 0.45초, 손가락이 10px 넘게 움직이면 취소
+  function longPress(root, sel, fn) {
+    let tm = null, sx = 0, sy = 0, fired = false;
+    root.addEventListener("touchstart", (e) => {
+      const el = e.target.closest(sel); if (!el || e.touches.length !== 1) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; fired = false;
+      el.classList.add("lp-down");
+      tm = setTimeout(() => { tm = null; fired = true; el.classList.remove("lp-down"); try { haptic(15); } catch {} fn(el); }, 450);
+    }, { passive: true });
+    root.addEventListener("touchmove", (e) => { if (!tm) return; if (Math.hypot(e.touches[0].clientX - sx, e.touches[0].clientY - sy) > 10) { clearTimeout(tm); tm = null; root.querySelectorAll(".lp-down").forEach((x) => x.classList.remove("lp-down")); } }, { passive: true });
+    const up = (e) => { if (tm) { clearTimeout(tm); tm = null; } root.querySelectorAll(".lp-down").forEach((x) => x.classList.remove("lp-down")); if (fired && e.cancelable) { e.preventDefault(); fired = false; } };
+    root.addEventListener("touchend", up, { passive: false }); root.addEventListener("touchcancel", up);
+    root.addEventListener("contextmenu", (e) => { if (e.target.closest(sel)) e.preventDefault(); });
+  }
+  // 머문 곳 카드 꾹: 이름 붙이기 / 가는 중 알약 꾹(내 것): 그만하기 / 긴급 알약 꾹: 바로 위치 보기
+  longPress($("#mapCard"), ".tr-st", (el) => ACT.stayNameOpen({ dataset: { lat: el.dataset.lat, lon: el.dataset.lon, n: (el.querySelector("b") || {}).textContent || "" } }));
+  for (const id of ["isl", "islChat"]) longPress(document.getElementById(id), ".isl-p", (el) => {
+    if (el.dataset.k === "omw" && S.isl.omw && S.isl.omw.mine && !S.isl.omw.done) { if (confirmTap(el, "한 번 더 꾹 누르면 가는 중을 꺼요")) ACT.omwCancel(); }
+    else if (el.dataset.k === "sos" && S.isl.sos && S.isl.sos.in) ACT.sosSee();
+    else islOpen(el.dataset.k);
+  });
+  function confirmTap(el, msg) { if (el._armed && Date.now() - el._armed < 3000) { el._armed = 0; return true; } el._armed = Date.now(); toast(msg); return false; }
+  // 이동 기록 카드를 옆으로 밀면 하루씩 넘김 (왼쪽 = 전날, 오른쪽 = 다음날), 손가락을 따라 카드가 밀리고 새 날이 반대편에서 들어옴
+  (() => {
+    const mc = $("#mapCard"); let st = null;
+    mc.addEventListener("touchstart", (e) => {
+      if (!S.trail || e.touches.length !== 1 || e.target.closest(".tr-top, input")) return;
+      st = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), on: false, d: 0 };
+    }, { passive: true });
+    mc.addEventListener("touchmove", (e) => {
+      if (!st) return;
+      const dx = e.touches[0].clientX - st.x, dy = e.touches[0].clientY - st.y;
+      if (!st.on) { if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8) { st = null; return; } if (Math.abs(dx) < 10) return; st.on = true; }
+      e.preventDefault();
+      const tr = mc.querySelector(".tr-sum, .empty"), tl = mc.querySelector(".tr-tl");
+      const canNext = S.trail.day > 0, canPrev = S.trail.day < 29;
+      st.d = (dx < 0 && !canPrev) || (dx > 0 && !canNext) ? dx * 0.2 : dx;
+      [tr, tl].forEach((x) => { if (x) { x.style.transition = "none"; x.style.transform = `translateX(${st.d}px)`; x.style.opacity = String(1 - Math.min(0.7, Math.abs(st.d) / 260)); } });
+    }, { passive: false });
+    const end = () => {
+      if (!st) return; const { on, d, t } = st; st = null; if (!on) return;
+      const v = Math.abs(d) / Math.max(1, Date.now() - t);
+      const parts = [mc.querySelector(".tr-sum, .empty"), mc.querySelector(".tr-tl")].filter(Boolean);
+      const go = (Math.abs(d) > 70 || (Math.abs(d) > 24 && v > 0.45));
+      const step = d < 0 ? 1 : -1, nd = S.trail.day + step;
+      if (go && nd >= 0 && nd <= 29) {
+        parts.forEach((x) => { x.style.transition = "transform .2s ease-in, opacity .2s"; x.style.transform = `translateX(${d < 0 ? -300 : 300}px)`; x.style.opacity = "0"; });
+        try { haptic(8); } catch {}
+        setTimeout(() => { S.trailIn = d < 0 ? "tr-in-r" : "tr-in-l"; ACT.trailDay({ dataset: { v: nd } }); }, 170);
+      } else parts.forEach((x) => { x.style.transition = "transform .35s cubic-bezier(.2,.9,.3,1.2), opacity .25s"; x.style.transform = ""; x.style.opacity = ""; });
+    };
+    mc.addEventListener("touchend", end); mc.addEventListener("touchcancel", end);
+  })();
   // ---------- 상단 알약(아일랜드): 가는 중·긴급을 작게 띄우고, 누르면 펼침 → 화면을 가리지 않음 ----------
   S.isl = {};
   function islUpdate() {
@@ -3184,8 +3278,7 @@
       wtPlay(v.id);
     } catch {}
   }
-  setInterval(wtPoll, 2000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) wtPoll(); });
+  // 무전 기능은 뺌 (받기 확인도 안 함)
   async function wtPlay(id) {
     WT.busy = true;
     const live = $("#wtLive");
@@ -3197,10 +3290,10 @@
       const buf = await (await fetch(`/api/chataud/${id}`, { credentials: "same-origin" })).arrayBuffer();
       wtUnlock();
       const ab = await new Promise((res, rej) => { const pr = WT.ctx.decodeAudioData(buf, res, rej); if (pr && pr.catch) pr.catch(rej); });
-      const src = WT.ctx.createBufferSource(); src.buffer = ab; src.connect(WT.ctx.destination);
+      const src = WT.ctx.createBufferSource(); WT.src = src; src.buffer = ab; src.connect(WT.ctx.destination);
       src.onended = done; src.start(0);
     } catch {
-      try { const a = new Audio(`/api/chataud/${id}`); a.onended = done; a.onerror = done; await a.play(); }
+      try { const a = new Audio(`/api/chataud/${id}`); WT.audio = a; a.onended = done; a.onerror = done; await a.play(); }
       catch { done(); toast(`${nm(other())}님이 무전을 보냈어요. 채팅에서 들어보세요`); }
     }
   }

@@ -240,7 +240,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       const both = e.wa && e.wb;
       await sendPush(env, st2, setSettings, who, {
         title: both ? "둘 다 찜한 곳이 바로 앞이에요" : e.kind === "place" ? "가보고 싶던 곳이 바로 앞이에요" : "가보고 싶던 맛집이 바로 앞이에요",
-        body: `${e.name}이(가) ${Math.max(10, Math.round(m / 10) * 10)}m 앞에 있어요`, url: "/#map", tag: "eatnear" + e.id,
+        body: `${Math.max(10, Math.round(m / 10) * 10)}m 앞에 ${e.name} 있어요`, url: "/#map", tag: "eatnear" + e.id,
       });
     };
 
@@ -852,7 +852,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       case "POST sos": {
         const name = who === "a" ? st.a_name : st.b_name, ow = who === "a" ? "b" : "a";
         await setSettings(env, { ["sos_" + who]: JSON.stringify({ t: Date.now() }) });
-        try { await insertMsg(who, { text: "긴급 알림을 보냈어요. 지금 연락해 주세요" }); } catch {}
+        try { await insertMsg(who, { text: "긴급 알림을 보냈어요. 연락 주세요" }); } catch {}
         const job = Promise.all([0, 1].map((k) => new Promise((r) => setTimeout(r, k * 20000)).then(() => sendPush(env, st, setSettings, ow, { title: `긴급 · ${name}`, body: "지금 도움이 필요해요. 눌러서 위치를 확인하세요", url: "/#map", tag: "sos" + k })))).catch(() => {});
         if (waitUntil) waitUntil(job); else await job;
         return json(OK);

@@ -44,6 +44,8 @@
   };
   const other = () => (S.who === "a" ? "b" : "a");
   const nm = (w) => S.names[w] || "";
+  // 받침에 맞는 조사: jo("학원", "을", "를") → "학원을"
+  const jo = (w, a, b) => { w = String(w || ""); const c = w.charCodeAt(w.length - 1); const has = c >= 0xAC00 && c <= 0xD7A3 ? (c - 0xAC00) % 28 !== 0 : /[0-9lmnLMN]$/.test(w); if (a === "으로") return w + (has && (c - 0xAC00) % 28 !== 8 ? "으로" : "로"); return w + (has ? a : b); };
   const ini = (w) => [...nm(w)][0] || "?";
   const avSrc = (w) => (S.avatars && S.avatars[w] ? `/api/avatar/${w}?v=${S.avatars[w]}` : null);
   const av = (w, cls = "") => avSrc(w) ? `<span class="av ${w} ${cls} has-img"><img src="${avSrc(w)}" alt=""></span>` : `<span class="av ${w} ${cls}">${esc(ini(w))}</span>`;
@@ -637,7 +639,7 @@
     ["더 무서운 것", ["벌레", "높은 곳", "귀신", "시험"]],
     ["여행 간다면", ["바다", "산", "도시", "해외"]],
     ["카페에서 늘 고르는 것", ["아메리카노", "라떼", "달달한 음료", "에이드·차"]],
-    ["아침형? 저녁형?", ["완전 아침형", "조금 아침형", "조금 저녁형", "완전 저녁형"]],
+    ["아침형일까 저녁형일까", ["완전 아침형", "조금 아침형", "조금 저녁형", "완전 저녁형"]],
     ["답장 스타일", ["바로바로", "생각나면", "몰아서", "읽고 까먹음"]],
     ["선물로 받고 싶은 것", ["편지", "먹을 것", "옷·악세사리", "같이 하는 경험"]],
     ["영화 고른다면", ["로맨스", "공포", "액션", "애니"]],
@@ -658,11 +660,11 @@
     ["연락 제일 좋은 방법", ["전화", "디엠", "만나서", "음성 메시지"]],
     ["더 좋아하는 동물", ["강아지", "고양이", "토끼", "햄스터"]],
     ["시험 끝나면 제일 먼저", ["잠", "놀러 가기", "맛있는 거 먹기", "게임"]],
-    ["둘이 싸우면 먼저 연락하는 쪽은 나다", ["항상 내가", "주로 내가", "주로 상대가", "누가 먼저 할 틈 없이 풀림"]],
+    ["싸우고 나면", ["바로 먼저 연락", "좀 있다 먼저 연락", "연락 기다림", "만나서 풂"]],
     ["좋아하는 간식", ["젤리", "초콜릿", "과자", "아이스크림"]],
     ["가장 많이 쓰는 앱", ["인스타", "유튜브", "카톡", "우주"]],
-    ["처음 만났을 때 첫인상", ["귀여웠다", "멋있었다", "무서웠다", "기억 안 남"]],
-    ["둘 중 더 잘 우는 사람", ["나", "상대", "둘 다", "둘 다 안 움"]],
+    ["친구들이 말하는 내 성격", ["밝다", "차분하다", "웃기다", "다정하다"]],
+    ["슬픈 영화 보면", ["펑펑 운다", "눈물만 살짝", "참는다", "전혀 안 운다"]],
     ["10년 뒤 살고 싶은 곳", ["대구", "서울", "바닷가 도시", "해외"]],
     ["제일 좋아하는 데이트", ["맛집", "카페", "산책", "영화"]],
     ["밥 먹을 때 나는", ["빨리 먹음", "천천히 먹음", "많이 남김", "남의 것도 먹음"]],
@@ -2596,7 +2598,7 @@
     }
     const pc = (e.p * 100).toFixed(1) + "%";
     bar.querySelector(".omw-fill").style.width = pc; bar.querySelector(".omw-av").style.left = pc;
-    bar.querySelector(".omw-sub").textContent = v.d == null ? "위치를 기다리는 중" : e.stale ? `${e.stale}분째 위치가 안 들어와요 · 데이터가 꺼져 있나 봐요, 예상 시간이에요` : `${fmtDist(v.d)} 남음${e.mode ? " · " + e.mode : ""}`;
+    bar.querySelector(".omw-sub").textContent = v.d == null ? "위치를 기다리는 중" : e.stale ? `${e.stale}분째 위치 없음 · 예상 시간이에요` : `${fmtDist(v.d)} 남음${e.mode ? " · " + e.mode : ""}`;
     bar.querySelector(".omw").classList.toggle("stale", !!e.stale);
     S.isl.omw = { w, min: e.min, p: e.p, mine, stale: !!e.stale }; islUpdate();
   }
@@ -4244,7 +4246,7 @@
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
         ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
-        ${row("noshowToggle", "clock", "늦음 알림", S.noshowOff ? "꺼짐 · 눌러서 켜기" : `켜짐 · 평소 도착하던 시간에 ${esc(nm(other()))}님이 안 오면 알려줘요`)}
+        ${row("noshowToggle", "clock", "늦음 알림", S.noshowOff ? "꺼짐 · 눌러서 켜기" : "켜짐 · 늘 오던 시간에 안 오면 알려줘요")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
         ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
         ${row("widgetSheet", "frame", "홈 화면·잠금 화면 위젯", "함께한 날, 거리, 마지막 메시지")}
@@ -5038,7 +5040,7 @@
         if (!S.eatOn) S.eatOn = true, $("#eatBtn") && $("#eatBtn").classList.add("on");
         await loadEats();
         map.flyTo({ center: [p.lon, p.lat], zoom: 16 });
-        toast(`${name}을(를) 추가했어요`);
+        toast(`${jo(name, "을", "를")} 추가했어요`);
         setTimeout(() => eatDetail(E.list.find((x) => x.id === r.id)), 900);
       } catch (e) { toast(e.message); }
     },
@@ -5070,7 +5072,7 @@
     },
     async eatDel() {
       const e = E.list.find((x) => x.id === S.eatCur);
-      if (!confirm(`${e.name}을(를) 지울까요?`)) return;
+      if (!confirm(`${jo(e.name, "을", "를")} 지울까요?`)) return;
       await api(`eats/${e.id}`, { method: "DELETE" });
       closeSheet(); loadEats();
     },
@@ -5452,7 +5454,7 @@
     async snSave(el) {
       const name = ($("#snName").value || "").trim(); if (!name) return toast("이름을 적어주세요");
       await api("places", { method: "POST", body: { name, lat: +el.dataset.lat, lon: +el.dataset.lon, radius: 80, owner: "both" } });
-      closeSheet(); toast(`"${name}"(으)로 저장했어요`);
+      closeSheet(); toast(`${jo(name, "으로", "로")} 저장했어요`);
       try { await loadPlaces(); } catch {}
       if (S.trail) { S.trail.data = null; renderTrailCard(); loadTrail(); }
     },
@@ -5545,7 +5547,7 @@
       const c = map.unproject([dr.left + dr.width / 2 - mr.left, dr.top + dr.height / 2 - mr.top]);
       try {
         await api("places", { method: "POST", body: { name, lat: c.lat, lon: c.lng, radius: S.pickR, owner: S.pickOwner } });
-        pickClose(); await loadPlaces(); toast(`${name}을(를) 등록했어요`);
+        pickClose(); await loadPlaces(); toast(`${jo(name, "을", "를")} 등록했어요`);
       } catch (e) { toast(e.message); }
     },
     async placeDel(el) {
@@ -5687,7 +5689,7 @@
       const c = S.ed; if (!c) return;
       const v = {};
       for (const f of c.fields) { const e = $("#ed_" + f.k); v[f.k] = f.type === "check" ? e.checked : e.value.trim(); }
-      for (const f of c.fields) if (f.req && !v[f.k]) return toast(`${f.label}을(를) 적어주세요`);
+      for (const f of c.fields) if (f.req && !v[f.k]) return toast(`${jo(f.label, "을", "를")} 적어주세요`);
       try {
         await api(c.url, { method: "POST", body: v });
         S.ed = null; toast("고쳤어요");

@@ -254,6 +254,25 @@
       morphKids(view, viewTpl.content);
     },
   });
+  // 지도 아래 카드도 통째로 갈지 않고 바뀐 곳만 고침 → 새로고침돼도 목록 스크롤·눌린 상태가 그대로
+  (() => {
+    const mc = document.getElementById("mapCard"); if (!mc) return;
+    const d = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML"), tpl = document.createElement("template");
+    let last = "", lastMode = "";
+    Object.defineProperty(mc, "innerHTML", {
+      get() { return d.get.call(mc); },
+      set(h) {
+        const mode = S.trail ? "tr" + S.trail.w : S.scratch ? "sc" : S.eatOn ? "eat" : "mc";
+        if (h === last && mode === lastMode) return;
+        const same = mode === lastMode && mc.firstElementChild && h;
+        last = h; lastMode = mode;
+        if (!same) { d.set.call(mc, h); return; }
+        const sc = [...mc.querySelectorAll(".tr-tl, .eat-list")].map((x) => x.scrollTop);
+        tpl.innerHTML = h; morphKids(mc, tpl.content);
+        mc.querySelectorAll(".tr-tl, .eat-list").forEach((x, i) => { if (sc[i] != null) x.scrollTop = sc[i]; });
+      },
+    });
+  })();
   const viewCache = {};
   async function render(keepScroll = false) {
     const y = window.scrollY;

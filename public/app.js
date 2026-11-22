@@ -2559,7 +2559,7 @@
     const o = other();
     const pick = om[o] && !om[o].done ? [o, om[o]] : om[S.who] && !om[S.who].done ? [S.who, om[S.who]] : null;
     const doneW = [o, S.who].find((w) => om[w] && om[w].done && S.omwDoneSeen !== om[w].done);
-    if (!pick && !doneW) { if (!bar.hidden && !bar.classList.contains("bye")) { bar.classList.add("bye"); setTimeout(() => { bar.hidden = true; bar.classList.remove("bye"); bar.innerHTML = ""; bar._k = ""; }, 320); } return; }
+    if (!pick && !doneW) { S.isl.omw = null; islUpdate(); if (!bar.hidden && !bar.classList.contains("bye")) { bar.classList.add("bye"); setTimeout(() => { bar.hidden = true; bar.classList.remove("bye"); bar.innerHTML = ""; bar._k = ""; }, 320); } return; }
     if (!pick && doneW) {
       S.omwDoneSeen = om[doneW].done;
       const mine = doneW === S.who;
@@ -2570,6 +2570,7 @@
         bar.querySelector(".omw-eta").innerHTML = ic("check");
         bar.querySelector(".omw-sub").textContent = mine ? "알림을 보냈어요" : "바로 옆에 왔어요";
       }
+      S.isl.omw = { w: doneW, done: true, mine }; islUpdate();
       try { haptic(30); } catch {}
       setTimeout(() => renderOmw({}), 5200);
       return;
@@ -2596,6 +2597,7 @@
     bar.querySelector(".omw-fill").style.width = pc; bar.querySelector(".omw-av").style.left = pc;
     bar.querySelector(".omw-sub").textContent = v.d == null ? "위치를 기다리는 중" : e.stale ? `${e.stale}분째 위치가 안 들어와요 · 데이터가 꺼져 있나 봐요, 예상 시간이에요` : `${fmtDist(v.d)} 남음${e.mode ? " · " + e.mode : ""}`;
     bar.querySelector(".omw").classList.toggle("stale", !!e.stale);
+    S.isl.omw = { w, min: e.min, p: e.p, mine, stale: !!e.stale }; islUpdate();
   }
   // 다른 탭에서도 가는 중이면 8초마다 갱신
   setInterval(async () => {
@@ -2619,10 +2621,51 @@
     let html = "";
     if (theirs) html = `<div class="sos-in">${ic("alert")}<span><b>${esc(nm(o))}님이 긴급 알림을 보냈어요</b><small>${hm(theirs.t)}</small></span><button data-act="sosSee">위치</button><button data-act="sosOk" data-w="${o}">확인했어요</button></div>`;
     else if (mine) html = `<div class="sos-me">${ic("alert")}<span><b>긴급 알림을 보냈어요</b><small>${hm(mine.t)} · 상대가 확인하면 사라져요</small></span><button data-act="sosOk" data-w="${S.who}">취소</button></div>`;
+    S.isl.sos = theirs ? { in: true } : mine ? { in: false } : null; islUpdate();
     if (bar._h === html) return;
     bar._h = html; bar.innerHTML = html; bar.hidden = !html;
-    if (theirs && S.sosSeen !== theirs.t) { S.sosSeen = theirs.t; try { haptic(30); } catch {} }
+    if (!html && S.islOpen === "sos") islClose();
+    // 상대가 처음 보낸 긴급 알림은 한 번 펼쳐서 보여줌 (밖을 누르면 접힘, 위 알약은 남음)
+    if (theirs && S.sosSeen !== theirs.t) { S.sosSeen = theirs.t; try { haptic(30); } catch {} islOpen("sos"); }
   }
+  // ---------- 상단 알약(아일랜드): 가는 중·긴급을 작게 띄우고, 누르면 펼침 → 화면을 가리지 않음 ----------
+  S.isl = {};
+  function islUpdate() {
+    const o = S.isl.omw, g = S.isl.sos;
+    let h = "";
+    if (g) h += `<button class="isl-p sos-p${g.in ? " in" : ""}" data-act="islToggle" data-k="sos" aria-label="긴급 알림 보기">${ic("alert")}<b>${g.in ? "긴급" : "긴급 보냄"}</b></button>`;
+    if (o) h += o.done
+      ? `<button class="isl-p omw-p done" data-act="islToggle" data-k="omw">${ic("check")}<b>${o.mine ? "도착" : esc(nm(o.w)) + " 도착"}</b></button>`
+      : `<button class="isl-p omw-p${o.stale ? " stale" : ""}" data-act="islToggle" data-k="omw" style="--c:${o.w === "a" ? "#E5406A" : "#5C6BF0"}" aria-label="가는 중 보기">${av(o.w)}<span class="isl-trk"><i style="width:${(o.p * 100).toFixed(0)}%"></i></span><b>${o.min}분</b></button>`;
+    for (const id of ["isl", "islChat"]) {
+      const el = document.getElementById(id); if (!el) continue;
+      if (el._h === h) continue;
+      const t = document.createElement("template"); t.innerHTML = h;
+      if (el.children.length && t.content.children.length) { S.quiet = true; try { morphKids(el, t.content); } finally { S.quiet = false; } } else el.innerHTML = h;
+      el._h = h;
+    }
+    const tb = $(".topbar"); if (tb) tb.classList.toggle("has-isl", !!h);
+    document.body.classList.toggle("isl-chat-on", !!h);
+    if (!o && S.islOpen === "omw") islClose();
+  }
+  function islOpen(k) {
+    islClose(true);
+    const el = k === "omw" ? $("#omwBar") : $("#sosBar"); if (!el || el.hidden && !el.innerHTML) return;
+    S.islOpen = k; el.classList.add("open");
+    clearTimeout(S.islTm);
+    if (k === "omw") S.islTm = setTimeout(() => { if (S.islOpen === "omw") islClose(); }, 6000);
+  }
+  function islClose(quick) {
+    clearTimeout(S.islTm);
+    for (const el of [$("#omwBar"), $("#sosBar")]) if (el) el.classList.remove("open");
+    S.islOpen = null;
+  }
+  // 펼친 카드 밖을 누르면 접힘
+  document.addEventListener("pointerdown", (e) => {
+    if (!S.islOpen) return;
+    if (e.target.closest("#omwBar, #sosBar, .isl-p")) return;
+    islClose();
+  }, true);
   (() => {
     const b = document.getElementById("sosBtn"); if (!b) return;
     let tm = null, t0 = 0;
@@ -3169,26 +3212,27 @@
         <div class="wt-live" id="wtWave"></div>
       </div>`);
     const btn = $("#wtBtn"), lbl = (t) => { const l = $("#wtLbl"); if (l) l.textContent = t; };
-    // 시트를 열자마자 마이크를 미리 켜 둠 → 누르는 순간 바로 녹음 (권한 묻는 창 때문에 첫 누름이 씹히지 않게)
+    // 아이폰 사파리는 오래 켜 둔 마이크 스트림을 재사용하면 빈 녹음이 나오는 경우가 있어서,
+    // 채팅 음성 메시지와 똑같이 누를 때마다 새로 마이크를 열고, 끝나면 닫음
     const warm = async () => {
-      if (WT.stream && WT.stream.active) return true;
       if (!navigator.mediaDevices || !window.MediaRecorder) { lbl("이 브라우저는 녹음을 못 해요"); return false; }
       try { WT.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); return true; }
       catch { lbl("마이크 권한을 허용해주세요"); return false; }
     };
-    warm();
     let down = false, tDown = 0, toggle = false;
     const begin = () => {
       const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
-      try { WT.rec = new MediaRecorder(WT.stream, mime ? { mimeType: mime, audioBitsPerSecond: 40000 } : undefined); } catch { WT.rec = new MediaRecorder(WT.stream); }
+      try { WT.rec = new MediaRecorder(WT.stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined); } catch { WT.rec = new MediaRecorder(WT.stream); }
       WT.chunks = []; WT.wave = []; WT.t0 = Date.now();
-      WT.rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) WT.chunks.push(ev.data); };
-      WT.rec.start(200);
-      try { if (!WT.ctx) WT.ctx = new (window.AudioContext || window.webkitAudioContext)(); WT.ctx.resume && WT.ctx.resume(); const src = WT.ctx.createMediaStreamSource(WT.stream); WT.an = WT.ctx.createAnalyser(); WT.an.fftSize = 256; src.connect(WT.an); } catch { WT.an = null; }
-      btn.classList.add("on"); lbl("말하는 중 · 떼면 보내요"); try { haptic(14); } catch {}
+      const rec = WT.rec, chunks = WT.chunks;
+      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+      rec.start(250);
+      // 파형용 소리 장치는 따로 (재생용과 섞으면 아이폰에서 녹음이 비는 경우가 있음)
+      try { WT.actx = new (window.AudioContext || window.webkitAudioContext)(); const src = WT.actx.createMediaStreamSource(WT.stream); WT.an = WT.actx.createAnalyser(); WT.an.fftSize = 256; src.connect(WT.an); } catch { WT.an = null; }
+      btn.classList.add("on"); lbl("말하세요 · 떼면 보내요"); try { haptic(14); } catch {}
       const arr = new Uint8Array(128); let last = 0;
       const tick = () => {
-        if (!WT.rec) return;
+        if (WT.rec !== rec) return;
         if (WT.an && Date.now() - last > 90) {
           last = Date.now(); WT.an.getByteTimeDomainData(arr); let pk = 0; for (const v of arr) pk = Math.max(pk, Math.abs(v - 128) / 128);
           const lv = Math.min(1, pk * 2.4); WT.wave.push(lv); btn.style.setProperty("--lv", lv.toFixed(2));
@@ -3204,10 +3248,11 @@
       wtUnlock();
       if (toggle && WT.rec) { toggle = false; return stop(); }      // 한 번 눌러 시작한 경우: 다시 누르면 보냄
       if (WT.rec) return;
-      down = true; tDown = Date.now(); btn.classList.add("press");
+      down = true; tDown = Date.now(); btn.classList.add("press"); lbl("준비 중");
       if (!(await warm())) { btn.classList.remove("press"); return; }
-      if (!down) { btn.classList.remove("press"); lbl("꾹 누르고 말하기"); return; }
+      // 마이크 여는 사이 손을 뗐으면: 짧은 탭으로 보고 "다시 누르면 보내기" 모드로 시작
       begin();
+      if (!down) { toggle = true; lbl("말하세요 · 다시 누르면 보내요"); }
     };
     const release = (e) => {
       if (e) e.preventDefault();
@@ -3223,9 +3268,12 @@
       WT.rec = null; cancelAnimationFrame(WT.raf); toggle = false;
       btn.classList.remove("on"); btn.style.removeProperty("--lv");
       const dur = (Date.now() - WT.t0) / 1000;
+      const chunks = WT.chunks, stream = WT.stream, actx = WT.actx;
       rec.onstop = async () => {
+        try { stream && stream.getTracks().forEach((t) => t.stop()); } catch {}
+        try { actx && actx.close(); } catch {}
         if (dur < 0.6) { lbl("꾹 누르고 말하기"); return toast("조금 더 길게 말해주세요"); }
-        const blob = new Blob(WT.chunks, { type: rec.mimeType || "audio/mp4" });
+        const blob = new Blob(chunks, { type: rec.mimeType || "audio/mp4" });
         if (!blob.size) { lbl("꾹 누르고 말하기"); return toast("녹음이 안 됐어요. 다시 해주세요"); }
         const w = WT.wave, n = 36, wave = Array.from({ length: n }, (_, i) => { const a = Math.floor((i / n) * w.length), b = Math.max(a + 1, Math.floor(((i + 1) / n) * w.length)); return w.length ? Math.round(Math.max(...w.slice(a, b)) * 100) / 100 : 0.3; });
         lbl("보내는 중");
@@ -3234,7 +3282,6 @@
         catch (er) { lbl("꾹 누르고 말하기"); return toast(er.status ? er.message : "데이터가 꺼져 있어서 못 보냈어요"); }
         setTimeout(() => { if (!WT.rec) lbl("꾹 누르고 말하기"); }, 1200);
       };
-      try { rec.requestData && rec.requestData(); } catch {}
       try { rec.stop(); } catch {}
     };
     // 아이폰에선 터치 이벤트로 (손가락이 살짝 움직여도 안 끊기게), 컴퓨터에선 마우스
@@ -5292,7 +5339,8 @@
       try { await api("omw", { method: "POST", body: b }); closeSheet(); try { haptic(20); } catch {} refreshLoc(); } catch (e) { toast(e.message); }
     },
     async omwCancel(el, ev) { if (ev) ev.stopPropagation(); try { await api("omw", { method: "DELETE" }); } catch {} S.omwDoneSeen = null; renderOmw({}); toast("가는 중 알림을 껐어요"); },
-    omwTap(el, ev) { if (ev && ev.target.closest(".omw-x")) return; if (S.tab !== "map") setTab("map"); setTimeout(() => { try { fitMap(); } catch {} }, 350); },
+    islToggle(el) { const k = el.dataset.k; if (S.islOpen === k) islClose(); else islOpen(k); },
+    omwTap(el, ev) { if (ev && ev.target.closest(".omw-x")) return; islClose(); if (S.tab !== "map") setTab("map"); setTimeout(() => { try { fitMap(); } catch {} }, 350); },
     qzOpen() { qzOpen(); },
     qzPick(el) { return qzPick(el); },
     scratchOpen() { if (S.eatOn) setEatOn(false); if (S.trail) ACT.trailClose(); $("#mapCard").classList.remove("mc-min"); S.scratch = { f: "all" }; renderMapCard(); drawMap(); scratchLoad(); },
@@ -5608,7 +5656,7 @@
     satToggle: () => setSat(!S.sat),
     trailOpen() { $("#mapCard").classList.remove("mc-min"); if (S.eatOn) setEatOn(false); S.trail = { w: other(), day: 0 }; renderMapCard(); drawMap(); loadTrail(); },
     async sosOk(el) { try { await api(`sos?w=${el.dataset.w}`, { method: "DELETE" }); } catch {} refreshLoc(); },
-    sosSee() { setTab("map"); setTimeout(() => { const l = S.locs && S.locs[other()]; if (l && map) map.flyTo({ center: [l.lon, l.lat], zoom: 16.5 }); }, 400); },
+    sosSee() { islClose(); setTab("map"); setTimeout(() => { const l = S.locs && S.locs[other()]; if (l && map) map.flyTo({ center: [l.lon, l.lat], zoom: 16.5 }); }, 400); },
     trailDate(el) { const v = el.value; if (!v) return; const n = Math.round((Date.parse(today()) - Date.parse(v)) / 864e5); if (n < 0 || n > 29) return toast("최근 30일만 볼 수 있어요"); S.trail = { ...S.trail, day: n, data: null }; renderTrailCard(); loadTrail(); },
     trailFly(el) { map.flyTo({ center: [+el.dataset.lon, +el.dataset.lat], zoom: 16.5 }); },
     trailClose() { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); drawMap(); fitMap(); },

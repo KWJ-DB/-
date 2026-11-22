@@ -1154,9 +1154,9 @@
       map.addLayer({ id: "places-line", type: "line", source: "places", paint: { "line-color": "#B65FE0", "line-width": 2, "line-opacity": 0.6, "line-dasharray": [2, 1.5] } }, "link");
       map.addSource("trail", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({ id: "trail", type: "line", source: "trail", layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": ["get", "c"], "line-width": 5, "line-opacity": 0.85 } });
+        paint: { "line-color": ["get", "c"], "line-width": ["case", ["==", ["get", "dash"], 1], 3, 5], "line-opacity": ["case", ["==", ["get", "dash"], 1], 0.45, 0.9] } });
       map.addLayer({ id: "trail-dot", type: "circle", source: "trail", filter: ["==", "$type", "Point"],
-        paint: { "circle-radius": ["coalesce", ["get", "r"], 5], "circle-color": "#fff", "circle-stroke-width": 3, "circle-stroke-color": ["get", "c"] } });
+        paint: { "circle-radius": ["coalesce", ["get", "r"], 5], "circle-color": ["get", "c"], "circle-stroke-width": 3, "circle-stroke-color": "#fff" } });
       mapLoaded = true;
       // 멀리서 보면 가게 이름표는 숨기고 핀만 (겹침 방지)
       const zoomCls = () => { const w = $("#mapWrap"); if (w) w.classList.toggle("zoom-far", map.getZoom() < 14); };
@@ -1193,7 +1193,7 @@
     if (mapLoaded) {
       map.getSource("link").setData({
         type: "FeatureCollection",
-        features: pts.length === 2 ? [{ type: "Feature", geometry: { type: "LineString", coordinates: pts } }] : [],
+        features: pts.length === 2 && !S.trail ? [{ type: "Feature", geometry: { type: "LineString", coordinates: pts } }] : [],
       });
     }
     if (pts.length > fitted) { fitMap(); fitted = pts.length; }
@@ -2219,11 +2219,48 @@
       const cl = cleanTrail(r.points);
       t.clean = cl; t.dist = cl.dist;
       const coords = cl.path.map((p) => [p.lon, p.lat]);
-      const feats = [];
-      if (coords.length > 1) feats.push({ type: "Feature", properties: { c }, geometry: { type: "LineString", coordinates: coords } });
-      if (coords.length) { feats.push({ type: "Feature", properties: { c, r: 5 }, geometry: { type: "Point", coordinates: coords[0] } }); feats.push({ type: "Feature", properties: { c, r: 5 }, geometry: { type: "Point", coordinates: coords[coords.length - 1] } }); }
-      for (const st of cl.stays) feats.push({ type: "Feature", properties: { c, r: 9 }, geometry: { type: "Point", coordinates: [st.lon, st.lat] } });
-      if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: feats });
+      // 이동 구간 나누기: 머문 곳 사이, 또는 기록이 20분 넘게 끊긴 곳에서 끊음
+      const segs = []; let cur = [];
+      cl.path.forEach((p, k) => {
+        const prev = cl.path[k - 1];
+        const gap = prev && (p.stay ? p.t0 : p.t) - (prev.stay ? prev.t1 : prev.t) > 20 * 60000 && distM(prev, p) > 300;
+        if (gap && cur.length) { segs.push({ pts: cur, gapAfter: true }); cur = [prev]; }
+        cur.push(p);
+        if (p.stay && cur.length > 1) { segs.push({ pts: cur }); cur = [p]; }
+        else if (p.stay) cur = [p];
+      });
+      if (cur.length > 1) segs.push({ pts: cur });
+      t.segs = segs;
+      const draw = () => {
+        if (!S.trail || S.trail !== t || !mapLoaded) return;
+        const feats = [];
+        for (const sg of segs) {
+          const line = sg.road || sg.pts.map((p) => [p.lon, p.lat]);
+          if (line.length > 1) feats.push({ type: "Feature", properties: { c, dash: sg.road ? 0 : 1 }, geometry: { type: "LineString", coordinates: line } });
+        }
+        // 머문 곳만 점으로
+        cl.stays.forEach((st, k) => feats.push({ type: "Feature", properties: { c, r: 11, n: String(k + 1) }, geometry: { type: "Point", coordinates: [st.lon, st.lat] } }));
+        if (!cl.stays.length && coords.length) feats.push({ type: "Feature", properties: { c, r: 6 }, geometry: { type: "Point", coordinates: coords[coords.length - 1] } });
+        map.getSource("trail").setData({ type: "FeatureCollection", features: feats });
+      };
+      draw();
+      // 실제 길 따라 그리기 (빠르기에 따라 걷기·자전거·차)
+      (async () => {
+        for (const sg of segs) {
+          const P = sg.pts; if (P.length < 2) continue;
+          const t0 = P[0].stay ? P[0].t1 : P[0].t, t1 = P[P.length - 1].stay ? P[P.length - 1].t0 : P[P.length - 1].t;
+          let len = 0; for (let k = 1; k < P.length; k++) len += distM(P[k - 1], P[k]);
+          if (len < 60) continue;
+          const kmh = len / 1000 / Math.max(1 / 60, (t1 - t0) / 3600000);
+          const mode = kmh > 22 ? "auto" : kmh > 9 ? "bicycle" : "pedestrian";
+          sg.mode = mode; sg.len = len; sg.dur = t1 - t0;
+          let pts = P.map((p) => [+p.lon.toFixed(6), +p.lat.toFixed(6), p.stay ? p.t1 : p.t]);
+          if (pts.length > 300) { const st = pts.length / 300; pts = Array.from({ length: 300 }, (_, i) => pts[Math.floor(i * st)]).concat([pts[pts.length - 1]]); }
+          try { const rr = await api("routematch", { method: "POST", body: { pts, mode } }); if (rr.coords && rr.coords.length > 1) { sg.road = rr.coords; draw(); } } catch {}
+          if (!S.trail || S.trail !== t) return;
+        }
+        if (S.trail === t) renderTrailCard();
+      })();
       if (coords.length > 1) {
         const xs = coords.map((p) => p[0]), ys = coords.map((p) => p[1]);
         map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 120, bottom: 360, left: 50, right: 50 }, maxZoom: 16 });
@@ -2236,26 +2273,32 @@
     const chip = (act, val, cur, label) => `<button class="chip${val === cur ? " on" : ""}" data-act="${act}" data-v="${val}">${label}</button>`;
     let body = `<div class="spin" style="margin:18px auto"></div>`;
     if (r) {
+      // 머문 곳은 번호 카드, 그 사이 이동은 작은 한 줄
       const tl = [];
       const cl = t.clean || { stays: [] };
-      if (r.points.length) tl.push({ t: r.points[0].t, txt: "기록 시작" });
-      // 머문 동안 같은 장소에서 생긴 도착/떠남은 GPS 흔들림이라 숨김, 머문 곳은 도착~떠남으로 한 줄
       const names = cl.stays.map((st) => stayName(st));
-      r.events.forEach((e) => {
-        const dup = cl.stays.some((st, k) => names[k] === e.place && e.t >= st.t0 - 15 * 60000 && e.t <= st.t1 + 15 * 60000);
-        if (!dup) tl.push({ t: e.t, txt: `${e.place} ${e.inside ? "도착" : "떠남"}`, ev: e.inside ? "in" : "out" });
-      });
       const lastT = r.points.length ? r.points[r.points.length - 1].t : 0;
       cl.stays.forEach((st, k) => {
         const now = t.day === 0 && lastT - st.t1 < 10 * 60000;
-        tl.push({ t: st.t0, txt: `${names[k] || "한곳"}에 ${durTxt(st.t1 - st.t0)} ${now ? "있는 중" : "머묾"}`, sub: now ? `${hm(st.t0)}부터` : `${hm(st.t0)}~${hm(st.t1)}`, ev: "stay", lat: st.lat, lon: st.lon });
+        tl.push({ t: st.t0, k: k + 1, name: names[k] || "이름 없는 곳", time: now ? `${hm(st.t0)}부터` : `${hm(st.t0)} – ${hm(st.t1)}`, dur: durTxt(st.t1 - st.t0), now, ev: "stay", lat: st.lat, lon: st.lon });
       });
-      if (r.points.length > 1) tl.push({ t: r.points[r.points.length - 1].t, txt: t.day === 0 ? "마지막 위치" : "기록 끝" });
+      const MODE = { pedestrian: ["i-walk", "걸어서"], bicycle: ["i-bike", "자전거로"], auto: ["i-car", "차로"] };
+      let moved = 0;
+      (t.segs || []).forEach((sg) => {
+        if (!sg.len) return;
+        moved += sg.len;
+        const a = sg.pts[0], b = sg.pts[sg.pts.length - 1], md = MODE[sg.mode] || MODE.pedestrian;
+        tl.push({ t: (a.stay ? a.t1 : a.t) + 1, ev: "move", ic: md[0], txt: `${md[1]} ${durTxt(Math.max(60000, sg.dur || 0))}`, dist: fmtDist(sg.len), lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 });
+      });
       tl.sort((x, y) => x.t - y.t);
+      const row = (x) => x.ev === "stay"
+        ? `<button class="tr-st${x.now ? " now" : ""}" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><em style="--c:${t.w === "a" ? "#E5406A" : "#5C6BF0"}">${x.k}</em><span><b>${esc(x.name)}</b><small>${x.time}</small></span><i>${x.now ? "있는 중" : x.dur}</i></button>`
+        : `<button class="tr-mv" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><svg><use href="#${x.ic}"/></svg><span>${x.txt}</span><small>${x.dist}</small></button>`;
       body = r.points.length
-        ? `<div class="tr-sum"><b>${fmtDist(t.dist)}</b><span>움직인 거리</span></div>
-           <div class="tr-tl">${tl.map((x) => x.lat ? `<button class="tr-i ${x.ev || ""}" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}${x.sub ? `<small>${x.sub}</small>` : ""}</b></button>` : `<div class="tr-i ${x.ev || ""}"><i></i><span>${hm(x.t)}</span><b>${esc(x.txt)}</b></div>`).join("")}</div>`
+        ? `<div class="tr-sum"><b>${fmtDist(moved || t.dist)}</b><span>이동 · 머문 곳 ${cl.stays.length}곳</span></div>
+           <div class="tr-tl">${tl.map(row).join("")}</div>`
         : `<div class="empty" style="padding:18px 0">이날 기록이 없어요<br><small>사이트나 OwnTracks가 켜져 있을 때 기록돼요</small></div>`;
+      if (r.points.length && !tl.length) body = body.replace('<div class="tr-tl"></div>', `<div class="empty" style="padding:12px 0">한곳에 오래 머문 기록이 없어요</div>`);
     }
     $("#mapCard").innerHTML = `
       <div class="tr">
@@ -5062,9 +5105,9 @@
     },
     fitMap,
     satToggle: () => setSat(!S.sat),
-    trailOpen() { $("#mapCard").classList.remove("mc-min"); if (S.eatOn) setEatOn(false); S.trail = { w: other(), day: 0 }; renderMapCard(); loadTrail(); },
+    trailOpen() { $("#mapCard").classList.remove("mc-min"); if (S.eatOn) setEatOn(false); S.trail = { w: other(), day: 0 }; renderMapCard(); drawMap(); loadTrail(); },
     trailFly(el) { map.flyTo({ center: [+el.dataset.lon, +el.dataset.lat], zoom: 16.5 }); },
-    trailClose() { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); fitMap(); },
+    trailClose() { S.trail = null; if (mapLoaded) map.getSource("trail").setData({ type: "FeatureCollection", features: [] }); renderMapCard(); drawMap(); fitMap(); },
     trailWho(el) { S.trail = { ...S.trail, w: el.dataset.v, data: null }; renderTrailCard(); loadTrail(); },
     trailDay(el) { S.trail = { ...S.trail, day: Number(el.dataset.v), data: null }; renderTrailCard(); loadTrail(); },
     async navTo() {

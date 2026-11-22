@@ -128,6 +128,10 @@ export async function ensureSchema(env) {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS sched_msgs (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, body TEXT NOT NULL, at INTEGER NOT NULL, t INTEGER)").run();
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '13') ON CONFLICT(k) DO UPDATE SET v = '13'").run();
   }
+  if (!v || Number(v.v) < 14) {
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS route_cache (k TEXT PRIMARY KEY, v TEXT, t INTEGER)").run();
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '14') ON CONFLICT(k) DO UPDATE SET v = '14'").run();
+  }
   ready = true;
 }
 

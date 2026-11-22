@@ -107,9 +107,9 @@
             for (const r of rings) {
               l.shapes.push(new kakao.maps.Polyline({
                 map: this.k, path: r.map((c) => ll(c)),
-                strokeWeight: p["line-width"] || 3, strokeColor: colorOf(p["line-color"], f),
-                strokeOpacity: p["line-opacity"] != null ? p["line-opacity"] : 0.9,
-                strokeStyle: p["line-dasharray"] ? (p["line-dasharray"][0] < 0.5 ? "shortdot" : "dash") : "solid",
+                strokeWeight: (f.properties && f.properties.dash ? 3 : typeof p["line-width"] === "number" ? p["line-width"] : 3), strokeColor: colorOf(p["line-color"], f),
+                strokeOpacity: f.properties && f.properties.dash ? 0.45 : typeof p["line-opacity"] === "number" ? p["line-opacity"] : 0.9,
+                strokeStyle: f.properties && f.properties.dash ? "shortdash" : p["line-dasharray"] ? (p["line-dasharray"][0] < 0.5 ? "shortdot" : "dash") : "solid",
               }));
             }
           } else if (l.type === "fill" && g.type === "Polygon") {

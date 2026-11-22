@@ -2136,3 +2136,26 @@ body.typing #chatWrap { will-change: height, transform; }
 
 .dm-retry { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; background: #FFE8EC; color: #E0344F; font-size: 12px; font-weight: 700; }
 .dm-retry svg.i { width: 12px; height: 12px; }
+
+/* 이동 기록: 머문 곳 위주, 이동은 작게 */
+.tr-i.move { opacity: .8; }
+.tr-i.move b { font-size: 13.5px; font-weight: 600; color: var(--sub, #8a7f88); }
+.tr-i.move i { width: 8px !important; height: 8px !important; background: #D9D0D6 !important; border: 0 !important; }
+
+/* 이동 기록 v2: 머문 곳 카드 + 이동 한 줄 */
+.tr-sum span { font-size: 12.5px; }
+.tr-tl { display: flex; flex-direction: column; gap: 0; padding: 2px 0 4px; }
+.tr-st, .tr-mv { all: unset; box-sizing: border-box; display: flex; align-items: center; width: 100%; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.tr-st { gap: 12px; padding: 10px 12px; border-radius: 16px; background: #F7F5F8; transition: transform .18s cubic-bezier(.3,.7,.4,1), background .2s; }
+.tr-st:active { transform: scale(.98); background: #F0ECF1; }
+.tr-st em { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--c); color: #fff; font: 700 12.5px/1 inherit; font-style: normal; box-shadow: 0 0 0 3px #fff; }
+.tr-st span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tr-st b { font-size: 15px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-st small { font-size: 12px; color: var(--sub); font-variant-numeric: tabular-nums; }
+.tr-st > i { flex: none; font-style: normal; font-size: 12px; font-weight: 600; color: var(--ink); background: #fff; padding: 5px 9px; border-radius: 99px; }
+.tr-st.now > i { color: #fff; background: var(--rose); }
+.tr-mv { gap: 8px; padding: 9px 0 9px 22px; margin-left: 12px; border-left: 2px dotted #D6D0D8; color: var(--sub); font-size: 12.5px; }
+.tr-mv svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.tr-mv span { font-weight: 600; }
+.tr-mv small { margin-left: auto; padding-right: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.tr-mv:active { color: var(--ink); }

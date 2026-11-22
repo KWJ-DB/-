@@ -827,6 +827,41 @@ export async function onRequest({ request, env, params, waitUntil }) {
         await setSettings(env, { ig_token: tok, ig_uid: String(d.user_id), ig_name: d.username || "", ig_who: who, ig_ref: Date.now() });
         return json({ ok: true, user: d.username || "" });
       }
+      // 이동 경로를 실제 길에 맞추기 (Valhalla 지도 맞춤, 결과는 저장해두고 재사용)
+      case "POST routematch": {
+        const b = await body(request);
+        const pts = (Array.isArray(b.pts) ? b.pts : []).filter((x) => Array.isArray(x) && Number.isFinite(+x[0]) && Number.isFinite(+x[1])).slice(0, 400);
+        if (pts.length < 2) return json({ coords: null });
+        const mode = ["pedestrian", "bicycle", "auto"].includes(b.mode) ? b.mode : "pedestrian";
+        const raw = mode + ":" + pts.map((x) => `${(+x[0]).toFixed(5)},${(+x[1]).toFixed(5)}`).join(";");
+        const hb = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)));
+        const k = [...hb.slice(0, 16)].map((x) => x.toString(16).padStart(2, "0")).join("");
+        const hit = await DB.prepare("SELECT v FROM route_cache WHERE k = ?1").bind(k).first();
+        if (hit) { try { return json({ coords: JSON.parse(hit.v), cached: true }); } catch {} }
+        const req = {
+          shape: pts.map((x) => ({ lon: +x[0], lat: +x[1], ...(x[2] ? { time: Math.floor(+x[2] / 1000) } : {}) })),
+          costing: mode, shape_match: "map_snap",
+          trace_options: { search_radius: 45, gps_accuracy: 25, breakage_distance: 2500, turn_penalty_factor: 200 },
+          directions_options: { units: "kilometers", directions_type: "none" },
+        };
+        let coords = null;
+        try {
+          const r = await fetch("https://valhalla1.openstreetmap.de/trace_route", { method: "POST", headers: { "content-type": "application/json", "user-agent": "wooju-couple-app/1.0" }, body: JSON.stringify(req) });
+          const d = await r.json();
+          const legs = (d.trip && d.trip.legs) || [];
+          if (legs.length) {
+            coords = [];
+            for (const lg of legs) coords.push(...decodePoly6(lg.shape));
+          }
+        } catch {}
+        if (coords && coords.length > 1) {
+          const ok = coords.map((c) => [Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6]);
+          await DB.prepare("INSERT INTO route_cache (k, v, t) VALUES (?1, ?2, ?3) ON CONFLICT(k) DO UPDATE SET v = ?2, t = ?3").bind(k, JSON.stringify(ok), Date.now()).run();
+          if (Math.random() < 0.02) await DB.prepare("DELETE FROM route_cache WHERE t < ?1").bind(Date.now() - 30 * 864e5).run();
+          return json({ coords: ok });
+        }
+        return json({ coords: null });
+      }
       case "GET sckey": {
         let k = st["sc_" + who];
         if (!k || q("new")) { k = randHex(16); await setSettings(env, { ["sc_" + who]: k }); }
@@ -1796,4 +1831,19 @@ async function linkPreview(u) {
     if (!title && !img) return null;
     return { url: u, title: title.slice(0, 120), desc: desc.slice(0, 200), img: /^https:/i.test(img) ? img.slice(0, 500) : "", site: site.slice(0, 60) };
   } catch { return null; }
+}
+
+// Valhalla 경로 문자열(정밀도 6) → [[lon, lat], ...]
+function decodePoly6(str) {
+  const out = []; let i = 0, lat = 0, lon = 0;
+  while (i < str.length) {
+    let b, sh = 0, r = 0;
+    do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32);
+    lat += r & 1 ? ~(r >> 1) : r >> 1;
+    sh = 0; r = 0;
+    do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32);
+    lon += r & 1 ? ~(r >> 1) : r >> 1;
+    out.push([lon / 1e6, lat / 1e6]);
+  }
+  return out;
 }

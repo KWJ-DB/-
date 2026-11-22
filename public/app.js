@@ -2559,48 +2559,89 @@
   function renderOmw(om) {
     const bar = $("#omwBar"); if (!bar) return;
     om = om || {}; S.omw = om;
-    const o = other();
-    const pick = om[o] && !om[o].done ? [o, om[o]] : om[S.who] && !om[S.who].done ? [S.who, om[S.who]] : null;
-    const doneW = [o, S.who].find((w) => om[w] && om[w].done && S.omwDoneSeen !== om[w].done);
-    if (!pick && !doneW) { S.isl.omw = null; islUpdate(); if (!bar.hidden && !bar.classList.contains("bye")) { bar.classList.add("bye"); setTimeout(() => { bar.hidden = true; bar.classList.remove("bye"); bar.innerHTML = ""; bar._k = ""; }, 320); } return; }
-    if (!pick && doneW) {
+    const o = other(), me = S.who;
+    const act = [o, me].filter((w) => om[w] && !om[w].done);
+    const doneW = [o, me].find((w) => om[w] && om[w].done && S.omwDoneSeen !== om[w].done);
+    const col = (w) => (w === "a" ? "#E5406A" : "#5C6BF0");
+    // 둘 다 서로에게 가는 중이면 한 줄 위에서 양쪽 끝에서 마주 보고 다가오는 모양
+    const meet = act.length === 2 && om[o].kind === "partner" && om[me].kind === "partner";
+    if (!act.length && !doneW) {
+      S.isl.omw = null; islUpdate();
+      if (!bar.hidden && !bar.classList.contains("bye")) { bar.classList.add("bye"); setTimeout(() => { bar.hidden = true; bar.classList.remove("bye"); bar.innerHTML = ""; bar._k = ""; }, 320); }
+      return;
+    }
+    if (!act.length && doneW) {
       S.omwDoneSeen = om[doneW].done;
-      const mine = doneW === S.who;
+      const mine = doneW === me;
       if (bar._k) {
-        bar.querySelector(".omw").classList.add("done");
-        bar.querySelector(".omw-fill").style.width = "100%"; bar.querySelector(".omw-av").style.left = "100%";
-        bar.querySelector(".omw-title").textContent = mine ? "도착했어요" : `${nm(doneW)}님 도착`;
+        const c = bar.querySelector(".omw"); c.classList.add("done");
+        bar.querySelectorAll(".omw-fill").forEach((x) => (x.style.width = x.classList.contains("r") ? "50%" : bar._meet ? "50%" : "100%"));
+        bar.querySelectorAll(".omw-av").forEach((x) => (x.style.left = x.classList.contains("r") ? "50%" : bar._meet ? "50%" : "100%"));
+        bar.querySelector(".omw-title").textContent = bar._meet ? "만났어요" : mine ? "도착했어요" : `${nm(doneW)}님 도착`;
         bar.querySelector(".omw-eta").innerHTML = ic("check");
-        bar.querySelector(".omw-sub").textContent = mine ? "알림을 보냈어요" : "바로 옆에 왔어요";
+        bar.querySelector(".omw-sub").textContent = bar._meet ? "둘 다 알림을 받았어요" : mine ? "알림을 보냈어요" : "바로 옆에 왔어요";
       }
-      S.isl.omw = { w: doneW, done: true, mine }; islUpdate();
+      S.isl.omw = { list: [{ w: doneW, done: true, mine, meet: bar._meet }] }; islUpdate();
       try { haptic(30); } catch {}
       setTimeout(() => renderOmw({}), 5200);
       return;
     }
-    const [w, v] = pick, mine = w === S.who, l = S.locs[w];
-    const e = v.d != null ? omwEta(v, l) : { min: "-", p: 0.03, mode: "" };
-    const key = w + v.t0;
-    if (bar._k !== key) {
-      bar._k = key; bar.hidden = false; bar.classList.remove("bye");
-      const destAv = v.kind === "partner" ? av(mine ? o : S.who) : `<span class="omw-pin">${ic("pin")}</span>`;
-      bar.innerHTML = `<div class="omw ${mine ? "mine" : ""}" data-act="omwTap" style="--c:${w === "a" ? "#E5406A" : "#5C6BF0"}">
-        <div class="omw-top"><b class="omw-title">${mine ? `${v.kind === "partner" ? esc(nm(o)) + "님에게" : esc(v.name) + "에"} 가는 중` : `${esc(nm(w))}님이 ${v.kind === "partner" ? "오는 중" : esc(v.name) + "에 가는 중"}`}</b>
-          <span class="omw-eta"><span class="omw-n"><em>${e.min}</em></span>분</span>${mine ? `<button class="omw-x" data-act="omwCancel" aria-label="그만하기">${ic("x")}</button>` : ""}</div>
-        <div class="omw-track"><i class="omw-fill"></i><span class="omw-av">${av(w)}</span><span class="omw-dest">${destAv}</span></div>
-        <div class="omw-sub"></div></div>`;
-      void bar.offsetWidth;
+    const info = {};
+    for (const w of act) { const v = om[w]; info[w] = v.d != null ? omwEta(v, S.locs[w]) : { min: "-", p: 0.03, mode: "" }; }
+    let key, pills;
+    if (meet) {
+      // 서로 다가오면 만나는 시간은 거리 ÷ (둘 속도 합) → 각자 예상 분의 조화 평균
+      const a = info[me], b = info[o];
+      const min = a.min === "-" || b.min === "-" ? "-" : Math.max(1, Math.round((a.min * b.min) / (a.min + b.min)));
+      const d0 = Math.max(om[me].d0, om[o].d0), d = om[me].d != null ? om[me].d : om[o].d;
+      const p = d != null ? Math.max(0.03, Math.min(0.97, 1 - d / d0)) : 0.03;
+      key = "meet" + om[me].t0 + om[o].t0;
+      if (bar._k !== key) {
+        bar._k = key; bar._meet = true; bar.hidden = false; bar.classList.remove("bye");
+        bar.innerHTML = `<div class="omw meet" data-act="omwTap">
+          <div class="omw-top"><b class="omw-title">서로에게 가는 중</b><span class="omw-eta"><span class="omw-n"><em>${min}</em></span>분 뒤 만나요</span><button class="omw-x" data-act="omwCancel" aria-label="내 가는 중 끄기">${ic("x")}</button></div>
+          <div class="omw-track meet"><i class="omw-fill" style="--c:${col(me)}"></i><i class="omw-fill r" style="--c:${col(o)}"></i><span class="omw-av" style="--c:${col(me)}">${av(me)}</span><span class="omw-av r" style="--c:${col(o)}">${av(o)}</span><span class="omw-meet">${ic("heart")}</span></div>
+          <div class="omw-sub"></div></div>`;
+        void bar.offsetWidth;
+      }
+      const half = (p * 50).toFixed(1) + "%";
+      bar.querySelectorAll(".omw-fill").forEach((x) => (x.style.width = half));
+      bar.querySelector(".omw-av:not(.r)").style.left = half;
+      bar.querySelector(".omw-av.r").style.left = (100 - p * 50).toFixed(1) + "%";
+      omwNum(bar, min);
+      const stale = a.stale || b.stale;
+      bar.querySelector(".omw-sub").textContent = d == null ? "위치를 기다리는 중" : stale ? `${stale}분째 위치 없음 · 예상 시간이에요` : `${fmtDist(d)} 떨어져 있어요`;
+      bar.querySelector(".omw").classList.toggle("stale", !!stale);
+      pills = [{ meet: true, min, p, mine: true, stale: !!stale }];
+    } else {
+      // 한 사람만이거나 각자 다른 곳으로 가면: 고른 사람(기본은 상대) 카드, 알약은 사람마다
+      const w = act.includes(S.omwSel) ? S.omwSel : act[0], v = om[w], mine = w === me, e = info[w];
+      key = w + v.t0;
+      if (bar._k !== key) {
+        bar._k = key; bar._meet = false; bar.hidden = false; bar.classList.remove("bye");
+        const destAv = v.kind === "partner" ? av(mine ? o : me) : `<span class="omw-pin">${ic("pin")}</span>`;
+        bar.innerHTML = `<div class="omw ${mine ? "mine" : ""}" data-act="omwTap" style="--c:${col(w)}">
+          <div class="omw-top"><b class="omw-title">${mine ? `${v.kind === "partner" ? esc(nm(o)) + "님에게" : esc(v.name) + "에"} 가는 중` : `${esc(nm(w))}님이 ${v.kind === "partner" ? "오는 중" : esc(v.name) + "에 가는 중"}`}</b>
+            <span class="omw-eta"><span class="omw-n"><em>${e.min}</em></span>분</span>${mine ? `<button class="omw-x" data-act="omwCancel" aria-label="그만하기">${ic("x")}</button>` : ""}</div>
+          <div class="omw-track"><i class="omw-fill"></i><span class="omw-av">${av(w)}</span><span class="omw-dest">${destAv}</span></div>
+          <div class="omw-sub"></div></div>`;
+        void bar.offsetWidth;
+      }
+      omwNum(bar, e.min);
+      const pc = (e.p * 100).toFixed(1) + "%";
+      bar.querySelector(".omw-fill").style.width = pc; bar.querySelector(".omw-av").style.left = pc;
+      bar.querySelector(".omw-sub").textContent = v.d == null ? "위치를 기다리는 중" : e.stale ? `${e.stale}분째 위치 없음 · 예상 시간이에요` : `${fmtDist(v.d)} 남음${e.mode ? " · " + e.mode : ""}`;
+      bar.querySelector(".omw").classList.toggle("stale", !!e.stale);
+      pills = act.map((x) => ({ w: x, min: info[x].min, p: info[x].p, mine: x === me, stale: !!info[x].stale }));
     }
+    S.isl.omw = { list: pills }; islUpdate();
+  }
+  function omwNum(bar, min) {
     const n = bar.querySelector(".omw-n");
-    if (n && n.dataset.v !== String(e.min)) {
-      const old = n.dataset.v; n.dataset.v = String(e.min);
-      if (old) { n.innerHTML = `<em class="out">${old}</em><em class="in">${e.min}</em>`; setTimeout(() => { if (n.dataset.v === String(e.min)) n.innerHTML = `<em>${e.min}</em>`; }, 420); }
+    if (n && n.dataset.v !== String(min)) {
+      const old = n.dataset.v; n.dataset.v = String(min);
+      if (old) { n.innerHTML = `<em class="out">${old}</em><em class="in">${min}</em>`; setTimeout(() => { if (n.dataset.v === String(min)) n.innerHTML = `<em>${min}</em>`; }, 420); }
     }
-    const pc = (e.p * 100).toFixed(1) + "%";
-    bar.querySelector(".omw-fill").style.width = pc; bar.querySelector(".omw-av").style.left = pc;
-    bar.querySelector(".omw-sub").textContent = v.d == null ? "위치를 기다리는 중" : e.stale ? `${e.stale}분째 위치 없음 · 예상 시간이에요` : `${fmtDist(v.d)} 남음${e.mode ? " · " + e.mode : ""}`;
-    bar.querySelector(".omw").classList.toggle("stale", !!e.stale);
-    S.isl.omw = { w, min: e.min, p: e.p, mine, stale: !!e.stale }; islUpdate();
   }
   // 다른 탭에서도 가는 중이면 8초마다 갱신
   setInterval(async () => {
@@ -2688,7 +2729,7 @@
   // 머문 곳 카드 꾹: 이름 붙이기 / 가는 중 알약 꾹(내 것): 그만하기 / 긴급 알약 꾹: 바로 위치 보기
   longPress($("#mapCard"), ".tr-st", (el) => ACT.stayNameOpen({ dataset: { lat: el.dataset.lat, lon: el.dataset.lon, n: (el.querySelector("b") || {}).textContent || "" } }));
   for (const id of ["isl", "islChat"]) longPress(document.getElementById(id), ".isl-p", (el) => {
-    if (el.dataset.k === "omw" && S.isl.omw && S.isl.omw.mine && !S.isl.omw.done) { if (confirmTap(el, "한 번 더 꾹 누르면 가는 중을 꺼요")) ACT.omwCancel(); }
+    if (el.dataset.k === "omw" && S.isl.omw && S.isl.omw.list.some((x) => x.mine && !x.done) && (!el.dataset.w || el.dataset.w === S.who)) { if (confirmTap(el, "한 번 더 꾹 누르면 가는 중을 꺼요")) ACT.omwCancel(); }
     else if (el.dataset.k === "sos" && S.isl.sos && S.isl.sos.in) ACT.sosSee();
     else islOpen(el.dataset.k);
   });
@@ -2730,9 +2771,11 @@
     const o = S.isl.omw, g = S.isl.sos;
     let h = "";
     if (g) h += `<button class="isl-p sos-p${g.in ? " in" : ""}" data-act="islToggle" data-k="sos" aria-label="긴급 알림 보기">${ic("alert")}<b>${g.in ? "긴급" : "긴급 보냄"}</b></button>`;
-    if (o) h += o.done
-      ? `<button class="isl-p omw-p done" data-act="islToggle" data-k="omw">${ic("check")}<b>${o.mine ? "도착" : esc(nm(o.w)) + " 도착"}</b></button>`
-      : `<button class="isl-p omw-p${o.stale ? " stale" : ""}" data-act="islToggle" data-k="omw" style="--c:${o.w === "a" ? "#E5406A" : "#5C6BF0"}" aria-label="가는 중 보기">${av(o.w)}<span class="isl-trk"><i style="width:${(o.p * 100).toFixed(0)}%"></i></span><b>${o.min}분</b></button>`;
+    if (o) for (const x of o.list) {
+      if (x.done) h += `<button class="isl-p omw-p done" data-act="islToggle" data-k="omw">${ic("check")}<b>${x.meet ? "만남" : x.mine ? "도착" : esc(nm(x.w)) + " 도착"}</b></button>`;
+      else if (x.meet) h += `<button class="isl-p omw-p meet${x.stale ? " stale" : ""}" data-act="islToggle" data-k="omw" aria-label="서로 가는 중 보기"><span class="isl-avs">${av(S.who)}${av(other())}</span><b>${x.min}분</b></button>`;
+      else h += `<button class="isl-p omw-p${x.stale ? " stale" : ""}" data-act="islToggle" data-k="omw" data-w="${x.w}" style="--c:${x.w === "a" ? "#E5406A" : "#5C6BF0"}" aria-label="가는 중 보기">${av(x.w)}<span class="isl-trk"><i style="width:${(x.p * 100).toFixed(0)}%"></i></span><b>${x.min}분</b></button>`;
+    }
     for (const id of ["isl", "islChat"]) {
       const el = document.getElementById(id); if (!el) continue;
       if (el._h === h) continue;
@@ -5434,7 +5477,7 @@
       try { await api("omw", { method: "POST", body: b }); closeSheet(); try { haptic(20); } catch {} refreshLoc(); } catch (e) { toast(e.message); }
     },
     async omwCancel(el, ev) { if (ev) ev.stopPropagation(); try { await api("omw", { method: "DELETE" }); } catch {} S.omwDoneSeen = null; renderOmw({}); toast("가는 중 알림을 껐어요"); },
-    islToggle(el) { const k = el.dataset.k; if (S.islOpen === k) islClose(); else islOpen(k); },
+    islToggle(el) { const k = el.dataset.k; if (el.dataset.w && S.omwSel !== el.dataset.w) { S.omwSel = el.dataset.w; renderOmw(S.omw); islOpen(k); return; } if (S.islOpen === k) islClose(); else islOpen(k); },
     omwTap(el, ev) { if (ev && ev.target.closest(".omw-x")) return; islClose(); if (S.tab !== "map") setTab("map"); setTimeout(() => { try { fitMap(); } catch {} }, 350); },
     qzOpen() { qzOpen(); },
     qzPick(el) { return qzPick(el); },

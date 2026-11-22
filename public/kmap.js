@@ -120,7 +120,7 @@
           } else if (l.type === "circle" && g.type === "Point") {
             const el = document.createElement("div");
             const r = Array.isArray(p["circle-radius"]) ? ((f.properties || {}).r || 5) : (p["circle-radius"] || 5);
-            el.style.cssText = `width:${r * 2}px;height:${r * 2}px;border-radius:50%;background:#fff;border:3px solid ${colorOf(p["circle-stroke-color"], f)};box-sizing:border-box`;
+            el.style.cssText = `width:${r * 2}px;height:${r * 2}px;border-radius:50%;background:${p["circle-color"] ? colorOf(p["circle-color"], f) : "#fff"};border:${p["circle-stroke-width"] != null ? p["circle-stroke-width"] : 3}px solid ${p["circle-stroke-color"] ? colorOf(p["circle-stroke-color"], f) : "#fff"};box-sizing:border-box;box-shadow:0 1px 4px rgba(0,0,0,.25)`;
             l.shapes.push(new kakao.maps.CustomOverlay({ map: this.k, position: ll(g.coordinates), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 1 }));
           }
         }

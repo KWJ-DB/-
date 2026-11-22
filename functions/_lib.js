@@ -132,6 +132,10 @@ export async function ensureSchema(env) {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS route_cache (k TEXT PRIMARY KEY, v TEXT, t INTEGER)").run();
     await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '14') ON CONFLICT(k) DO UPDATE SET v = '14'").run();
   }
+  // v16: 알림 안 받는 장소 (이동 기록 이름표용)
+  if (!v || Number(v.v) < 16) {
+    try { await env.DB.prepare("ALTER TABLE places ADD COLUMN silent INTEGER DEFAULT 0").run(); } catch {}
+  }
   // v15: 가본 곳(스크래치 지도) 칸 + 누가 더 잘 알까 게임
   if (!v || Number(v.v) < 15) {
     await env.DB.batch([
@@ -141,6 +145,7 @@ export async function ensureSchema(env) {
       env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '15') ON CONFLICT(k) DO UPDATE SET v = '15'"),
     ]);
   }
+  if (!v || Number(v.v) < 16) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '16') ON CONFLICT(k) DO UPDATE SET v = '16'").run();
   ready = true;
 }
 

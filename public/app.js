@@ -1405,7 +1405,7 @@
       <p>등록한 장소에 도착하거나 떠나면 상대에게 알림이 가요. 화면이 꺼져 있을 때도 받으려면 OwnTracks 연결과 알림 켜기가 필요해요.</p>
       ${(S.places || []).map((p) => {
         const ins = insideOf(p.id);
-        return `<div class="ev"><span class="bar" style="background:#B65FE0"></span><span class="tt">${esc(p.name)} <span class="own-tag ${p.owner || "both"}">${esc(ownerLabel(p.owner))}</span><br><small class="muted">반경 ${p.radius}m${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
+        return `<div class="ev"><span class="bar" style="background:#B65FE0"></span><span class="tt">${esc(p.name)} <span class="own-tag ${p.owner || "both"}">${esc(ownerLabel(p.owner))}</span><br><small class="muted">반경 ${p.radius}m${p.silent ? " · 알림 끔" : ""}${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
         <button class="x" data-act="placeEdit" data-id="${p.id}" aria-label="수정">${ic("pen")}</button>
         <button class="x" data-act="placeGo" data-id="${p.id}" aria-label="보기">${ic("target")}</button>
         <button class="x" data-act="placeDel" data-id="${p.id}" aria-label="삭제">${ic("trash")}</button></div>`;
@@ -1413,7 +1413,7 @@
       <div class="row2"><button class="btn gray" data-act="close">닫기</button><button class="btn primary" data-act="placePick">${ic("plus")}장소 추가</button></div>`);
   }
   function placeEditSheet(p) {
-    S.plEd = { id: p.id, name: p.name, lat: p.lat, lon: p.lon, radius: p.radius, owner: p.owner || "both" };
+    S.plEd = { id: p.id, name: p.name, lat: p.lat, lon: p.lon, radius: p.radius, owner: p.owner || "both", silent: p.silent ? 1 : 0 };
     const o = S.plEd;
     const btn = (k, v, label) => `<button class="${o[k] === v ? "on" : ""}" data-act="plEdSet" data-k="${k}" data-v="${v}">${label}</button>`;
     openSheet(`
@@ -1422,6 +1422,8 @@
       <input type="text" id="plName" value="${esc(p.name)}" maxlength="20" style="width:100%;box-sizing:border-box">
       <label class="fl">누구 장소</label>
       <div class="pick-r pick-own" style="margin-top:0">${btn("owner", S.who, esc(nm(S.who)))}${btn("owner", other(), esc(nm(other())))}${btn("owner", "both", "둘 다")}</div>
+      <label class="fl">도착·출발 알림</label>
+      <div class="pick-r" style="margin-top:0">${btn("silent", 0, "받기")}${btn("silent", 1, "안 받기")}</div>
       <label class="fl">알림 반경</label>
       <div class="pick-r pl-r" style="margin-top:0">${[50, 100, 200, 500].map((r) => btn("radius", r, r + "m")).join("")}</div>
       <label class="fl">위치 <span class="fl-sub">지도를 움직여 핀을 맞춰요</span></label>
@@ -5497,7 +5499,7 @@
     stayNameOpen(el, ev) {
       if (ev) ev.stopPropagation();
       openSheet(`<h2>${ic("pin")}이 장소 이름 붙이기</h2>
-        <p class="omw-help">한 번 붙이면 이동 기록에 이 이름으로 나오고, 도착·출발 알림도 와요</p>
+        <p class="omw-help">이동 기록에 이 이름으로 나와요. 도착·출발 알림은 안 가요 (설정 > 우리 장소에서 켤 수 있어요)</p>
         <input id="snName" maxlength="20" placeholder="예: 학원" value="${esc(el.dataset.n || "")}">
         <div class="sn-quick">${["학원", "학교", "집", "독서실", "카페"].map((n) => `<button class="chip-sel" data-act="snQuick" data-n="${n}">${n}</button>`).join("")}</div>
         <button class="btn primary" style="width:100%;margin-top:14px" data-act="snSave" data-lat="${el.dataset.lat}" data-lon="${el.dataset.lon}">저장</button>`);
@@ -5506,7 +5508,7 @@
     snQuick(el) { const i = $("#snName"); if (i) i.value = el.dataset.n; },
     async snSave(el) {
       const name = ($("#snName").value || "").trim(); if (!name) return toast("이름을 적어주세요");
-      await api("places", { method: "POST", body: { name, lat: +el.dataset.lat, lon: +el.dataset.lon, radius: 80, owner: "both" } });
+      await api("places", { method: "POST", body: { name, lat: +el.dataset.lat, lon: +el.dataset.lon, radius: 80, owner: "both", silent: 1 } });
       closeSheet(); toast(`${jo(name, "으로", "로")} 저장했어요`);
       try { await loadPlaces(); } catch {}
       if (S.trail) { S.trail.data = null; renderTrailCard(); loadTrail(); }
@@ -5578,14 +5580,14 @@
     placePick: () => placePick(),
     placeEdit(el) { const p = (S.places || []).find((x) => String(x.id) === el.dataset.id); if (p) placeEditSheet(p); },
     plEdSet(el) {
-      const k = el.dataset.k, v = k === "radius" ? Number(el.dataset.v) : el.dataset.v;
+      const k = el.dataset.k, v = k === "radius" || k === "silent" ? Number(el.dataset.v) : el.dataset.v;
       S.plEd[k] = v;
       el.parentNode.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === el));
     },
     async plEdSave() {
       const o = S.plEd, name = $("#plName").value.trim();
       if (!name) return toast("장소 이름을 적어주세요");
-      try { await api(`places/${o.id}`, { method: "POST", body: { name, lat: o.lat, lon: o.lon, radius: o.radius, owner: o.owner } }); } catch (e) { return toast(e.message); }
+      try { await api(`places/${o.id}`, { method: "POST", body: { name, lat: o.lat, lon: o.lon, radius: o.radius, owner: o.owner, silent: o.silent } }); } catch (e) { return toast(e.message); }
       toast("장소를 수정했어요");
       await loadPlaces(); placesSheet();
     },

@@ -43,7 +43,10 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const evs = changes.map((c) => ({ who, place: c.place.name, inside: c.inside, t: Date.now() }));
         await setSettings(env, { last_place_ev: JSON.stringify(evs[evs.length - 1]) });
         await DB.batch(changes.map((c) => DB.prepare("INSERT INTO place_events (who, place, inside, t) VALUES (?1, ?2, ?3, ?4)").bind(who, c.place.name, c.inside ? 1 : 0, Date.now())));
+        // 이동 기록에서 이름만 붙인 장소(알림 끔)는 알리지 않음
+        const sil = new Set(((await DB.prepare("SELECT id FROM places WHERE silent = 1").all()).results || []).map((r) => r.id));
         for (const c of changes) {
+          if (sil.has(c.place.id)) continue;
           await sendPush(env, st, setSettings, other, {
             title: c.inside ? `${name}님 도착` : `${name}님 출발`,
             body: c.inside ? `${c.place.name}에 도착했어요` : `${c.place.name}에서 떠났어요`,
@@ -196,7 +199,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
           // 데이터를 자주 꺼도 나중에 몰아서 올라온 위치(OwnTracks)까지 보도록, 장소 이벤트 대신 실제 위치 기록으로 도착 시각을 계산
           const loc = await DB.prepare("SELECT lat, lon, t FROM couple_locs WHERE who = ?1").bind(w).first();
           if (!loc || now - loc.t > 15 * 60000) continue;   // 위치가 15분 넘게 안 들어오면(데이터 꺼짐) 모르는 거라 알리지 않음
-          const pls = (await DB.prepare("SELECT name, lat, lon, radius FROM places WHERE owner IS NULL OR owner = 'both' OR owner = ?1").bind(w).all()).results || [];
+          const pls = (await DB.prepare("SELECT name, lat, lon, radius FROM places WHERE (owner IS NULL OR owner = 'both' OR owner = ?1) AND (silent IS NULL OR silent = 0)").bind(w).all()).results || [];
           if (!pls.length) continue;
           const pts = (await DB.prepare("SELECT lat, lon, t FROM loc_hist WHERE who = ?1 AND t >= ?2 ORDER BY t").bind(w, now - 29 * 864e5).all()).results || [];
           const first = new Map(); const todayIn = new Set(); const outSeen = new Set();
@@ -348,7 +351,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       }
       // 우주에 등록한 장소를 OwnTracks 지역으로 보내기 (바뀌었을 때만) → 폰이 도착/출발을 직접 감지
       try {
-        const { results: pls } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE owner IS NULL OR owner = 'both' OR owner = ?1 ORDER BY id").bind(who).all();
+        const { results: pls } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE (owner IS NULL OR owner = 'both' OR owner = ?1) AND (silent IS NULL OR silent = 0) ORDER BY id").bind(who).all();
         const sig = (pls || []).map((p) => `${p.id}:${p.name}:${p.lat.toFixed(5)}:${p.lon.toFixed(5)}:${p.radius}`).join("|");
         if ((sig !== (st["ot_wp_" + who] || "") || Date.now() - (Number(st["ot_wpt_" + who]) || 0) > 6 * 3600e3) && pls && pls.length) {
           out.push({ _type: "cmd", action: "setWaypoints", waypoints: { _type: "waypoints", waypoints: pls.map((p) => ({ _type: "waypoint", desc: p.name, lat: p.lat, lon: p.lon, rad: Math.max(50, Math.round(p.radius)), tst: 1700000000 + p.id })) } });
@@ -1234,7 +1237,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // ----- 장소 (도착/출발 알림) -----
       case "GET places": {
-        const { results } = await DB.prepare("SELECT id, name, lat, lon, radius, owner FROM places ORDER BY id").all();
+        const { results } = await DB.prepare("SELECT id, name, lat, lon, radius, owner, silent FROM places ORDER BY id").all();
         const { results: stt } = await DB.prepare("SELECT who, place_id, inside FROM place_state").all();
         let ev = null;
         try { ev = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
@@ -1248,11 +1251,12 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return err(400, "위치가 올바르지 않아요");
         if (!(radius >= 50 && radius <= 2000)) return err(400, "반경은 50m~2km");
         const owner = ["a", "b", "both"].includes(b.owner) ? b.owner : "both";
+        const silent = b.silent === undefined ? null : b.silent ? 1 : 0;
         if (id) {
-          await DB.prepare("UPDATE places SET name = ?1, lat = ?2, lon = ?3, radius = ?4, owner = ?5 WHERE id = ?6").bind(name, lat, lon, radius, owner, id).run();
+          await DB.prepare("UPDATE places SET name = ?1, lat = ?2, lon = ?3, radius = ?4, owner = ?5, silent = COALESCE(?7, silent) WHERE id = ?6").bind(name, lat, lon, radius, owner, id, silent).run();
           return json(OK);
         }
-        await DB.prepare("INSERT INTO places (name, lat, lon, radius, who, t, owner) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(name, lat, lon, radius, who, Date.now(), owner).run();
+        await DB.prepare("INSERT INTO places (name, lat, lon, radius, who, t, owner, silent) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)").bind(name, lat, lon, radius, who, Date.now(), owner, silent || 0).run();
         return json(OK);
       }
       case "DELETE places":

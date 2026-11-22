@@ -2382,3 +2382,4 @@ body.typing #chatWrap { will-change: height, transform; }
 #sosBar > div { border-radius: var(--r-lg); }
 #sosBar button { border-radius: var(--r-sm); }
 .tr .chip svg.i, .chip-sel svg.i, .eat-chips .chip:not(.rl-chip) svg.i { fill: none; stroke: currentColor; stroke-width: 1.8; }
+.wt-btn.press { transform: scale(.96); }

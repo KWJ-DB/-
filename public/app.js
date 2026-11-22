@@ -3139,22 +3139,24 @@
         <button class="wt-btn" id="wtBtn" aria-label="꾹 누르고 말하기"><span class="wt-ring"></span>${ic("mic")}<b id="wtLbl">꾹 누르고 말하기</b></button>
         <div class="wt-live" id="wtWave"></div>
       </div>`);
-    const btn = $("#wtBtn");
-    const start = async (e) => {
-      e.preventDefault(); if (WT.rec) return;
-      wtUnlock();
-      if (!WT.stream || !WT.stream.active) {
-        try { WT.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-        catch { return toast("마이크 권한을 허용해주세요"); }
-      }
-      if (!btn.matches(":active") && e.type !== "keydown" && !btn.classList.contains("down")) { /* 권한 묻는 사이 손을 뗐으면 시작 안 함 */ if (!WT.wantUp) {} }
+    const btn = $("#wtBtn"), lbl = (t) => { const l = $("#wtLbl"); if (l) l.textContent = t; };
+    // 시트를 열자마자 마이크를 미리 켜 둠 → 누르는 순간 바로 녹음 (권한 묻는 창 때문에 첫 누름이 씹히지 않게)
+    const warm = async () => {
+      if (WT.stream && WT.stream.active) return true;
+      if (!navigator.mediaDevices || !window.MediaRecorder) { lbl("이 브라우저는 녹음을 못 해요"); return false; }
+      try { WT.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); return true; }
+      catch { lbl("마이크 권한을 허용해주세요"); return false; }
+    };
+    warm();
+    let down = false, tDown = 0, toggle = false;
+    const begin = () => {
       const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
-      WT.rec = new MediaRecorder(WT.stream, mime ? { mimeType: mime, audioBitsPerSecond: 40000 } : undefined);
+      try { WT.rec = new MediaRecorder(WT.stream, mime ? { mimeType: mime, audioBitsPerSecond: 40000 } : undefined); } catch { WT.rec = new MediaRecorder(WT.stream); }
       WT.chunks = []; WT.wave = []; WT.t0 = Date.now();
       WT.rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) WT.chunks.push(ev.data); };
       WT.rec.start(200);
-      try { const src = WT.ctx.createMediaStreamSource(WT.stream); WT.an = WT.ctx.createAnalyser(); WT.an.fftSize = 256; src.connect(WT.an); } catch { WT.an = null; }
-      btn.classList.add("on"); $("#wtLbl").textContent = "말하는 중 · 떼면 보내요"; try { haptic(14); } catch {}
+      try { if (!WT.ctx) WT.ctx = new (window.AudioContext || window.webkitAudioContext)(); WT.ctx.resume && WT.ctx.resume(); const src = WT.ctx.createMediaStreamSource(WT.stream); WT.an = WT.ctx.createAnalyser(); WT.an.fftSize = 256; src.connect(WT.an); } catch { WT.an = null; }
+      btn.classList.add("on"); lbl("말하는 중 · 떼면 보내요"); try { haptic(14); } catch {}
       const arr = new Uint8Array(128); let last = 0;
       const tick = () => {
         if (!WT.rec) return;
@@ -3168,25 +3170,50 @@
       };
       WT.raf = requestAnimationFrame(tick);
     };
+    const press = async (e) => {
+      e.preventDefault();
+      wtUnlock();
+      if (toggle && WT.rec) { toggle = false; return stop(); }      // 한 번 눌러 시작한 경우: 다시 누르면 보냄
+      if (WT.rec) return;
+      down = true; tDown = Date.now(); btn.classList.add("press");
+      if (!(await warm())) { btn.classList.remove("press"); return; }
+      if (!down) { btn.classList.remove("press"); lbl("꾹 누르고 말하기"); return; }
+      begin();
+    };
+    const release = (e) => {
+      if (e) e.preventDefault();
+      if (!down) return;
+      down = false; btn.classList.remove("press");
+      if (!WT.rec) return;
+      // 짧게 톡 눌렀으면 "누르고 있지 않아도 되는" 모드로: 말하고 다시 누르면 보냄
+      if (Date.now() - tDown < 350) { toggle = true; lbl("말하는 중 · 다시 누르면 보내요"); return; }
+      stop();
+    };
     const stop = () => {
       const rec = WT.rec; if (!rec) return;
-      WT.rec = null; cancelAnimationFrame(WT.raf);
+      WT.rec = null; cancelAnimationFrame(WT.raf); toggle = false;
       btn.classList.remove("on"); btn.style.removeProperty("--lv");
       const dur = (Date.now() - WT.t0) / 1000;
       rec.onstop = async () => {
-        if (dur < 0.6) { $("#wtLbl").textContent = "꾹 누르고 말하기"; return toast("조금 더 길게 눌러주세요"); }
+        if (dur < 0.6) { lbl("꾹 누르고 말하기"); return toast("조금 더 길게 말해주세요"); }
         const blob = new Blob(WT.chunks, { type: rec.mimeType || "audio/mp4" });
+        if (!blob.size) { lbl("꾹 누르고 말하기"); return toast("녹음이 안 됐어요. 다시 해주세요"); }
         const w = WT.wave, n = 36, wave = Array.from({ length: n }, (_, i) => { const a = Math.floor((i / n) * w.length), b = Math.max(a + 1, Math.floor(((i + 1) / n) * w.length)); return w.length ? Math.round(Math.max(...w.slice(a, b)) * 100) / 100 : 0.3; });
-        $("#wtLbl").textContent = "보내는 중";
+        lbl("보내는 중");
         const b64 = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1] || ""); fr.readAsDataURL(blob); });
-        try { await api("walkie", { method: "POST", body: { aud: b64, dur: Math.round(dur * 10) / 10, mime: blob.type, wave } }); $("#wtLbl").textContent = "보냈어요"; try { haptic(20); } catch {} }
-        catch (er) { $("#wtLbl").textContent = "꾹 누르고 말하기"; return toast(er.status ? er.message : "데이터가 꺼져 있어서 못 보냈어요"); }
-        setTimeout(() => { const l = $("#wtLbl"); if (l && !WT.rec) l.textContent = "꾹 누르고 말하기"; }, 1200);
+        try { await api("walkie", { method: "POST", body: { aud: b64, dur: Math.round(dur * 10) / 10, mime: blob.type, wave } }); lbl("보냈어요"); try { haptic(20); } catch {} }
+        catch (er) { lbl("꾹 누르고 말하기"); return toast(er.status ? er.message : "데이터가 꺼져 있어서 못 보냈어요"); }
+        setTimeout(() => { if (!WT.rec) lbl("꾹 누르고 말하기"); }, 1200);
       };
+      try { rec.requestData && rec.requestData(); } catch {}
       try { rec.stop(); } catch {}
     };
-    btn.addEventListener("pointerdown", start);
-    ["pointerup", "pointercancel", "pointerleave"].forEach((ev) => btn.addEventListener(ev, stop));
+    // 아이폰에선 터치 이벤트로 (손가락이 살짝 움직여도 안 끊기게), 컴퓨터에선 마우스
+    btn.addEventListener("touchstart", press, { passive: false });
+    btn.addEventListener("touchend", release, { passive: false });
+    btn.addEventListener("touchcancel", release, { passive: false });
+    btn.addEventListener("mousedown", (e) => { if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return; press(e); });
+    window.addEventListener("mouseup", (e) => { if (down) release(e); }, { once: false });
     btn.addEventListener("contextmenu", (e) => e.preventDefault());
   }
   // 무전 창을 닫으면 마이크도 끔
@@ -4438,7 +4465,7 @@
     let st = null;
     const reset = () => { box.style.transition = ""; box.style.transform = ""; sh.style.background = ""; box.style.animation = ""; };
     box.addEventListener("touchstart", (e) => {
-      if (e.touches.length !== 1 || e.target.closest("input, textarea, select, .mini-wrap, .eat-photos, .chips")) return;
+      if (e.touches.length !== 1 || e.target.closest("input, textarea, select, .mini-wrap, .eat-photos, .chips, .wt-btn, .qz-o")) return;
       const y = e.touches[0].clientY, top = box.getBoundingClientRect().top;
       const onGrab = y - top < 48;
       if (!onGrab && box.scrollTop > 2) return;

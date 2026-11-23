@@ -1618,7 +1618,8 @@ export async function onRequest({ request, env, params, waitUntil }) {
         }
         if (p1 === "test") {
           const n = await sendPush(env, st, setSettings, who, { title: "알림 테스트", body: "알림이 잘 와요", url: "/", tag: "test" });
-          return json({ ok: true, sent: n });
+          const c = await DB.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE who = ?1").bind(who).first();
+          return json({ ok: true, sent: n, subs: c ? c.n : 0 });
         }
         return err(404, "없는 주소예요");
       }

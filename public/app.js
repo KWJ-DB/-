@@ -4166,6 +4166,7 @@
       clearNotis();
       navigator.serviceWorker.addEventListener("message", (e) => {
         if (!e.data) return;
+        if (e.data.type === "ping") { try { e.ports[0].postMessage({ visible: document.visibilityState === "visible" && document.hasFocus() }); } catch {} return; }
         if (e.data.type === "call") { setTab("chat"); if (window.checkIncomingNow) checkIncomingNow(); return; }
         if (e.data.type === "open") {
           const t = (e.data.url.split("#")[1] || "home");
@@ -4189,6 +4190,11 @@
       const reg = S.swReg || (await navigator.serviceWorker.ready);
       const { key } = await api("push");
       let sub = await reg.pushManager.getSubscription();
+      // 서버 열쇠가 바뀌었으면 옛 구독으로는 알림이 안 감 → 지우고 새로 구독
+      if (sub && sub.options && sub.options.applicationServerKey) {
+        const a = new Uint8Array(sub.options.applicationServerKey), b = b64ToU8(key);
+        if (a.length !== b.length || a.some((x, i) => x !== b[i])) { try { await sub.unsubscribe(); } catch {} sub = null; }
+      }
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
       await api("push/sub", { method: "POST", body: sub.toJSON() });
       if (!silent) toast("알림을 켰어요");
@@ -5635,7 +5641,8 @@
       if (p) map.flyTo({ center: [p.lon, p.lat], zoom: 15.5 });
     },
     async pushTest() {
-      try { const r = await api("push/test", { method: "POST", body: {} }); toast(r.sent ? "테스트 알림을 보냈어요" : "이 기기는 알림이 꺼져 있어요"); }
+      // 구독을 먼저 새로 맞춘 뒤 보냄 (아이폰은 가끔 구독이 바뀜)
+      try { if (window.Notification && Notification.permission === "granted") await subscribePush(true); const r = await api("push/test", { method: "POST", body: {} }); toast(r.sent ? `테스트 알림을 보냈어요 (${r.sent}대)` : r.subs ? "보내기에 실패했어요. 알림을 껐다 켜 주세요" : "이 기기는 알림이 꺼져 있어요. 설정에서 알림 켜기를 눌러주세요"); }
       catch (e) { toast(e.message); }
     },
     bannerGo() { $("#banner").hidden = true; setTab(S.bannerTab || "chat"); },

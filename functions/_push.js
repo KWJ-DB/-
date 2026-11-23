@@ -90,7 +90,8 @@ export async function sendPush(env, st, setSettings, who, msg) {
         },
         body,
       });
-      if (r.status === 404 || r.status === 410) await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ?1").bind(s.endpoint).run();
+      // 404·410: 만료 / 403: 열쇠가 안 맞는 옛 구독 → 지우면 다음에 앱을 열 때 새로 구독됨
+      if (r.status === 404 || r.status === 410 || r.status === 403) await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ?1").bind(s.endpoint).run();
       else if (r.ok) sent++;
     } catch {}
   }));

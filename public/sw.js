@@ -11,7 +11,16 @@ self.addEventListener("push", (e) => {
     // 앱이 열려 있으면 바로 전화 화면이 뜨게
     if (d.tag === "call") for (const w of wins) { try { w.postMessage({ type: "call" }); } catch {} }
     // 앱을 보고 있으면 알림이 쌓이지 않게: 아이폰은 푸시마다 알림을 꼭 띄워야 해서, 띄우고 바로 지움
-    const open = wins.some((w) => w.visibilityState === "visible");
+    // 아이폰은 앱을 내려도 "보이는 중"으로 남는 경우가 있어서, 화면에 직접 물어보고 0.4초 안에 대답할 때만 보고 있는 걸로 침
+    // (백그라운드로 내려간 앱은 멈춰 있어서 대답을 못 함 → 알림이 그대로 남음)
+    const ask = (w) => new Promise((res) => {
+      try {
+        const ch = new MessageChannel(); const tm = setTimeout(() => res(false), 400);
+        ch.port1.onmessage = (ev) => { clearTimeout(tm); res(!!(ev.data && ev.data.visible)); };
+        w.postMessage({ type: "ping" }, [ch.port2]);
+      } catch { res(false); }
+    });
+    const open = (await Promise.all(wins.filter((w) => w.visibilityState === "visible").map(ask))).some(Boolean);
     await self.registration.showNotification(d.title || "", {
       body: d.body || "",
       icon: "/icon-192.png",
@@ -22,7 +31,7 @@ self.addEventListener("push", (e) => {
       vibrate: isCall ? [300, 150, 300, 150, 300, 150, 300] : [90],
       data: { url: d.url || "/" },
     });
-    if (open && !isCall) {
+    if (open && !isCall && d.tag !== "test") {
       const ns = await self.registration.getNotifications();
       ns.forEach((n) => n.close());
     }

@@ -290,7 +290,9 @@ export async function checkPlaces(DB, who, lat, lon, acc, t, trusted = false) {
   const now = Date.now();
   const a = Number(acc) || 0;
   if (a > 120) return [];
-  if (t && now - Number(t) > 10 * 60000) return []; // 밀려서 늦게 온 옛날 위치
+  // 데이터를 껐다 켜서 OwnTracks가 몰아 보낸 옛 위치도 3시간 안이면 순서대로 판단 (알림엔 실제 시각이 붙음)
+  if (t && now - Number(t) > 3 * 3600e3) return [];
+  const rt = Number(t) || now;   // 이 위치를 잰 시각 (아래 '최근 몇 분' 기준도 이 시각으로)
   const latest = await DB.prepare("SELECT t FROM couple_locs WHERE who = ?1").bind(who).first();
   if (latest && t && Number(t) < latest.t - 1000) return []; // 더 새 위치가 이미 있음
   const { results: places } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE owner IS NULL OR owner = 'both' OR owner = ?1").bind(who).all();
@@ -310,19 +312,20 @@ export async function checkPlaces(DB, who, lat, lon, acc, t, trusted = false) {
       continue;
     }
     if (inside !== was) {
-      if (ps.t && now - ps.t < (trusted ? 4 : 20) * 60000) continue; // 너무 자주 바뀌지 않게
-      // OwnTracks 앱처럼 폰이 직접 보낸 정확한 위치는 한 번에 바로 판단 (바로 알림)
-      if (trusted && a <= 60) {
-        if (inside && d > p.radius) continue;
-        if (!inside && d <= p.radius + Math.max(60, a)) continue;
-        changes.push({ place: p, inside: !!inside, t: Number(t) || now });
-        writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, now, who, p.id));
+      if (ps.t && rt - ps.t < (trusted ? 4 : 20) * 60000 && rt >= ps.t) continue; // 너무 자주 바뀌지 않게
+      // OwnTracks 앱처럼 폰이 직접 보낸 위치는 한 번에 바로 판단 (바로 알림)
+      // 오차가 100m까지는 받되, 오차가 클수록 확실히 안/밖일 때만
+      if (trusted && a <= 100) {
+        if (inside && d + (a > 60 ? a * 0.5 : 0) > p.radius) continue;
+        if (!inside && d <= p.radius + Math.max(60, a) + (a > 60 ? 50 : 0)) continue;
+        changes.push({ place: p, inside: !!inside, t: rt });
+        writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, rt, who, p.id));
         continue;
       }
       let et = Number(t) || now;
       if (inside) {
         // 도착도 지나가다 스친 걸로 판단하지 않음: 최근 몇 분 동안 계속 안에 있어야 도착
-        const { results: rec } = await DB.prepare("SELECT lat, lon, acc, t FROM loc_hist WHERE who = ?1 AND t > ?2 ORDER BY t DESC LIMIT 4").bind(who, now - 10 * 60000).all();
+        const { results: rec } = await DB.prepare("SELECT lat, lon, acc, t FROM loc_hist WHERE who = ?1 AND t > ?2 AND t <= ?3 ORDER BY t DESC LIMIT 4").bind(who, rt - 10 * 60000, rt + 1000).all();
         const pts = rec || [];
         const ins = pts.filter((q) => distM(q, p) <= p.radius + Math.min(40, Number(q.acc) || 0));
         if (pts.length < 2 || ins.length < pts.length || pts[0].t - pts[pts.length - 1].t < 3 * 60000) continue;
@@ -330,14 +333,14 @@ export async function checkPlaces(DB, who, lat, lon, acc, t, trusted = false) {
       }
       if (!inside) {
         // 떠남은 한 번 튄 점으로 판단하지 않음: 최근 몇 분의 기록이 전부 밖이어야 떠남
-        const { results: rec } = await DB.prepare("SELECT lat, lon, acc, t FROM loc_hist WHERE who = ?1 AND t > ?2 ORDER BY t DESC LIMIT 4").bind(who, now - 8 * 60000).all();
+        const { results: rec } = await DB.prepare("SELECT lat, lon, acc, t FROM loc_hist WHERE who = ?1 AND t > ?2 AND t <= ?3 ORDER BY t DESC LIMIT 4").bind(who, rt - 8 * 60000, rt + 1000).all();
         const pts = rec || [];
         const out = pts.filter((q) => distM(q, p) > p.radius + Math.max(80, Number(q.acc) || 0));
         if (pts.length < 2 || out.length < pts.length || pts[0].t - pts[pts.length - 1].t < 2 * 60000) continue;
         et = pts[pts.length - 1].t;                                   // 실제로 나간 때 = 밖에 있던 첫 기록
       }
       changes.push({ place: p, inside: !!inside, t: et });
-      writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, now, who, p.id));
+      writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, rt, who, p.id));
     }
   }
   // 다른 곳에 도착했는데 아직 "안에 있음"으로 남은 장소는 조용히 떠난 걸로 정리 (나중에 "출발" 알림이 거꾸로 오지 않게)
@@ -363,8 +366,12 @@ export async function forcePlace(DB, who, name, inside, t0) {
   const ps = await DB.prepare("SELECT inside, t FROM place_state WHERE who = ?1 AND place_id = ?2").bind(who, p.id).first();
   const now = Date.now(), v = inside ? 1 : 0, et = Number(t0) || now;
   if (ps && ps.inside === v) return [];
-  if (ps && ps.t && now - ps.t < 2 * 60000) return [];
-  await DB.prepare("INSERT INTO place_state (who, place_id, inside, t) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(who, place_id) DO UPDATE SET inside = excluded.inside, t = excluded.t").bind(who, p.id, v, now).run();
+  if (now - et > 3 * 3600e3) return [];
+  // 이미 더 나중 위치를 알고 있으면 늦게 온 옛 출입 신호는 무시 (예: 1시간 전 "집 도착"이 학교에 있는 지금 처리되는 것)
+  const lat0 = await DB.prepare("SELECT t FROM couple_locs WHERE who = ?1").bind(who).first();
+  if (lat0 && et < lat0.t - 2 * 60000) return [];
+  if (ps && ps.t && et - ps.t < 2 * 60000 && et >= ps.t) return [];
+  await DB.prepare("INSERT INTO place_state (who, place_id, inside, t) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(who, place_id) DO UPDATE SET inside = excluded.inside, t = excluded.t").bind(who, p.id, v, et).run();
   const out = ps ? [{ place: p, inside: !!inside, t: et }] : [];
   // 여기 도착했으면 아직 "안에 있음"인 다른 장소는 조용히 떠난 걸로
   if (inside && out.length) {

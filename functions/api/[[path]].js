@@ -364,7 +364,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         const { results: pls } = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE (owner IS NULL OR owner = 'both' OR owner = ?1) AND (silent IS NULL OR silent = 0) ORDER BY id").bind(who).all();
         const sig = (pls || []).map((p) => `${p.id}:${p.name}:${p.lat.toFixed(5)}:${p.lon.toFixed(5)}:${p.radius}`).join("|");
         if ((sig !== (st["ot_wp_" + who] || "") || Date.now() - (Number(st["ot_wpt_" + who]) || 0) > 6 * 3600e3) && pls && pls.length) {
-          out.push({ _type: "cmd", action: "setWaypoints", waypoints: { _type: "waypoints", waypoints: pls.map((p) => ({ _type: "waypoint", desc: p.name, lat: p.lat, lon: p.lon, rad: Math.max(50, Math.round(p.radius)), tst: 1700000000 + p.id })) } });
+          out.push({ _type: "cmd", action: "setWaypoints", waypoints: { _type: "waypoints", waypoints: pls.map((p) => ({ _type: "waypoint", desc: p.name, lat: p.lat, lon: p.lon, rad: Math.max(100, Math.round(p.radius)), tst: 1700000000 + p.id })) } });
           await setSettings(env, { ["ot_wp_" + who]: sig, ["ot_wpt_" + who]: Date.now() });
         }
       } catch {}

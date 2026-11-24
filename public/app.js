@@ -2357,7 +2357,8 @@
     // 단, 지나가기만 한 점은 건드리지 않음: 그 장소 안에 연달아 5분 넘게 있었던 구간만 모음
     const inPl = p.map((x) => {
       let best = null, bd = Infinity;
-      for (const pl of S.places || []) { const d = distM(x, pl); if (d <= (pl.radius || 80) + Math.min(Math.max(25, x.acc || 0), 40) && d < bd) { bd = d; best = pl; } }
+      const tw = S.trail && S.trail.w;
+      for (const pl of S.places || []) { if (tw && pl.owner && pl.owner !== "both" && pl.owner !== tw) continue; const r = pl.silent ? 50 : pl.radius || 80; const d = distM(x, pl); if (d <= r + Math.min(Math.max(25, x.acc || 0), 40) && d < bd) { bd = d; best = pl; } }
       return best;
     });
     for (let i = 0; i < p.length;) {
@@ -2437,10 +2438,11 @@
   // 학원처럼 오래 있는 곳이 근처 가게 이름으로 잘못 붙지 않게, 가게는 25m 안 + 2시간 반 이하일 때만
   const geoKey = (st) => `${st.lat.toFixed(4)},${st.lon.toFixed(4)}`;
   function stayInfo(st) {
-    if (st.pl) { const pp = (S.places || []).find((x) => x.name === st.pl); return { name: st.pl, reg: true, addr: pp && pp.silent ? pp.addr || "" : "" }; }
+    if (st.pl) { const pp = (S.places || []).find((x) => x.name === st.pl && (!x.owner || x.owner === "both" || !S.trail || x.owner === S.trail.w)); return { name: st.pl, reg: true, addr: pp && pp.silent ? pp.addr || "" : "" }; }
     let best = null, bd = Infinity;
     let addr = "";
-    for (const pl of S.places || []) { const d = distM(st, pl); const lim = pl.silent ? 50 : Math.max(80, pl.radius || 0); if (d < lim && d < bd) { bd = d; best = pl.name; addr = pl.silent ? pl.addr || "" : ""; } }
+    const tw = S.trail && S.trail.w;
+    for (const pl of S.places || []) { if (tw && pl.owner && pl.owner !== "both" && pl.owner !== tw) continue; const d = distM(st, pl); const lim = pl.silent ? 50 : Math.max(80, pl.radius || 0); if (d < lim && d < bd) { bd = d; best = pl.name; addr = pl.silent ? pl.addr || "" : ""; } }
     if (best) return { name: best, reg: true, addr };
     const dur = (st.t1 || 0) - (st.t0 || 0);
     if (dur <= 150 * 60000) for (const e of E.list || []) { const d = distM(st, e); if (d < 25 && d < bd) { bd = d; best = e.name; } }
@@ -5526,7 +5528,8 @@
     scratchF(el) { S.scratch.f = el.dataset.v; renderScratchCard(); scratchDraw(false); },
     stayNameOpen(el, ev) {
       if (ev) ev.stopPropagation();
-      openSheet(`<h2>${ic("pin")}이 장소 이름 붙이기</h2>
+      const ow = (S.trail && S.trail.w) || S.who;
+      openSheet(`<h2>${ic("pin")}${ow === S.who ? "내" : esc(nm(ow)) + "님"} 장소 이름 붙이기</h2>
         ${el.dataset.addr ? `<p class="sn-addr">${ic("pin")}${esc(el.dataset.addr)}</p>` : ""}
         <p class="omw-help">이동 기록에 이 이름으로 나와요. 범위 없이 이 자리만 표시하고, 도착·출발 알림은 안 가요</p>
         <input id="snName" maxlength="20" placeholder="예: 학원" value="${esc(el.dataset.n || "")}">
@@ -5537,7 +5540,7 @@
     snQuick(el) { const i = $("#snName"); if (i) i.value = el.dataset.n; },
     async snSave(el) {
       const name = ($("#snName").value || "").trim(); if (!name) return toast("이름을 적어주세요");
-      await api("places", { method: "POST", body: { name, lat: +el.dataset.lat, lon: +el.dataset.lon, radius: 50, owner: "both", silent: 1, addr: el.dataset.addr || "" } });
+      await api("places", { method: "POST", body: { name, lat: +el.dataset.lat, lon: +el.dataset.lon, radius: 50, owner: (S.trail && S.trail.w) || S.who, silent: 1, addr: el.dataset.addr || "" } });
       closeSheet(); toast(`${jo(name, "으로", "로")} 저장했어요`);
       try { await loadPlaces(); } catch {}
       if (S.trail) { S.trail.data = null; renderTrailCard(); loadTrail(); }

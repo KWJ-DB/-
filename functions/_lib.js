@@ -311,16 +311,18 @@ export async function checkPlaces(DB, who, lat, lon, acc, t, trusted = false) {
       if (trusted && a <= 60) {
         if (inside && d > p.radius) continue;
         if (!inside && d <= p.radius + Math.max(60, a)) continue;
-        changes.push({ place: p, inside: !!inside });
+        changes.push({ place: p, inside: !!inside, t: Number(t) || now });
         writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, now, who, p.id));
         continue;
       }
+      let et = Number(t) || now;
       if (inside) {
         // 도착도 지나가다 스친 걸로 판단하지 않음: 최근 몇 분 동안 계속 안에 있어야 도착
         const { results: rec } = await DB.prepare("SELECT lat, lon, acc, t FROM loc_hist WHERE who = ?1 AND t > ?2 ORDER BY t DESC LIMIT 4").bind(who, now - 10 * 60000).all();
         const pts = rec || [];
         const ins = pts.filter((q) => distM(q, p) <= p.radius + Math.min(40, Number(q.acc) || 0));
         if (pts.length < 2 || ins.length < pts.length || pts[0].t - pts[pts.length - 1].t < 3 * 60000) continue;
+        et = pts[pts.length - 1].t;                                   // 실제로 들어온 때 = 안에 있던 첫 기록
       }
       if (!inside) {
         // 떠남은 한 번 튄 점으로 판단하지 않음: 최근 몇 분의 기록이 전부 밖이어야 떠남
@@ -328,23 +330,45 @@ export async function checkPlaces(DB, who, lat, lon, acc, t, trusted = false) {
         const pts = rec || [];
         const out = pts.filter((q) => distM(q, p) > p.radius + Math.max(80, Number(q.acc) || 0));
         if (pts.length < 2 || out.length < pts.length || pts[0].t - pts[pts.length - 1].t < 2 * 60000) continue;
+        et = pts[pts.length - 1].t;                                   // 실제로 나간 때 = 밖에 있던 첫 기록
       }
-      changes.push({ place: p, inside: !!inside });
+      changes.push({ place: p, inside: !!inside, t: et });
       writes.push(DB.prepare("UPDATE place_state SET inside = ?1, t = ?2 WHERE who = ?3 AND place_id = ?4").bind(inside, now, who, p.id));
     }
   }
+  // 다른 곳에 도착했는데 아직 "안에 있음"으로 남은 장소는 조용히 떠난 걸로 정리 (나중에 "출발" 알림이 거꾸로 오지 않게)
+  if (changes.some((c) => c.inside)) {
+    for (const p of places) {
+      const ps = prev.get(p.id);
+      if (!ps || ps.inside !== 1 || changes.some((c) => c.place.id === p.id)) continue;
+      if (distM({ lat, lon }, p) <= p.radius + 30) continue;
+      changes.push({ place: p, inside: false, t: Number(t) || now, silent: true });
+      writes.push(DB.prepare("UPDATE place_state SET inside = 0, t = ?1 WHERE who = ?2 AND place_id = ?3").bind(now, who, p.id));
+    }
+  }
   if (writes.length) await DB.batch(writes);
+  // 떠남 → 도착 순서로
+  changes.sort((x, y) => (x.inside === y.inside ? x.t - y.t : x.inside ? 1 : -1));
   return changes;
 }
 
 // OwnTracks 지오펜스(폰이 직접 감지한 도착/출발)로 장소 상태를 바로 바꿈
-export async function forcePlace(DB, who, name, inside) {
+export async function forcePlace(DB, who, name, inside, t0) {
   const p = await DB.prepare("SELECT id, name, lat, lon, radius FROM places WHERE name = ?1 AND (owner IS NULL OR owner = 'both' OR owner = ?2)").bind(name, who).first();
   if (!p) return [];
   const ps = await DB.prepare("SELECT inside, t FROM place_state WHERE who = ?1 AND place_id = ?2").bind(who, p.id).first();
-  const now = Date.now(), v = inside ? 1 : 0;
+  const now = Date.now(), v = inside ? 1 : 0, et = Number(t0) || now;
   if (ps && ps.inside === v) return [];
   if (ps && ps.t && now - ps.t < 2 * 60000) return [];
   await DB.prepare("INSERT INTO place_state (who, place_id, inside, t) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(who, place_id) DO UPDATE SET inside = excluded.inside, t = excluded.t").bind(who, p.id, v, now).run();
-  return ps ? [{ place: p, inside: !!inside }] : [];
+  const out = ps ? [{ place: p, inside: !!inside, t: et }] : [];
+  // 여기 도착했으면 아직 "안에 있음"인 다른 장소는 조용히 떠난 걸로
+  if (inside && out.length) {
+    const { results } = await DB.prepare("SELECT s.place_id AS id, pl.name AS name FROM place_state s JOIN places pl ON pl.id = s.place_id WHERE s.who = ?1 AND s.inside = 1 AND s.place_id != ?2").bind(who, p.id).all();
+    for (const r of results || []) {
+      await DB.prepare("UPDATE place_state SET inside = 0, t = ?1 WHERE who = ?2 AND place_id = ?3").bind(now, who, r.id).run();
+      out.unshift({ place: { id: r.id, name: r.name }, inside: false, t: et - 1, silent: true });
+    }
+  }
+  return out;
 }

@@ -40,17 +40,27 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!changes.length) return;
         const name = who === "a" ? st.a_name : st.b_name;
         const other = who === "a" ? "b" : "a";
-        const evs = changes.map((c) => ({ who, place: c.place.name, inside: c.inside, t: Date.now() }));
+        const evs = changes.map((c) => ({ who, place: c.place.name, inside: c.inside, t: c.t || Date.now() }));
         await setSettings(env, { last_place_ev: JSON.stringify(evs[evs.length - 1]) });
-        await DB.batch(changes.map((c) => DB.prepare("INSERT INTO place_events (who, place, inside, t) VALUES (?1, ?2, ?3, ?4)").bind(who, c.place.name, c.inside ? 1 : 0, Date.now())));
+        await DB.batch(changes.map((c) => DB.prepare("INSERT INTO place_events (who, place, inside, t) VALUES (?1, ?2, ?3, ?4)").bind(who, c.place.name, c.inside ? 1 : 0, c.t || Date.now())));
         // 이동 기록에서 이름만 붙인 장소(알림 끔)는 알리지 않음
         const sil = new Set(((await DB.prepare("SELECT id FROM places WHERE silent = 1").all()).results || []).map((r) => r.id));
+        const hm = (t) => { const d = new Date(t + 9 * 3600e3), h = d.getUTCHours(), m = d.getUTCMinutes(); return `${h < 12 ? "오전" : "오후"} ${h % 12 || 12}:${String(m).padStart(2, "0")}`; };
+        // 직전에 정리된 떠남(조용히)과 묶어서 "집에서 학원으로" 처럼 한 번에
+        const silentFrom = changes.filter((c) => c.silent && !sil.has(c.place.id)).map((c) => c.place.name);
         for (const c of changes) {
-          if (sil.has(c.place.id)) continue;
+          if (c.silent || sil.has(c.place.id)) continue;
+          const et = Math.round(c.t || Date.now());
+          // 순서 지키기: 이 사람의 더 나중 장소 알림이 이미 나갔으면 늦게 처리된 옛 알림은 보내지 않음 (원자적으로 비교 후 기록)
+          await DB.prepare("INSERT INTO settings (k, v) VALUES (?1, '0') ON CONFLICT(k) DO NOTHING").bind("plev_" + who).run();
+          const r = await DB.prepare("UPDATE settings SET v = ?2 WHERE k = ?1 AND CAST(v AS INTEGER) <= ?2").bind("plev_" + who, String(et)).run();
+          if (!r.meta || !r.meta.changes) continue;
+          const late = Date.now() - et > 3 * 60000 ? ` · ${hm(et)}` : "";
+          const from = c.inside && silentFrom.length ? `${silentFrom[0]}에서 출발해 ` : "";
           await sendPush(env, st, setSettings, other, {
             title: c.inside ? `${name}님 도착` : `${name}님 출발`,
-            body: c.inside ? `${c.place.name}에 도착했어요` : `${c.place.name}에서 떠났어요`,
-            url: "/#map", tag: "place-" + c.place.id,
+            body: c.inside ? `${from}${c.place.name}에 도착했어요${late}` : `${c.place.name}에서 떠났어요${late}`,
+            url: "/#map", tag: "place-" + who,
           });
         }
       } catch {}
@@ -332,7 +342,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
         try {
           const t0 = b.tst ? b.tst * 1000 : Date.now();
           if (Date.now() - t0 < 15 * 60000) {
-            const ch = await forcePlace(DB, who, String(b.desc), b.event === "enter");
+            const ch = await forcePlace(DB, who, String(b.desc), b.event === "enter", t0);
             if (ch.length) await later(placeNotify(who, b.lat, b.lon, b.acc, t0, true, ch).catch(() => {}));
           }
           if (Number.isFinite(Number(b.lat)) && Number.isFinite(Number(b.lon))) await saveLoc(DB, who, { lat: b.lat, lon: b.lon, acc: b.acc, t: t0, src: "app" }).catch(() => {});

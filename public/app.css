@@ -2483,3 +2483,8 @@ body.typing #chatWrap { will-change: height, transform; }
 .pl-mk.quiet { opacity: .8; font-size: 11px; padding: 3px 8px 3px 5px; }
 
 .pl-g { font-size: 13px; font-weight: 700; color: var(--sub); margin: 14px 2px 6px; }
+
+button.own-tag { all: unset; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 750; padding: 2px 7px 2px 8px; border-radius: 999px; margin-left: 4px; vertical-align: 1px; cursor: pointer; transition: transform .18s var(--spring-soft, ease); }
+button.own-tag.a { background: var(--a-soft); color: var(--a); } button.own-tag.b { background: var(--b-soft); color: var(--b); } button.own-tag.both { background: #F1F0F4; color: #5E5B66; }
+button.own-tag .i { width: 11px; height: 11px; opacity: .7; }
+button.own-tag:active { transform: scale(.9); }

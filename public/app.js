@@ -1428,7 +1428,7 @@
         const list = (S.places || []).filter((p) => (p.owner === "a" || p.owner === "b" ? p.owner : "both") === g);
         return list.length ? `<h3 class="pl-g">${gl}</h3>` + list.map((p) => {
         const ins = insideOf(p.id);
-        return `<div class="ev"><span class="bar" style="background:${p.owner === "a" ? "#E5406A" : p.owner === "b" ? "#5C6BF0" : "#B65FE0"}"></span><span class="tt">${esc(p.name)} <span class="own-tag ${p.owner || "both"}">${esc(ownerLabel(p.owner))}</span><br><small class="muted">${p.silent ? `${p.addr ? esc(p.addr) + " · " : ""}이동 기록 이름표` : `반경 ${p.radius}m`}${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
+        return `<div class="ev"><span class="bar" style="background:${p.owner === "a" ? "#E5406A" : p.owner === "b" ? "#5C6BF0" : "#B65FE0"}"></span><span class="tt">${esc(p.name)} <button class="own-tag ${p.owner || "both"}" data-act="placeOwn" data-id="${p.id}" aria-label="누구 장소인지 바꾸기">${esc(ownerLabel(p.owner))}${ic("swap")}</button><br><small class="muted">${p.silent ? `${p.addr ? esc(p.addr) + " · " : ""}이동 기록 이름표` : `반경 ${p.radius}m`}${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
         <button class="x" data-act="placeEdit" data-id="${p.id}" aria-label="수정">${ic("pen")}</button>
         <button class="x" data-act="placeGo" data-id="${p.id}" aria-label="보기">${ic("target")}</button>
         <button class="x" data-act="placeDel" data-id="${p.id}" aria-label="삭제">${ic("trash")}</button></div>`;
@@ -5609,6 +5609,17 @@
     pushOn: () => enablePush(),
     placesSheet: () => placesSheet(),
     placePick: () => placePick(),
+    // 이름표를 누를 때마다 우진 → 주현 → 둘 다 순서로 바뀌고 바로 저장
+    async placeOwn(el) {
+      const p = (S.places || []).find((x) => String(x.id) === el.dataset.id); if (!p) return;
+      const cur = p.owner === "a" || p.owner === "b" ? p.owner : "both";
+      const next = cur === S.who ? other() : cur === other() ? "both" : S.who;
+      p.owner = next; try { haptic(10); } catch {}
+      placesSheet();
+      try { await api(`places/${p.id}`, { method: "POST", body: { name: p.name, lat: p.lat, lon: p.lon, radius: p.radius, owner: next } }); toast(`${p.name} · ${next === "both" ? "둘 다" : nm(next)} 장소로 바꿨어요`); }
+      catch (e) { p.owner = cur; placesSheet(); toast(e.message); }
+      loadPlaces();
+    },
     placeEdit(el) { const p = (S.places || []).find((x) => String(x.id) === el.dataset.id); if (p) placeEditSheet(p); },
     plEdSet(el) {
       const k = el.dataset.k, v = k === "radius" || k === "silent" ? Number(el.dataset.v) : el.dataset.v;

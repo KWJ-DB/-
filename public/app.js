@@ -2502,7 +2502,7 @@
         map.getSource("trail").setData({ type: "FeatureCollection", features: feats });
       };
       draw();
-      // 실제 길 따라 그리기 (빠르기에 따라 걷기·자전거·차)
+      // 실제 길 따라 그리기 (빠르기에 따라 걷기 또는 차·버스, 자전거는 안 탐)
       (async () => {
         for (const sg of segs) {
           const P = sg.pts; if (P.length < 2) continue;
@@ -2510,7 +2510,7 @@
           let len = 0; for (let k = 1; k < P.length; k++) len += distM(P[k - 1], P[k]);
           if (len < 60) continue;
           const kmh = len / 1000 / Math.max(1 / 60, (t1 - t0) / 3600000);
-          const mode = kmh > 22 ? "auto" : kmh > 9 ? "bicycle" : "pedestrian";
+          const mode = kmh > 9 ? "auto" : "pedestrian";
           sg.mode = mode; sg.len = len; sg.dur = t1 - t0;
           let pts = P.map((p) => [+p.lon.toFixed(6), +p.lat.toFixed(6), p.stay ? p.t1 : p.t]);
           if (pts.length > 300) { const st = pts.length / 300; pts = Array.from({ length: 300 }, (_, i) => pts[Math.floor(i * st)]).concat([pts[pts.length - 1]]); }
@@ -2542,7 +2542,7 @@
         const now = t.day === 0 && lastT - st.t1 < 10 * 60000;
         tl.push({ t: st.t0, k: k + 1, reg: infos[k].reg, addr: infos[k].addr, name: infos[k].name || (infos[k].geo ? "주소 찾는 중" : "이름 없는 곳"), time: now ? `${hm(st.t0)}부터` : `${hm(st.t0)} – ${hm(st.t1)}`, dur: durTxt(st.t1 - st.t0), now, ev: "stay", lat: st.lat, lon: st.lon });
       });
-      const MODE = { pedestrian: ["i-walk", "걸어서"], bicycle: ["i-bike", "자전거로"], auto: ["i-car", "차로"] };
+      const MODE = { pedestrian: ["i-walk", "걸어서"], auto: ["i-car", "차·버스로"] };
       let moved = 0;
       (t.segs || []).forEach((sg) => {
         if (!sg.len) return;
@@ -2583,7 +2583,7 @@
     // 데이터를 꺼서 위치가 멈춰 있으면, 마지막 위치 이후 흐른 시간만큼 계속 움직였다고 보고 예상 (자주 데이터를 꺼도 시간이 흘러감)
     const stale = l ? Math.max(0, (S.locNow - l.t) / 1000) : 0;
     const dd = stale > 180 ? Math.max(v.d * 0.1, v.d - sp * stale) : v.d;
-    return { min: Math.max(1, Math.round(dd / sp / 60)), p: Math.max(0.03, Math.min(0.97, 1 - dd / v.d0)), mode: sp > 6 ? "차·버스로" : sp > 2.6 ? "자전거로" : "걸어서", stale: stale > 180 ? Math.round(stale / 60) : 0 };
+    return { min: Math.max(1, Math.round(dd / sp / 60)), p: Math.max(0.03, Math.min(0.97, 1 - dd / v.d0)), mode: sp > 2.8 ? "차·버스로" : "걸어서", stale: stale > 180 ? Math.round(stale / 60) : 0 };
   }
   function renderOmw(om) {
     const bar = $("#omwBar"); if (!bar) return;

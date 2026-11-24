@@ -1247,6 +1247,21 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // ----- 장소 (도착/출발 알림) -----
       case "GET places": {
+        // 한 번만: "둘 다"로 등록돼 있던 장소를 실제로 머문 기록으로 누구 장소인지 나눔
+        // (한 사람이 그 근처에 확실히 많이 있었고 다른 사람은 거의 없으면 그 사람 장소로, 둘 다 자주 가면 그대로 "둘 다")
+        if (st.own_fix !== "1") {
+          try {
+            const { results: ps0 } = await DB.prepare("SELECT id, lat, lon, radius, silent FROM places WHERE owner IS NULL OR owner = 'both'").all();
+            for (const pl of ps0 || []) {
+              const r = (pl.silent ? 60 : Math.max(60, pl.radius || 0)) / 111000, rl = r / Math.cos(pl.lat * Math.PI / 180);
+              const { results: cn } = await DB.prepare("SELECT who, COUNT(*) AS n FROM loc_hist WHERE lat BETWEEN ?1 AND ?2 AND lon BETWEEN ?3 AND ?4 GROUP BY who").bind(pl.lat - r, pl.lat + r, pl.lon - rl, pl.lon + rl).all();
+              const c = { a: 0, b: 0 }; for (const x of cn || []) c[x.who] = x.n;
+              const top = c.a >= c.b ? "a" : "b", low = top === "a" ? c.b : c.a;
+              if (c[top] >= 5 && low < c[top] * 0.15) await DB.prepare("UPDATE places SET owner = ?1 WHERE id = ?2").bind(top, pl.id).run();
+            }
+            await setSettings(env, { own_fix: "1" });
+          } catch {}
+        }
         const { results } = await DB.prepare("SELECT id, name, lat, lon, radius, owner, silent, addr FROM places ORDER BY id").all();
         const { results: stt } = await DB.prepare("SELECT who, place_id, inside FROM place_state").all();
         let ev = null;

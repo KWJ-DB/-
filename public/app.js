@@ -1418,17 +1418,21 @@
   }
   const ownerLabel = (o) => (o === "a" || o === "b" ? nm(o) : "둘 다");
   function placesSheet() {
+    if (!S.placesLoaded) { S.placesLoaded = true; loadPlaces().then(() => { if (!$("#sheet").hidden && $("#sheetBox h2") && /우리 장소/.test($("#sheetBox h2").textContent)) placesSheet(); }); }
     const sx = sheetCtx(() => placesSheet());
     const insideOf = (pid) => (S.placeState || []).filter((x) => x.place_id === pid && x.inside).map((x) => x.who);
     sheetOpen(sx, `
       <h2>${ic("pin")}우리 장소</h2>
       <p>등록한 장소에 도착하거나 떠나면 상대에게 알림이 가요. 화면이 꺼져 있을 때도 받으려면 OwnTracks 연결과 알림 켜기가 필요해요.</p>
-      ${(S.places || []).map((p) => {
+      ${[[S.who, "내 장소"], [other(), `${esc(nm(other()))} 장소`], ["both", "둘 다"]].map(([g, gl]) => {
+        const list = (S.places || []).filter((p) => (p.owner === "a" || p.owner === "b" ? p.owner : "both") === g);
+        return list.length ? `<h3 class="pl-g">${gl}</h3>` + list.map((p) => {
         const ins = insideOf(p.id);
-        return `<div class="ev"><span class="bar" style="background:#B65FE0"></span><span class="tt">${esc(p.name)} <span class="own-tag ${p.owner || "both"}">${esc(ownerLabel(p.owner))}</span><br><small class="muted">${p.silent ? `${p.addr ? esc(p.addr) + " · " : ""}이동 기록 이름표` : `반경 ${p.radius}m`}${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
+        return `<div class="ev"><span class="bar" style="background:${p.owner === "a" ? "#E5406A" : p.owner === "b" ? "#5C6BF0" : "#B65FE0"}"></span><span class="tt">${esc(p.name)} <span class="own-tag ${p.owner || "both"}">${esc(ownerLabel(p.owner))}</span><br><small class="muted">${p.silent ? `${p.addr ? esc(p.addr) + " · " : ""}이동 기록 이름표` : `반경 ${p.radius}m`}${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
         <button class="x" data-act="placeEdit" data-id="${p.id}" aria-label="수정">${ic("pen")}</button>
         <button class="x" data-act="placeGo" data-id="${p.id}" aria-label="보기">${ic("target")}</button>
         <button class="x" data-act="placeDel" data-id="${p.id}" aria-label="삭제">${ic("trash")}</button></div>`;
+      }).join("") : "";
       }).join("") || `<div class="empty">아직 등록한 장소가 없어요<br>예: 학교, 학원, 우리 집</div>`}
       <div class="row2"><button class="btn gray" data-act="close">닫기</button><button class="btn primary" data-act="placePick">${ic("plus")}장소 추가</button></div>`);
   }

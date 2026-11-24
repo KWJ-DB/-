@@ -2481,3 +2481,5 @@ body.typing #chatWrap { will-change: height, transform; }
 .sn-addr { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; margin: 4px 2px 8px; }
 .sn-addr .i { width: 16px; height: 16px; color: var(--sub); flex: none; }
 .pl-mk.quiet { opacity: .8; font-size: 11px; padding: 3px 8px 3px 5px; }
+
+.pl-g { font-size: 13px; font-weight: 700; color: var(--sub); margin: 14px 2px 6px; }

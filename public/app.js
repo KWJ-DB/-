@@ -1860,7 +1860,8 @@
   const igHandle = () => { try { return localStorage.getItem("wooju_ighandle") || ""; } catch { return ""; } };
   const igShareMode = () => { try { return localStorage.getItem("wooju_igshare") === "1"; } catch { return false; } };
   const igAuto = () => (S.ig && S.ig.who === S.who) || (!S.ig && S.make && S.make.who === S.who);
-  const igMine = () => igAuto() || (!S.ig && !S.make && igShareMode());
+  // 인스타 연동은 설정에서 뺐음: 사진 올릴 때 더는 묻지 않음
+  const igMine = () => false;
   function igSheet() {
     if (!S.ig && S.make) {
       openSheet(`
@@ -4329,16 +4330,10 @@
         ${row("infoSheet", "heart", "이름 · 사귄 날", `${esc(nm("a"))}, ${esc(nm("b"))} · ${fmtDot(S.start)}`)}
         ${row(ps === "granted" ? "pushTest" : "pushOn", "bell", "알림", ps === "granted" ? "켜짐 · 눌러서 테스트" : ps === "needs-home" ? "홈 화면에 추가해야 켤 수 있어요" : ps === "denied" ? "아이폰 설정에서 허용해 주세요" : "꺼짐 · 눌러서 켜기")}
         ${row("otSheet", "pin", "화면 꺼도 위치 공유", "OwnTracks 연결")}
-        ${row("nfcSheet", "phone", "폰 맞대기 (NFC)", "스티커로 맞대면 터지게")}
         ${row("placesSheet", "home", "우리 장소 알림", "학교·집에 도착하거나 떠나면 알림")}
         ${row("noshowToggle", "clock", "늦음 알림", S.noshowOff ? "꺼짐 · 눌러서 켜기" : "켜짐 · 늘 오던 시간에 안 오면 알려줘요")}
         ${row("turnSheet", "video", "우주 통화 연결", S.turn ? "중계 서버 켜짐" : "무료 중계 서버 켜기")}
-        ${row("phoneOpen", "phone2", "내 번호 (FaceTime)", (S.phones || {})[S.who] ? esc(S.phones[S.who]) : "등록하면 상대가 FaceTime으로 걸 수 있어요")}
-        ${row("widgetSheet", "frame", "홈 화면·잠금 화면 위젯", "함께한 날, 거리, 마지막 메시지")}
-        ${row("scSheet", "send", "애플워치·단축어로 디엠", "폰 없이도 워치에서 말로 보내고 확인")}
-        ${row("pcAdd", "list", "컴퓨터로 맛집·갈 곳 등록", "큰 화면에서 검색하고 한꺼번에 추가")}
         ${row("gdSheet", "film", "구글 드라이브", S.gdrive && S.gdrive.email ? `${esc(S.gdrive.email)} · 영상 저장 중` : "영상을 드라이브에 저장 (용량 넉넉하게)")}
-        ${row("igSheet", "camera", "인스타 자동 게시", S.ig ? `@${esc(S.ig.user)} 연결됨` : S.make ? "Make로 연결됨" : igShareMode() ? "인스타 앱으로 넘기기 켜짐" : "사진 올릴 때 인스타에도 같이")}
         ${row("naverSheet", "search", "가게 검색 연결", S.kakao ? "카카오맵 연결됨" : S.naver ? "네이버 연결됨" : "카카오맵·네이버로 정확하게 찾기")}
         ${row("pwSheet", "lock", "비밀번호 바꾸기", "")}
       </div>

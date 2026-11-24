@@ -2476,3 +2476,8 @@ body.typing #chatWrap { will-change: height, transform; }
 .tr-tl.anim > :nth-child(2) { animation-delay: .04s; } .tr-tl.anim > :nth-child(3) { animation-delay: .08s; } .tr-tl.anim > :nth-child(4) { animation-delay: .12s; } .tr-tl.anim > :nth-child(5) { animation-delay: .16s; } .tr-tl.anim > :nth-child(n+6) { animation-delay: .2s; }
 @keyframes tlIn { from { transform: translateY(8px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .tr-tl > * { animation: none; } }
+
+.tr-addr { font-size: 12px !important; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sn-addr { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; margin: 4px 2px 8px; }
+.sn-addr .i { width: 16px; height: 16px; color: var(--sub); flex: none; }
+.pl-mk.quiet { opacity: .8; font-size: 11px; padding: 3px 8px 3px 5px; }

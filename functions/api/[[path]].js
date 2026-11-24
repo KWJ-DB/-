@@ -1247,7 +1247,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
 
       // ----- 장소 (도착/출발 알림) -----
       case "GET places": {
-        const { results } = await DB.prepare("SELECT id, name, lat, lon, radius, owner, silent FROM places ORDER BY id").all();
+        const { results } = await DB.prepare("SELECT id, name, lat, lon, radius, owner, silent, addr FROM places ORDER BY id").all();
         const { results: stt } = await DB.prepare("SELECT who, place_id, inside FROM place_state").all();
         let ev = null;
         try { ev = st.last_place_ev ? JSON.parse(st.last_place_ev) : null; } catch {}
@@ -1266,7 +1266,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
           await DB.prepare("UPDATE places SET name = ?1, lat = ?2, lon = ?3, radius = ?4, owner = ?5, silent = COALESCE(?7, silent) WHERE id = ?6").bind(name, lat, lon, radius, owner, id, silent).run();
           return json(OK);
         }
-        await DB.prepare("INSERT INTO places (name, lat, lon, radius, who, t, owner, silent) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)").bind(name, lat, lon, radius, who, Date.now(), owner, silent || 0).run();
+        await DB.prepare("INSERT INTO places (name, lat, lon, radius, who, t, owner, silent, addr) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)").bind(name, lat, lon, radius, who, Date.now(), owner, silent || 0, str(b.addr, 120) || null).run();
         return json(OK);
       }
       case "DELETE places":

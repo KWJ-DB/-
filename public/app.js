@@ -1404,12 +1404,13 @@
     if (!map || !mapLoaded) return;
     map.getSource("places").setData({
       type: "FeatureCollection",
-      features: (S.places || []).map((p) => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [circlePoly(p.lat, p.lon, p.radius)] } })),
+      // 이동 기록에서 이름만 붙인 곳은 범위 원을 그리지 않음
+      features: (S.places || []).filter((p) => !p.silent).map((p) => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [circlePoly(p.lat, p.lon, p.radius)] } })),
     });
     placeMarkers.splice(0).forEach((m) => m.remove());
     for (const p of S.places || []) {
       const el = document.createElement("div");
-      el.className = "pl-mk";
+      el.className = "pl-mk" + (p.silent ? " quiet" : "");
       el.innerHTML = `${ic("pin")}${p.owner === "a" || p.owner === "b" ? esc(nm(p.owner)) + " · " : ""}${esc(p.name)}`;
       if (p.owner === "a" || p.owner === "b") el.classList.add("own-" + p.owner);
       placeMarkers.push(newMarker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map));
@@ -1424,7 +1425,7 @@
       <p>등록한 장소에 도착하거나 떠나면 상대에게 알림이 가요. 화면이 꺼져 있을 때도 받으려면 OwnTracks 연결과 알림 켜기가 필요해요.</p>
       ${(S.places || []).map((p) => {
         const ins = insideOf(p.id);
-        return `<div class="ev"><span class="bar" style="background:#B65FE0"></span><span class="tt">${esc(p.name)} <span class="own-tag ${p.owner || "both"}">${esc(ownerLabel(p.owner))}</span><br><small class="muted">반경 ${p.radius}m${p.silent ? " · 알림 끔" : ""}${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
+        return `<div class="ev"><span class="bar" style="background:#B65FE0"></span><span class="tt">${esc(p.name)} <span class="own-tag ${p.owner || "both"}">${esc(ownerLabel(p.owner))}</span><br><small class="muted">${p.silent ? `${p.addr ? esc(p.addr) + " · " : ""}이동 기록 이름표` : `반경 ${p.radius}m`}${ins.length ? " · 지금 " + ins.map((w) => esc(nm(w))).join(", ") + " 여기 있음" : ""}</small></span>
         <button class="x" data-act="placeEdit" data-id="${p.id}" aria-label="수정">${ic("pen")}</button>
         <button class="x" data-act="placeGo" data-id="${p.id}" aria-label="보기">${ic("target")}</button>
         <button class="x" data-act="placeDel" data-id="${p.id}" aria-label="삭제">${ic("trash")}</button></div>`;
@@ -1441,10 +1442,11 @@
       <input type="text" id="plName" value="${esc(p.name)}" maxlength="20" style="width:100%;box-sizing:border-box">
       <label class="fl">누구 장소</label>
       <div class="pick-r pick-own" style="margin-top:0">${btn("owner", S.who, esc(nm(S.who)))}${btn("owner", other(), esc(nm(other())))}${btn("owner", "both", "둘 다")}</div>
+      ${p.silent ? `${p.addr ? `<label class="fl">주소</label><p class="sn-addr" style="margin:0">${ic("pin")}${esc(p.addr)}</p>` : ""}
       <label class="fl">도착·출발 알림</label>
-      <div class="pick-r" style="margin-top:0">${btn("silent", 0, "받기")}${btn("silent", 1, "안 받기")}</div>
+      <div class="pick-r" style="margin-top:0">${btn("silent", 1, "안 받기")}${btn("silent", 0, "받기 (범위 100m)")}</div>` : `
       <label class="fl">알림 반경</label>
-      <div class="pick-r pl-r" style="margin-top:0">${[50, 100, 200, 500].map((r) => btn("radius", r, r + "m")).join("")}</div>
+      <div class="pick-r pl-r" style="margin-top:0">${[50, 100, 200, 500].map((r) => btn("radius", r, r + "m")).join("")}</div>`}
       <label class="fl">위치 <span class="fl-sub">지도를 움직여 핀을 맞춰요</span></label>
       <div class="mini-wrap"><div id="miniPl" class="mini"></div><span class="mini-pin" style="--c:#B65FE0">${ic("pin")}</span></div>
       <div class="row2" style="margin-top:16px"><button class="btn gray" data-act="placesSheet">취소</button><button class="btn primary" data-act="plEdSave">저장</button></div>`);
@@ -2435,15 +2437,16 @@
   // 학원처럼 오래 있는 곳이 근처 가게 이름으로 잘못 붙지 않게, 가게는 25m 안 + 2시간 반 이하일 때만
   const geoKey = (st) => `${st.lat.toFixed(4)},${st.lon.toFixed(4)}`;
   function stayInfo(st) {
-    if (st.pl) return { name: st.pl, reg: true };
+    if (st.pl) { const pp = (S.places || []).find((x) => x.name === st.pl); return { name: st.pl, reg: true, addr: pp && pp.silent ? pp.addr || "" : "" }; }
     let best = null, bd = Infinity;
-    for (const pl of S.places || []) { const d = distM(st, pl); if (d < Math.max(80, pl.radius || 0) && d < bd) { bd = d; best = pl.name; } }
-    if (best) return { name: best, reg: true };
+    let addr = "";
+    for (const pl of S.places || []) { const d = distM(st, pl); const lim = pl.silent ? 50 : Math.max(80, pl.radius || 0); if (d < lim && d < bd) { bd = d; best = pl.name; addr = pl.silent ? pl.addr || "" : ""; } }
+    if (best) return { name: best, reg: true, addr };
     const dur = (st.t1 || 0) - (st.t0 || 0);
     if (dur <= 150 * 60000) for (const e of E.list || []) { const d = distM(st, e); if (d < 25 && d < bd) { bd = d; best = e.name; } }
     if (best) return { name: best, reg: false };
     const g = (S.geo || {})[geoKey(st)];
-    return { name: g ? g.name : "", reg: false, geo: !g };
+    return { name: g ? g.name : "", reg: false, geo: !g, addr: g && g.name !== g.addr ? g.addr : "" };
   }
   function stayName(st) { return stayInfo(st).name || null; }
   async function stayGeo(list) {
@@ -2453,8 +2456,8 @@
       const k = geoKey(st); if (S.geo[k]) continue;
       try {
         const r = await api(`revgeo?lat=${st.lat}&lon=${st.lon}`);
-        const short = (r.addr || "").split(" ").slice(-2).join(" ");
-        S.geo[k] = { name: r.building || (short ? `${short} 근처` : ""), addr: r.addr || "" }; got = true;
+        const full = (r.addr || "").split(" ").slice(1).join(" ");   // "대구 수성구 범어로 123" → "수성구 범어로 123"
+        S.geo[k] = { name: r.building || full, addr: full }; got = true;
       } catch { S.geo[k] = { name: "" }; }
     }
     if (got && S.trail && S.trail.data) renderTrailCard();
@@ -2537,7 +2540,7 @@
       const lastT = r.points.length ? r.points[r.points.length - 1].t : 0;
       cl.stays.forEach((st, k) => {
         const now = t.day === 0 && lastT - st.t1 < 10 * 60000;
-        tl.push({ t: st.t0, k: k + 1, reg: infos[k].reg, name: infos[k].name || (infos[k].geo ? "주소 찾는 중" : "이름 없는 곳"), time: now ? `${hm(st.t0)}부터` : `${hm(st.t0)} – ${hm(st.t1)}`, dur: durTxt(st.t1 - st.t0), now, ev: "stay", lat: st.lat, lon: st.lon });
+        tl.push({ t: st.t0, k: k + 1, reg: infos[k].reg, addr: infos[k].addr, name: infos[k].name || (infos[k].geo ? "주소 찾는 중" : "이름 없는 곳"), time: now ? `${hm(st.t0)}부터` : `${hm(st.t0)} – ${hm(st.t1)}`, dur: durTxt(st.t1 - st.t0), now, ev: "stay", lat: st.lat, lon: st.lon });
       });
       const MODE = { pedestrian: ["i-walk", "걸어서"], bicycle: ["i-bike", "자전거로"], auto: ["i-car", "차로"] };
       let moved = 0;
@@ -2549,7 +2552,7 @@
       });
       tl.sort((x, y) => x.t - y.t);
       const row = (x) => x.ev === "stay"
-        ? `<div class="tr-st${x.now ? " now" : ""}" role="button" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><em style="--c:${t.w === "a" ? "#E5406A" : "#5C6BF0"}">${x.k}</em><span><b>${esc(x.name)}</b><small>${x.time}</small></span>${x.reg ? "" : `<button class="tr-name" data-act="stayNameOpen" data-lat="${x.lat}" data-lon="${x.lon}" data-n="${esc(x.name === "주소 찾는 중" ? "" : x.name.replace(/ 근처$/, ""))}" aria-label="이름 붙이기">${ic("pen")}</button>`}<i>${x.now ? "있는 중" : x.dur}</i></div>`
+        ? `<div class="tr-st${x.now ? " now" : ""}" role="button" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><em style="--c:${t.w === "a" ? "#E5406A" : "#5C6BF0"}">${x.k}</em><span><b>${esc(x.name)}</b>${x.addr ? `<small class="tr-addr">${esc(x.addr)}</small>` : ""}<small>${x.time}</small></span>${x.reg ? "" : `<button class="tr-name" data-act="stayNameOpen" data-lat="${x.lat}" data-lon="${x.lon}" data-n="${esc(x.name === "주소 찾는 중" || x.name === x.addr || /[0-9]/.test(x.name) ? "" : x.name)}" data-addr="${esc(x.addr || (/[0-9]/.test(x.name) ? x.name : ""))}" aria-label="이름 붙이기">${ic("pen")}</button>`}<i>${x.now ? "있는 중" : x.dur}</i></div>`
         : `<button class="tr-mv" data-act="trailFly" data-lat="${x.lat}" data-lon="${x.lon}"><svg><use href="#${x.ic}"/></svg><span>${x.txt}</span><small>${x.dist}</small></button>`;
       body = r.points.length
         ? `<div class="tr-sum"><b>${fmtDist(moved || t.dist)}</b><span>이동 · 머문 곳 ${cl.stays.length}곳</span></div>
@@ -5524,16 +5527,17 @@
     stayNameOpen(el, ev) {
       if (ev) ev.stopPropagation();
       openSheet(`<h2>${ic("pin")}이 장소 이름 붙이기</h2>
-        <p class="omw-help">이동 기록에 이 이름으로 나와요. 도착·출발 알림은 안 가요 (설정 > 우리 장소에서 켤 수 있어요)</p>
+        ${el.dataset.addr ? `<p class="sn-addr">${ic("pin")}${esc(el.dataset.addr)}</p>` : ""}
+        <p class="omw-help">이동 기록에 이 이름으로 나와요. 범위 없이 이 자리만 표시하고, 도착·출발 알림은 안 가요</p>
         <input id="snName" maxlength="20" placeholder="예: 학원" value="${esc(el.dataset.n || "")}">
         <div class="sn-quick">${["학원", "학교", "집", "독서실", "카페"].map((n) => `<button class="chip-sel" data-act="snQuick" data-n="${n}">${n}</button>`).join("")}</div>
-        <button class="btn primary" style="width:100%;margin-top:14px" data-act="snSave" data-lat="${el.dataset.lat}" data-lon="${el.dataset.lon}">저장</button>`);
+        <button class="btn primary" style="width:100%;margin-top:14px" data-act="snSave" data-lat="${el.dataset.lat}" data-lon="${el.dataset.lon}" data-addr="${esc(el.dataset.addr || "")}">저장</button>`);
       setTimeout(() => { const i = $("#snName"); if (i && !i.value) i.focus(); }, 300);
     },
     snQuick(el) { const i = $("#snName"); if (i) i.value = el.dataset.n; },
     async snSave(el) {
       const name = ($("#snName").value || "").trim(); if (!name) return toast("이름을 적어주세요");
-      await api("places", { method: "POST", body: { name, lat: +el.dataset.lat, lon: +el.dataset.lon, radius: 80, owner: "both", silent: 1 } });
+      await api("places", { method: "POST", body: { name, lat: +el.dataset.lat, lon: +el.dataset.lon, radius: 50, owner: "both", silent: 1, addr: el.dataset.addr || "" } });
       closeSheet(); toast(`${jo(name, "으로", "로")} 저장했어요`);
       try { await loadPlaces(); } catch {}
       if (S.trail) { S.trail.data = null; renderTrailCard(); loadTrail(); }
@@ -5612,7 +5616,7 @@
     async plEdSave() {
       const o = S.plEd, name = $("#plName").value.trim();
       if (!name) return toast("장소 이름을 적어주세요");
-      try { await api(`places/${o.id}`, { method: "POST", body: { name, lat: o.lat, lon: o.lon, radius: o.radius, owner: o.owner, silent: o.silent } }); } catch (e) { return toast(e.message); }
+      try { await api(`places/${o.id}`, { method: "POST", body: { name, lat: o.lat, lon: o.lon, radius: o.silent === 0 && o.radius < 100 ? 100 : o.radius, owner: o.owner, silent: o.silent } }); } catch (e) { return toast(e.message); }
       toast("장소를 수정했어요");
       await loadPlaces(); placesSheet();
     },

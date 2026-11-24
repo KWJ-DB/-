@@ -136,6 +136,10 @@ export async function ensureSchema(env) {
   if (!v || Number(v.v) < 16) {
     try { await env.DB.prepare("ALTER TABLE places ADD COLUMN silent INTEGER DEFAULT 0").run(); } catch {}
   }
+  // v17: 이동 기록에서 붙인 장소의 상세 주소
+  if (!v || Number(v.v) < 17) {
+    try { await env.DB.prepare("ALTER TABLE places ADD COLUMN addr TEXT").run(); } catch {}
+  }
   // v15: 가본 곳(스크래치 지도) 칸 + 누가 더 잘 알까 게임
   if (!v || Number(v.v) < 15) {
     await env.DB.batch([
@@ -145,7 +149,7 @@ export async function ensureSchema(env) {
       env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '15') ON CONFLICT(k) DO UPDATE SET v = '15'"),
     ]);
   }
-  if (!v || Number(v.v) < 16) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '16') ON CONFLICT(k) DO UPDATE SET v = '16'").run();
+  if (!v || Number(v.v) < 17) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('schema_v', '17') ON CONFLICT(k) DO UPDATE SET v = '17'").run();
   ready = true;
 }
 
